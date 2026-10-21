@@ -65,10 +65,9 @@ function getStoredAdmin() {
   }
 }
 
-// Default landing route for each role.
+// Default landing route for the supported administrator role.
 function homeFor(role?: string) {
-  if (role === "delivery_person") return "/my-deliveries";
-  // master_admin, super_hub, sub_hub all share the same unified shell
+  if (role !== "master_admin") return "/";
   return "/dashboard";
 }
 
@@ -86,7 +85,7 @@ function ProtectedRoute({
   const role: string | undefined = admin?.role;
 
   useEffect(() => {
-    if (!token) {
+    if (!token || role !== "master_admin") {
       setLocation("/");
       return;
     }
@@ -95,7 +94,7 @@ function ProtectedRoute({
     }
   }, [token, role, allowedRoles, setLocation]);
 
-  if (!token) return null;
+  if (!token || role !== "master_admin") return null;
   if (allowedRoles && (!role || !allowedRoles.includes(role))) return null;
 
   return (
@@ -137,7 +136,7 @@ const SUB_HUB_ONLY = ["sub_hub"];
 
 function App() {
   useEffect(() => {
-    // Public QR links carry a token only long enough to open FishTokri.
+    // Public QR links carry a token only long enough to open the admin app.
     // Remove it from the address bar immediately after navigation.
     const params = new URLSearchParams(window.location.search);
     if (params.has("order_qr")) {

@@ -1977,7 +1977,7 @@ export default function Orders() {
         })),
         // Payment — takeaway orders default to fully collected at pickup, so we force
         // "paid" and cover the whole total. Any wallet amount already allocated by the
-        // payment-entries effect (based on the "Use FishTokri Wallet" toggle) is honored
+        // payment-entries effect (based on the wallet toggle) is honored
         // first, and only the remainder is charged to the main payment mode — the wallet
         // portion must never be silently dropped in favor of cash/UPI for the full amount.
         // If the cashier explicitly marks the takeaway order as unpaid, nothing is charged
@@ -4392,7 +4392,7 @@ export default function Orders() {
                           {effBal > 0 && (
                             <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50">
                               <Wallet className="w-3 h-3 text-blue-500 flex-shrink-0" />
-                              <span className="text-xs font-semibold text-blue-700">FishTokri Wallet: ₹{effBal.toLocaleString("en-IN")}</span>
+                              <span className="text-xs font-semibold text-blue-700">Fresh Stock Xchange Wallet: ₹{effBal.toLocaleString("en-IN")}</span>
                             </div>
                           )}
                           {totalDue > 0 && (
@@ -5079,7 +5079,7 @@ export default function Orders() {
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-1">
-                          <span className={`text-sm font-semibold ${useWallet ? "text-[#364F9F]" : "text-gray-700"}`}>Use FishTokri Wallet</span>
+                          <span className={`text-sm font-semibold ${useWallet ? "text-[#364F9F]" : "text-gray-700"}`}>Use Fresh Stock Xchange Wallet</span>
                           <span className={`text-xs font-bold tabular-nums ${useWallet ? "text-[#364F9F]" : "text-gray-500"}`}>₹{walletBal.toLocaleString("en-IN")}</span>
                         </div>
                         {useWallet && (

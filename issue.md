@@ -2,7 +2,7 @@
 
 ## Summary
 
-A customer completed a Razorpay payment for an online checkout, but the corresponding FTW order did not appear in the FishTokri Admin Orders section. The database contains a matching record in `orders.pendingcheckouts`, but no corresponding finalized record in `orders.orders`.
+A customer completed a Razorpay payment for an online checkout, but the corresponding FTW order did not appear in the Fresh Stock Xchange Admin Orders section. The database contains a matching record in `orders.pendingcheckouts`, but no corresponding finalized record in `orders.orders`.
 
 The current evidence points to a failure between persisting the pending checkout and finalizing the paid order. The database evidence does not by itself identify whether the frontend success handler, payment verification/webhook, API request, or database insert failed.
 

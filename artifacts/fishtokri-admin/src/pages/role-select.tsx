@@ -1,35 +1,14 @@
 import { useLocation } from "wouter";
-import { ShieldCheck, Warehouse, Store, Truck, ArrowRight } from "lucide-react";
+import { ShieldCheck, ArrowRight } from "lucide-react";
 import { useEffect } from "react";
 
 const roles = [
   {
     key: "master_admin",
     label: "Master Admin",
-    desc: "Full system access across all hubs and operations.",
+    desc: "Full system access across your operations.",
     icon: ShieldCheck,
     route: "/login?role=master_admin",
-  },
-  {
-    key: "super_hub",
-    label: "Super Hub",
-    desc: "Manage sub-hubs, vendors and regional operations.",
-    icon: Warehouse,
-    route: "/login?role=super_hub",
-  },
-  {
-    key: "sub_hub",
-    label: "Sub Hub",
-    desc: "Local hub orders, inventory and deliveries.",
-    icon: Store,
-    route: "/login?role=sub_hub",
-  },
-  {
-    key: "delivery_person",
-    label: "Delivery Partner",
-    desc: "Pickup, route and delivery management.",
-    icon: Truck,
-    route: "/login?role=delivery_person",
   },
 ];
 
@@ -42,8 +21,13 @@ export default function RoleSelect() {
       const admin = (() => {
         try { return JSON.parse(localStorage.getItem("fishtokri_admin") || "{}"); } catch { return {}; }
       })();
-      if (admin?.role === "delivery_person") setLocation("/delivery-dashboard");
-      else setLocation("/dashboard");
+      if (admin?.role === "master_admin") setLocation("/dashboard");
+      else {
+        localStorage.removeItem("fishtokri_token");
+        localStorage.removeItem("fishtokri_admin");
+        sessionStorage.removeItem("fishtokri_token");
+        sessionStorage.removeItem("fishtokri_admin");
+      }
     }
   }, [setLocation]);
 
@@ -58,14 +42,14 @@ export default function RoleSelect() {
         <div className="relative z-10 flex flex-col justify-between p-12 w-full text-white">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center">
-              <img src="/logo.png" alt="FishTokri" className="w-8 h-8 object-contain" />
+              <img src="/brand-mark.svg" alt="" className="w-8 h-8 object-contain" />
             </div>
-            <span className="text-lg font-semibold tracking-tight">FishTokri</span>
+            <span className="text-lg font-semibold tracking-tight">Fresh Stock Xchange</span>
           </div>
 
           <div className="space-y-4 max-w-md">
             <h2 className="text-3xl xl:text-4xl font-semibold leading-tight">
-              Operations console for the FishTokri network.
+              Operations console for Fresh Stock Xchange.
             </h2>
             <p className="text-white/60 text-sm leading-relaxed">
               A single workspace to manage hubs, vendors, inventory,
@@ -74,7 +58,7 @@ export default function RoleSelect() {
           </div>
 
           <div className="text-xs text-white/40">
-            © {new Date().getFullYear()} FishTokri. All rights reserved.
+            © {new Date().getFullYear()} Fresh Stock Xchange. All rights reserved.
           </div>
         </div>
       </div>
@@ -90,9 +74,9 @@ export default function RoleSelect() {
           {/* Mobile brand */}
           <div className="lg:hidden flex items-center gap-3 mb-8">
             <div className="w-10 h-10 rounded-lg bg-[#0D1F3C] flex items-center justify-center">
-              <img src="/logo.png" alt="FishTokri" className="w-7 h-7 object-contain" />
+              <img src="/brand-mark.svg" alt="" className="w-7 h-7 object-contain" />
             </div>
-            <span className="text-lg font-semibold tracking-tight text-[#0D1F3C]">FishTokri</span>
+            <span className="text-lg font-semibold tracking-tight text-[#0D1F3C]">Fresh Stock Xchange</span>
           </div>
 
           <div className="mb-8">
@@ -100,10 +84,10 @@ export default function RoleSelect() {
               Sign in
             </p>
             <h1 className="text-2xl font-semibold text-[#0D1F3C] tracking-tight">
-              Choose your account type
+              Sign in to Fresh Stock Xchange
             </h1>
             <p className="mt-2 text-sm text-gray-700">
-              Select the role that matches your responsibilities to continue.
+              Continue with your administrator account.
             </p>
           </div>
 

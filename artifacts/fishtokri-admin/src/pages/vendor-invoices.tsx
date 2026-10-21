@@ -191,7 +191,7 @@ export default function VendorInvoices() {
     const items = inv.items || [];
     const totalQty = items.reduce((s: number, it: any) => s + Number(it.quantity || 0), 0);
     const lines: string[] = [];
-    lines.push(`*Fishtokri - Invoice ${inv.invoiceNumber || ""}*`);
+    lines.push(`*Fresh Stock Xchange - Invoice ${inv.invoiceNumber || ""}*`);
     lines.push(`Date: ${formatDateDDMMYYYY(inv.purchaseDate)}`);
     lines.push(`Vendor: ${inv.vendorName || "—"}`);
     lines.push(`Status: ${(inv.status || "saved") === "draft" ? "Draft" : "Sent"}`);
@@ -213,7 +213,7 @@ export default function VendorInvoices() {
   };
 
   const shareMail = (inv: Invoice) => {
-    const subject = encodeURIComponent(`Invoice ${inv.invoiceNumber || ""} - Fishtokri`);
+    const subject = encodeURIComponent(`Invoice ${inv.invoiceNumber || ""} - Fresh Stock Xchange`);
     const body = encodeURIComponent(buildShareText(inv));
     const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&su=${subject}&body=${body}`;
     window.open(gmailUrl, "_blank", "noopener,noreferrer");
@@ -259,7 +259,7 @@ export default function VendorInvoices() {
 
       let y = 10;
       doc.setFont("helvetica", "bold").setFontSize(13);
-      doc.text("Fishtokri- Atha Foods Private Limited", 74, y, { align: "center" }); y += 5;
+      doc.text("Fresh Stock Xchange - Atha Foods Private Limited", 74, y, { align: "center" }); y += 5;
       doc.setLineDashPattern([0.5, 0.5], 0).line(8, y, 140, y); y += 4;
       doc.setFont("helvetica", "normal").setFontSize(9);
       doc.text("Mobile No: 9220200100", 74, y, { align: "center" }); y += 5;
@@ -687,7 +687,7 @@ function VoucherPreviewDialog({ invoice, onClose }: { invoice: Invoice | null; o
 
         <div className="max-h-[70vh] overflow-y-auto p-5 bg-gray-50">
             <div className="bg-white max-w-md mx-auto p-5 text-[13px] text-gray-800 shadow-sm border border-gray-200 rounded">
-              <h3 className="v-title text-center font-bold text-[15px] mb-1">Fishtokri- Atha Foods Private Limited</h3>
+              <h3 className="v-title text-center font-bold text-[15px] mb-1">Fresh Stock Xchange - Atha Foods Private Limited</h3>
               <div className="v-sep border-t border-dashed border-gray-400 my-2" />
               <div className="text-center text-[12px]">Mobile No: 9220200100</div>
               <div className="v-row flex justify-between mt-2">
@@ -1066,7 +1066,7 @@ function renderVoucherHTML(inv: Invoice): string {
       .total { font-weight: 700; font-size: 16px; display: flex; justify-content: space-between; }
       .footer { text-align:center; font-size: 12px; margin-top: 12px; color: #444; }
     </style></head><body>
-    <h3>Fishtokri- Atha Foods Private Limited</h3>
+    <h3>Fresh Stock Xchange - Atha Foods Private Limited</h3>
     <div class="sep"></div>
     <div class="center">Mobile No: 9220200100</div>
     <div class="row"><span><b>Invoice No:</b> ${escapeHtml(inv.invoiceNumber || "—")}</span><span><b>Date:</b> ${escapeHtml(formatDateDDMMYYYY(inv.purchaseDate))}</span></div>

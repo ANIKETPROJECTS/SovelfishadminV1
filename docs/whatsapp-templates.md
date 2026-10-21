@@ -1,4 +1,4 @@
-# FishTokri — WhatsApp Business Templates
+# Fresh Stock Xchange — WhatsApp Business Templates
 
 Templates to submit to **Meta Business Manager → WhatsApp Manager → Message Templates** for approval.
 
@@ -28,7 +28,7 @@ Order Confirmed ✅
 ```
 Hello {{1}},
 
-Your FishTokri order has been *confirmed and accepted!*
+Your Fresh Stock Xchange order has been *confirmed and accepted!*
 
 *Order ID:* #{{2}}
 
@@ -45,12 +45,12 @@ Delivery:      ₹{{6}}
 
 Your fresh seafood is being prepared. We'll notify you when it's out for delivery!
 
-— Team FishTokri
+— Team Fresh Stock Xchange
 ```
 
 **Footer:**
 ```
-FishTokri – Fresh from the sea to your door
+Fresh Stock Xchange – Fresh from the sea to your door
 ```
 
 **Sample variable values (required by Meta):**
@@ -113,7 +113,7 @@ Order Confirmed ✅
 ```
 Hello {{1}},
 
-Your FishTokri order has been *confirmed and accepted!*
+Your Fresh Stock Xchange order has been *confirmed and accepted!*
 
 *Order ID:* #{{2}}
 
@@ -135,12 +135,12 @@ Delivery:      ₹{{10}}
 
 Your fresh seafood is being prepared. We'll notify you when it's out for delivery!
 
-— Team FishTokri
+— Team Fresh Stock Xchange
 ```
 
 **Footer:**
 ```
-FishTokri – Fresh from the sea to your door
+Fresh Stock Xchange – Fresh from the sea to your door
 ```
 
 **Sample variable values (required by Meta):**
@@ -196,7 +196,7 @@ Out for Delivery 🚚
 ```
 Hello {{1}},
 
-Your FishTokri order *#{{2}}* is now *Out for Delivery!*
+Your Fresh Stock Xchange order *#{{2}}* is now *Out for Delivery!*
 
 *Your Delivery Partner:*
 👤 {{3}}
@@ -204,9 +204,9 @@ Your FishTokri order *#{{2}}* is now *Out for Delivery!*
 
 Feel free to call your delivery partner for live updates.
 
-Thank you for choosing FishTokri! 🐟
+Thank you for choosing Fresh Stock Xchange!
 
-— Team FishTokri
+— Team Fresh Stock Xchange
 ```
 
 **Sample variable values:**
@@ -250,7 +250,7 @@ Order Cancelled
 ```
 Hello {{1}},
 
-We're sorry — your FishTokri order *#{{2}}* has been *cancelled*.
+We're sorry — your Fresh Stock Xchange order *#{{2}}* has been *cancelled*.
 
 *Reason:* {{3}}
 
@@ -260,7 +260,7 @@ We apologise for the inconvenience. Reach out to our support team if you have an
 
 We look forward to serving you again! 🐟
 
-— Team FishTokri
+— Team Fresh Stock Xchange
 ```
 
 **Sample variable values:**

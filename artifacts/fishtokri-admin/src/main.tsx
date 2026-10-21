@@ -5,7 +5,7 @@ import { setAuthTokenGetter } from "@workspace/api-client-react";
 
 // QR links contain a temporary signed parameter so the delivery-panel
 // scanner can identify the order. Remove it before the app renders so a
-// normal phone-camera visit leaves only the clean FishTokri URL visible.
+// normal phone-camera visit leaves only the clean application URL visible.
 (function cleanPublicQrUrl() {
   try {
     const url = new URL(window.location.href);

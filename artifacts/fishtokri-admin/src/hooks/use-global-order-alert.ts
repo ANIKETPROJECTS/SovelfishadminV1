@@ -110,8 +110,8 @@ export function useGlobalOrderAlert() {
           new Notification("🔔 New Order!", {
             body:
               newIds.length === 1
-                ? "1 new order arrived on FishTokri"
-                : `${newIds.length} new orders arrived on FishTokri`,
+                ? "1 new order arrived on Fresh Stock Xchange"
+                : `${newIds.length} new orders arrived on Fresh Stock Xchange`,
             icon: "/favicon.ico",
             tag: "fishtokri-new-order",
             renotify: true,

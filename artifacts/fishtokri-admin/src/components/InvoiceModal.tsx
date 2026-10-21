@@ -194,7 +194,7 @@ export function InvoiceModal({ order, onClose }: { order: any; onClose: () => vo
       ? `<div style="margin:4px 0;font-size:17px;"><b>Notes : ${order.notes}</b></div>`
       : "";
 
-    const headerHtml = `<div style="text-align:center;margin-bottom:4px;"><h2 style="font-size:22px;font-weight:800;margin:0 0 4px;">FISHTOKRI (ATHA FOODS Pvt Ltd)</h2><div style="font-size:14px;margin-top:4px;text-align:left;"><div><b>ADD :</b> Thane</div><div><b>Mob No :</b> 9220200100</div><div><b>GST No :</b> 27AAOCA7628P1ZT</div><div><b>FSSAI No :</b> 21521066000481</div></div></div>`;
+    const headerHtml = `<div style="text-align:center;margin-bottom:4px;"><h2 style="font-size:22px;font-weight:800;margin:0 0 4px;">FRESH STOCK XCHANGE (ATHA FOODS Pvt Ltd)</h2><div style="font-size:14px;margin-top:4px;text-align:left;"><div><b>ADD :</b> Thane</div><div><b>Mob No :</b> 9220200100</div><div><b>GST No :</b> 27AAOCA7628P1ZT</div><div><b>FSSAI No :</b> 21521066000481</div></div></div>`;
     const commonInfoHtml =
       `<div style="border-top:2px solid #444;margin:8px 0;"></div>` +
       `<div style="margin:4px 0;font-size:17px;"><b>Invoice :</b> ${invoiceNo}</div>` +
@@ -291,7 +291,7 @@ export function InvoiceModal({ order, onClose }: { order: any; onClose: () => vo
             <div className="bg-white max-w-md mx-auto p-5 text-[16px] text-gray-800 shadow-sm border border-gray-200 rounded">
               <div style={{ textAlign: "center", marginBottom: 4 }}>
                 <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: "0.01em" }}>
-                  FISHTOKRI (ATHA FOODS Pvt Ltd)
+                  FRESH STOCK XCHANGE (ATHA FOODS Pvt Ltd)
                 </div>
                 <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.6, textAlign: "left" }}>
                   <div><b>ADD :</b> Thane</div>
@@ -436,7 +436,7 @@ export function InvoiceModal({ order, onClose }: { order: any; onClose: () => vo
           {activeTab === "kot" && (
             <div className="bg-white max-w-md mx-auto p-5 text-[16px] text-gray-800 shadow-sm border border-gray-200 rounded">
               <div style={{ textAlign: "center", marginBottom: 4 }}>
-                <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: "0.01em" }}>FISHTOKRI (ATHA FOODS Pvt Ltd)</div>
+                <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: "0.01em" }}>FRESH STOCK XCHANGE (ATHA FOODS Pvt Ltd)</div>
                 <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.6, textAlign: "left" }}>
                   <div><b>ADD :</b> Thane</div>
                   <div><b>Mob No :</b> 9220200100</div>

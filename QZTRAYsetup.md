@@ -2,7 +2,7 @@
 
 This guide explains how to add silent invoice or receipt printing through
 [QZ Tray](https://qz.io/) to another web application. It is based on the
-working FishTokri implementation, but the application-specific paths and
+working Fresh Stock Xchange implementation, but the application-specific paths and
 printer names must be adapted.
 
 ## 1. What QZ Tray does
@@ -82,7 +82,7 @@ QZ_PRIVATE_KEY=<matching private key PEM>
 QZ_PRIVATE_KEY_PASSPHRASE=<only if the key is encrypted>
 ```
 
-The current FishTokri backend uses `QZ_CERTIFICATE` and `QZ_PRIVATE_KEY`.
+The current Fresh Stock Xchange backend uses `QZ_CERTIFICATE` and `QZ_PRIVATE_KEY`.
 Use the same names when reusing its backend route, or change the route and
 deployment configuration together.
 
@@ -258,7 +258,7 @@ Important backend details:
 
 ## 8. Frontend integration
 
-The FishTokri implementation uses QZ Tray `2.2.4` from the CDN:
+The Fresh Stock Xchange implementation uses QZ Tray `2.2.4` from the CDN:
 
 ```ts
 const QZ_CDN_URL =
@@ -322,7 +322,7 @@ invoice-specific HTML. Adapt:
 - Invoice/receipt HTML.
 - Authentication headers if the signing route is protected.
 
-The existing FishTokri helper is:
+The existing Fresh Stock Xchange helper is:
 
 ```text
 artifacts/fishtokri-admin/src/lib/qz-print.ts

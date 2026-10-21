@@ -1,4 +1,4 @@
-# FishTokri Admin — Run Guide
+# Fresh Stock Xchange Admin — Run Guide
 
 Follow these steps exactly when importing this project into a fresh Replit environment.
 
@@ -46,7 +46,7 @@ Do not start another copy of either service on the same port. The old **Start Fr
 
 ## 4. Open the App
 
-Once both servers are running, open the preview pane. You should see the **FishTokri Admin** login screen with a seafood market background and four role cards.
+Once both servers are running, open the preview pane. You should see the **Fresh Stock Xchange** sign-in screen with a seafood market background and one **Master Admin** sign-in option.
 
 If the preview pane shows blank on first load, wait a few more seconds and refresh — Vite is still compiling.
 

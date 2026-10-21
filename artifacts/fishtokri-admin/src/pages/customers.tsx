@@ -1724,7 +1724,7 @@ function OrderCardCompact({ order, index }: { order: any; index: number }) {
       <div className="px-5 pt-4 pb-3 flex items-start justify-between gap-3 border-b border-gray-100">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-0.5">Tax Invoice</p>
-          <p className="text-xs font-bold text-[#162B4D]">FishTokri{subHubName ? ` · ${subHubName}` : ""}</p>
+          <p className="text-xs font-bold text-[#162B4D]">Fresh Stock Xchange{subHubName ? ` · ${subHubName}` : ""}</p>
         </div>
         <div className="text-right flex-shrink-0">
           <p className="text-xs font-bold text-[#364F9F]">{ref}</p>
@@ -1798,7 +1798,7 @@ function OrderCard({ order, index }: { order: any; index: number }) {
       <div className="px-5 pt-5 pb-4 flex items-start justify-between gap-4 border-b border-gray-100">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500">Tax Invoice</p>
-          <p className="text-xs text-gray-500 mt-0.5">FishTokri{subHubName ? ` · ${subHubName}` : ""}</p>
+          <p className="text-xs text-gray-500 mt-0.5">Fresh Stock Xchange{subHubName ? ` · ${subHubName}` : ""}</p>
         </div>
         <div className="text-right flex items-start gap-3">
           <div>
@@ -1965,7 +1965,7 @@ function OrderCard({ order, index }: { order: any; index: number }) {
 
       {/* ── Footer ── */}
       <div className="px-5 py-3 text-center">
-        <p className="text-[11px] text-gray-400">Thank you for shopping with FishTokri!</p>
+        <p className="text-[11px] text-gray-400">Thank you for shopping with Fresh Stock Xchange!</p>
       </div>
     </div>
   );

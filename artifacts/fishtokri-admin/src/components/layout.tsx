@@ -332,7 +332,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Brand */}
         <div className="flex justify-center pt-5 pb-1">
           <div className="w-16 h-12 rounded-lg bg-white flex items-center justify-center flex-shrink-0">
-            <img src="/logo.png" alt="FishTokri" className="w-14 h-10 object-contain" />
+            <img src="/brand-mark.svg" alt="Fresh Stock Xchange" className="w-14 h-10 object-contain" />
           </div>
         </div>
 

@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
-import { useLocation, useSearch } from "wouter";
+import { useLocation } from "wouter";
 import { useLogin } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, ShieldCheck, Warehouse, Store, Truck, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Eye, EyeOff } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 
@@ -12,9 +12,6 @@ const REMEMBER_EMAIL_KEY = "fishtokri_remembered_email";
 
 export default function Login() {
   const [, setLocation] = useLocation();
-  const search = useSearch();
-  const params = new URLSearchParams(search);
-  const role = params.get("role");
   const { toast } = useToast();
 
   const loginMutation = useLogin();
@@ -44,17 +41,17 @@ export default function Login() {
       const admin = (() => {
         try { return JSON.parse(localStorage.getItem("fishtokri_admin") || "{}"); } catch { return {}; }
       })();
-      if (admin?.role === "delivery_person") setLocation("/my-deliveries");
-      else setLocation("/dashboard");
+      if (admin?.role === "master_admin") setLocation("/dashboard");
+      else {
+        localStorage.removeItem("fishtokri_token");
+        localStorage.removeItem("fishtokri_admin");
+        sessionStorage.removeItem("fishtokri_token");
+        sessionStorage.removeItem("fishtokri_admin");
+      }
     }
   }, [setLocation]);
 
-  const isMasterAdmin = role === "master_admin" || !role;
-  const isSubHub = role === "sub_hub";
-  const isDelivery = role === "delivery_person";
-
-  const roleLabel = isMasterAdmin ? "Master Admin" : isSubHub ? "Sub Hub" : isDelivery ? "Delivery Partner" : "Super Hub";
-  const RoleIcon = isMasterAdmin ? ShieldCheck : isSubHub ? Store : isDelivery ? Truck : Warehouse;
+  const roleLabel = "Master Admin";
 
   const persistAuth = (token: string, admin: any) => {
     const adminJson = JSON.stringify(admin);
@@ -81,15 +78,11 @@ export default function Login() {
     e.preventDefault();
     setError(null);
     loginMutation.mutate(
-      { data: { email, password, loginRole: (role || "master_admin") as any } },
+      { data: { email, password } },
       {
         onSuccess: (data) => {
           persistAuth(data.token, data.admin);
-          if ((data.admin as any).role === "delivery_person") {
-            setLocation("/my-deliveries");
-          } else {
-            setLocation("/dashboard");
-          }
+          setLocation("/dashboard");
         },
         onError: (err: any) => {
           setError(err?.response?.data?.message || "Invalid credentials. Please check your email and password.");
@@ -140,9 +133,9 @@ export default function Login() {
         <div className="relative z-10 flex flex-col justify-between p-12 w-full text-white">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center">
-              <img src="/logo.png" alt="FishTokri" className="w-8 h-8 object-contain" />
+              <img src="/brand-mark.svg" alt="" className="w-8 h-8 object-contain" />
             </div>
-            <span className="text-lg font-semibold tracking-tight">FishTokri</span>
+            <span className="text-lg font-semibold tracking-tight">Fresh Stock Xchange</span>
           </div>
 
           <div className="space-y-4 max-w-md">
@@ -156,7 +149,7 @@ export default function Login() {
           </div>
 
           <div className="text-xs text-white/40">
-            © {new Date().getFullYear()} FishTokri. All rights reserved.
+            © {new Date().getFullYear()} Fresh Stock Xchange. All rights reserved.
           </div>
         </div>
       </div>
@@ -174,15 +167,15 @@ export default function Login() {
             className="flex items-center gap-1.5 text-gray-700 hover:text-[#0D1F3C] text-xs mb-8 transition-colors font-medium"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            Back to role selection
+            Back to sign in
           </button>
 
           {/* Mobile brand */}
           <div className="lg:hidden flex items-center gap-3 mb-8">
             <div className="w-10 h-10 rounded-lg bg-[#0D1F3C] flex items-center justify-center">
-              <img src="/logo.png" alt="FishTokri" className="w-7 h-7 object-contain" />
+              <img src="/brand-mark.svg" alt="" className="w-7 h-7 object-contain" />
             </div>
-            <span className="text-lg font-semibold tracking-tight text-[#0D1F3C]">FishTokri</span>
+            <span className="text-lg font-semibold tracking-tight text-[#0D1F3C]">Fresh Stock Xchange</span>
           </div>
 
           <div className="mb-8">
@@ -193,7 +186,7 @@ export default function Login() {
               Sign in to your account
             </h1>
             <div className="mt-3 inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-md px-2.5 py-1">
-              <RoleIcon className="w-3.5 h-3.5 text-gray-500" />
+              <ShieldCheck className="w-3.5 h-3.5 text-gray-500" />
               <span className="text-xs font-medium text-gray-600">{roleLabel}</span>
             </div>
           </div>
@@ -208,7 +201,7 @@ export default function Login() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="bg-white border-gray-200 text-gray-900 focus-visible:ring-2 focus-visible:ring-[#0D1F3C]/20 focus-visible:border-[#0D1F3C] h-10 placeholder:text-gray-400"
                 data-testid="input-email"
-                placeholder="you@fishtokri.com"
+                placeholder="you@example.com"
               />
             </div>
             <div className="space-y-1.5">
@@ -283,11 +276,9 @@ export default function Login() {
             <DialogTitle>Reset your password</DialogTitle>
             <DialogDescription>
               Enter your account email and your master admin will set a new password for you.
-              {isMasterAdmin && (
-                <span className="block mt-2 text-amber-600">
-                  Master Admin credentials are not stored in the system. Please contact your system administrator directly.
-                </span>
-              )}
+              <span className="block mt-2 text-amber-600">
+                Master Admin credentials are managed by your system administrator. Contact them if you need help.
+              </span>
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={submitForgot} className="space-y-4 pt-2">
@@ -298,7 +289,7 @@ export default function Login() {
                 required
                 value={forgotEmail}
                 onChange={(e) => setForgotEmail(e.target.value)}
-                placeholder="you@fishtokri.com"
+                placeholder="you@example.com"
                 className="h-10"
               />
             </div>

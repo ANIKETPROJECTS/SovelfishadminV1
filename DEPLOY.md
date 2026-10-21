@@ -1,4 +1,4 @@
-# FishTokri — VPS Deployment Guide (Ubuntu)
+# Fresh Stock Xchange — VPS Deployment Guide (Ubuntu)
 
 Deploys the API (Express) + Admin Frontend (React static) on a single Ubuntu server.  
 External access: **port 3015**. Nginx proxies to the API on internal port 8080 and serves the frontend static files.
@@ -189,7 +189,7 @@ Open a browser and go to:
 http://YOUR_SERVER_IP:3015
 ```
 
-You should see the FishTokri Admin login page.
+You should see the Fresh Stock Xchange Admin sign-in page.
 
 Check the API directly:
 ```

@@ -1,6 +1,6 @@
-# FishTokri Admin
+# Fresh Stock Xchange Admin
 
-Operations console for the FishTokri seafood distribution network.
+Operations console for the Fresh Stock Xchange distribution network.
 
 ## Stack
 - **Frontend:** React 19, Vite 7, TailwindCSS 4, TanStack Query v5, Wouter routing, shadcn/ui (Radix UI)
