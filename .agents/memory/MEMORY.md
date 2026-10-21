@@ -1,4 +1,5 @@
 - [API server has no watch mode](api-server-no-watch.md) — always restart `Start API` workflow after editing any `api-server/src/` TypeScript file or changes won't take effect.
+- [Artifact workflow configuration](artifact-workflow-configuration.md) — verify the managed artifact itself; duplicate frontends can hide failures, and manifests require validated replacement.
 - [Storefront payment lifecycle differs by source](storefront-order-payment-status.md) — Preserve FTN's legacy paid-on-arrival behavior and keep FTW pending/completed/failed states separate.
 - [Read-only sub-resources in edit forms](product-edit-batch-expiry-bug.md) — never round-trip a read-only nested resource (e.g. batches) back to its own update endpoint from a parent edit form.
 - [WhatsApp template param newlines unreliable](whatsapp-template-param-newlines.md) — `\n` in a template variable can get collapsed (e.g. to " | "); number list entries instead of relying on line breaks.

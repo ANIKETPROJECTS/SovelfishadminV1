@@ -15,7 +15,7 @@ Click **Run** to start the **Project** workflow, which runs both services:
 | Workflow | Command | Port |
 |---|---|---|
 | **Start API** | `pnpm install && cd artifacts/api-server && pnpm run build && cd ../.. && PORT=8080 node --enable-source-maps scripts/run-api.mjs` | 8080 |
-| **Start Frontend** | `pnpm install && cd artifacts/fishtokri-admin && PORT=5000 BASE_PATH=/ pnpm run dev` | 5000 |
+| **artifacts/fishtokri-admin: web** | `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/fishtokri-admin run dev --strictPort` | 5000 |
 
 The frontend proxies `/api` requests to the API at port 8080 (configured in `vite.config.ts`).
 
@@ -62,7 +62,7 @@ Both workflows must be running simultaneously:
    INFO: Connected to sub hub DB  dbName: "orders"
    ```
 
-2. **Start Frontend** — installs deps, starts Vite dev server on port 5000.
+2. **artifacts/fishtokri-admin: web** — starts Vite dev server on port 5000 using the artifact-managed workflow. Run `pnpm install` once after importing.
    Expected output: `VITE v7.x  ready in ...ms`
 
 Verified: MongoDB connection, API health through the frontend proxy (`/api/healthz` returns `{"status":"ok"}`), and the rendered account-selection screen without browser errors. Authenticated dashboard screens have not been verified.

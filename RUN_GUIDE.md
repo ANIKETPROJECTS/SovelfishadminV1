@@ -36,11 +36,11 @@ This installs all 500+ packages across the monorepo. It only needs to run once a
 Click **Run** to start the **Project** workflow. It runs two services in parallel:
 
 1. **Start API** installs dependencies, builds the API, and runs `scripts/run-api.mjs` on **port 8080** (Express 5 + MongoDB).
-2. **Start Frontend** installs dependencies and starts Vite on **port 5000** (React 19 + TailwindCSS 4).
+2. **artifacts/fishtokri-admin: web** starts Vite on **port 5000** (React 19 + TailwindCSS 4), using the dependencies installed in step 2.
 
 Allow time for dependency installation and the initial database connection. The API logs should show `Connected to MongoDB (fishtokri_admin)` and `Server listening`; frontend logs should show `VITE v7.x ready`.
 
-Do not start another copy of either service on the same port. `scripts/dev.sh` is only a frontend helper that waits for a separately running API; it does not start the API.
+Do not start another copy of either service on the same port. The old **Start Frontend** workflow has been replaced by the artifact-managed frontend workflow. `scripts/dev.sh` is an unused legacy frontend helper, not the artifact entry point.
 
 ---
 
