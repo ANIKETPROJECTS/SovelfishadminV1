@@ -69,6 +69,6 @@ Verified: MongoDB connection, API health through the frontend proxy (`/api/healt
 
 The imported lockfile contained firewall-blocked versions of Express's proxy dependency and Orval. Express was updated within version 5 and Orval within version 8; a full frozen-lockfile install now succeeds.
 
-The login screen is served at `/` — account type selection (Master Admin / Super Hub / Sub Hub / Delivery Partner). Users must exist in the `hub_users` MongoDB collection.
+The sign-in screen is served at `/` and offers only **Master Admin**. Users must exist in the `hub_users` MongoDB collection.
 
 Existing credentials previously embedded in the imported PM2 configuration were replaced with environment references. Rotate previously committed credentials; removing them from the current file does not remove them from Git history.
