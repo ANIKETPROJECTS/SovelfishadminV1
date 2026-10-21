@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Warehouse, Users, LogOut, Building2, Store, Truck, UserCircle, ShoppingBasket, ClipboardList, Handshake, ChevronLeft, ChevronRight, Boxes, ChevronDown, FolderOpen, Landmark, ArrowDownCircle, ArrowUpCircle, CreditCard, SlidersHorizontal, FileText, Receipt, Package, History, Menu, X, FileBarChart, FileSpreadsheet, Trash2, Calculator, RefreshCw, Settings, Clock, MessageSquare, BookUser } from "lucide-react";
+import { LayoutDashboard, Warehouse, Users, LogOut, Store, Truck, UserCircle, ShoppingBasket, ClipboardList, Handshake, ChevronLeft, ChevronRight, Boxes, ChevronDown, FolderOpen, SlidersHorizontal, FileText, Receipt, Package, History, Menu, X, FileSpreadsheet, Trash2, MessageSquare, BookUser } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useRef } from "react";
 import { useNewOrderPopup } from "@/hooks/use-new-order-popup";
@@ -13,17 +13,6 @@ const masterAdminNavItems = [
   { href: "/hubs", label: "Hubs", icon: Warehouse },
   { href: "/orders", label: "Orders", icon: ClipboardList },
   {
-    href: "/fish-calculator",
-    label: "Fish Purchase Calculator",
-    icon: Calculator,
-    children: [
-      { href: "/fish-calculator/price", label: "Price Calculator", icon: Calculator },
-      { href: "/fish-calculator/yield", label: "Yield & Price Calculator", icon: RefreshCw },
-      { href: "/fish-calculator/history", label: "History", icon: Clock },
-      { href: "/fish-calculator/config", label: "Configuration", icon: Settings },
-    ],
-  },
-  {
     href: "/inventory",
     label: "Inventory Management",
     icon: Boxes,
@@ -34,20 +23,8 @@ const masterAdminNavItems = [
       { href: "/inventory/wastage", label: "Wastage Report", icon: Trash2 },
     ],
   },
-  {
-    href: "/banking",
-    label: "Banking",
-    icon: Landmark,
-    children: [
-      { href: "/banking/accounts", label: "Accounts", icon: Building2 },
-      { href: "/banking/receipts", label: "Receipts", icon: ArrowDownCircle },
-      { href: "/banking/payments", label: "Payments", icon: ArrowUpCircle },
-    ],
-  },
-  { href: "/razorpay-payments", label: "Razorpay Payments", icon: CreditCard },
   { href: "/admin-users", label: "Admin Users", icon: Users },
   { href: "/customers", label: "Customers", icon: ShoppingBasket },
-  { href: "/delivery-report", label: "Delivery Report", icon: FileBarChart },
   { href: "/day-end-report", label: "Day End Report", icon: FileSpreadsheet },
   {
     href: "/live-chat",
@@ -253,17 +230,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // Super Hub & Sub Hub now share the same Master Admin sidebar UI,
   // filtered to the sections allotted to that role.
   // Allotted sections per role (matches App.tsx route permissions):
-  //   Super Hub: Dashboard, Hubs, Orders, Vendor Management, Inventory Management, Banking, Customers
+  //   Super Hub: Dashboard, Hubs, Orders, Vendor Management, Inventory Management, Customers
   //   Sub Hub:   Dashboard, Orders, Inventory Management, Customers (+ Menu shortcut)
   const superHubAllowedHrefs = new Set([
     "/dashboard",
     "/hubs",
     "/orders",
-    "/fish-calculator",
     "/inventory",
-    "/banking",
     "/customers",
-    "/delivery-report",
     "/day-end-report",
   ]);
   const subHubAllowedHrefs = new Set([
@@ -271,7 +245,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
     "/orders",
     "/inventory",
     "/customers",
-    "/delivery-report",
     "/day-end-report",
   ]);
 
@@ -286,7 +259,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const deliveryNavItems = [
     { href: "/my-deliveries", label: "Orders", icon: Truck, iconSrc: "/icon-order-delivery.png" },
-    { href: "/delivery-report", label: "My Report", icon: FileBarChart, iconSrc: "/icon-report-custom.png", matchPrefix: "/delivery-report" },
   ];
 
   const navItems = isSuperHub
@@ -569,7 +541,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   ? "p-0"
                   : location.startsWith("/orders")
                     ? "px-4 py-3"
-                    : location.startsWith("/my-deliveries") || location.startsWith("/delivery-report")
+                    : location.startsWith("/my-deliveries")
                       ? "p-4"
                       : "p-4 sm:p-6 lg:p-8"
               }`

@@ -30,19 +30,8 @@ import InventoryHistoryPage from "@/pages/inventory-history";
 import InventoryStockAdjustmentPage from "@/pages/inventory-stock-adjustment";
 import InventoryProductDetail from "@/pages/inventory-product-detail";
 import InventoryProductUsage from "@/pages/inventory-product-usage";
-import BankingOverview from "@/pages/banking-overview";
-import BankingAccounts from "@/pages/banking-accounts";
-import BankingReceipts from "@/pages/banking-receipts";
-import BankingPayments from "@/pages/banking-payments";
-import RazorpayPayments from "@/pages/razorpay-payments";
-import DeliveryReport from "@/pages/delivery-report";
-import DeliveryReportPerson from "@/pages/delivery-report-person";
 import DayEndReport from "@/pages/day-end-report";
 import WastageReport from "@/pages/wastage-report";
-import FishCalculatorPrice from "@/pages/fish-calculator-price";
-import FishCalculatorYield from "@/pages/fish-calculator-yield";
-import FishCalculatorHistory from "@/pages/fish-calculator-history";
-import FishCalculatorConfig from "@/pages/fish-calculator-config";
 import LiveChat from "@/pages/live-chat";
 import WaContacts from "@/pages/wa-contacts";
 import { Layout } from "@/components/layout";
@@ -220,25 +209,6 @@ function App() {
               <ProtectedRoute component={InventoryProductDetail} allowedRoles={ALL_ADMIN_ROLES} />
             </Route>
 
-            {/* Banking — Master Admin & Super Hub */}
-            <Route path="/banking">
-              <ProtectedRoute component={BankingOverview} allowedRoles={HUB_OWNERS} />
-            </Route>
-            <Route path="/banking/accounts">
-              <ProtectedRoute component={BankingAccounts} allowedRoles={HUB_OWNERS} />
-            </Route>
-            <Route path="/banking/receipts">
-              <ProtectedRoute component={BankingReceipts} allowedRoles={HUB_OWNERS} />
-            </Route>
-            <Route path="/banking/payments">
-              <ProtectedRoute component={BankingPayments} allowedRoles={HUB_OWNERS} />
-            </Route>
-
-            {/* Razorpay transaction feed — Master Admin only */}
-            <Route path="/razorpay-payments">
-              <ProtectedRoute component={RazorpayPayments} allowedRoles={MASTER_ONLY} />
-            </Route>
-
             {/* Admin Users — Master Admin only */}
             <Route path="/admin-users">
               <ProtectedRoute component={AdminUsers} allowedRoles={MASTER_ONLY} />
@@ -289,25 +259,6 @@ function App() {
               <RedirectTo to="/hubs" />
             </Route>
 
-            {/* Fish Purchase Calculator — redirect base path to first sub-page */}
-            <Route path="/fish-calculator">
-              <RedirectTo to="/fish-calculator/price" />
-            </Route>
-
-            {/* Fish Purchase Calculator — Master Admin only */}
-            <Route path="/fish-calculator/price">
-              <ProtectedRoute component={FishCalculatorPrice} allowedRoles={MASTER_ONLY} />
-            </Route>
-            <Route path="/fish-calculator/yield">
-              <ProtectedRoute component={FishCalculatorYield} allowedRoles={MASTER_ONLY} />
-            </Route>
-            <Route path="/fish-calculator/history">
-              <ProtectedRoute component={FishCalculatorHistory} allowedRoles={MASTER_ONLY} />
-            </Route>
-            <Route path="/fish-calculator/config">
-              <ProtectedRoute component={FishCalculatorConfig} allowedRoles={MASTER_ONLY} />
-            </Route>
-
             {/* Day End Report — all admin roles */}
             <Route path="/day-end-report">
               <ProtectedRoute component={DayEndReport} allowedRoles={ALL_ADMIN_ROLES} />
@@ -326,14 +277,6 @@ function App() {
             {/* WA Contacts — master admin only */}
             <Route path="/wa-contacts">
               <ProtectedRoute component={WaContacts} allowedRoles={MASTER_ONLY} />
-            </Route>
-
-            {/* Delivery Report — all roles */}
-            <Route path="/delivery-report/person/:id">
-              <ProtectedRoute component={DeliveryReportPerson} allowedRoles={[...ALL_ADMIN_ROLES, "delivery_person"]} />
-            </Route>
-            <Route path="/delivery-report">
-              <ProtectedRoute component={DeliveryReport} allowedRoles={[...ALL_ADMIN_ROLES, "delivery_person"]} />
             </Route>
 
             {/* Delivery Person routes (unchanged) */}

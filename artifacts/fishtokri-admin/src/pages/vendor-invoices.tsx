@@ -916,7 +916,7 @@ function AddReceiptDialog({
                     loadingAccounts
                       ? "Loading accounts..."
                       : depositOptions.length === 0
-                        ? "No accounts — add one in Banking"
+                        ? "No deposit accounts are configured"
                         : "Choose Account"
                   } />
                 </SelectTrigger>
