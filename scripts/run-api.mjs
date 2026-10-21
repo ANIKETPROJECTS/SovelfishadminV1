@@ -1,6 +1,6 @@
 /**
- * Starts the API server with environment variables sourced from ecosystem.config.cjs.
- * This keeps credentials out of .replit while reusing the existing PM2 config.
+ * Starts the API server with environment variables injected by Replit.
+ * Credentials are never loaded from the tracked PM2 configuration.
  */
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";

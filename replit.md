@@ -10,25 +10,27 @@ Operations console for the FishTokri seafood distribution network.
 
 ## How to run on Replit
 
-Two workflows must both be running:
+Click **Run** to start the **Project** workflow, which runs both services:
 
 | Workflow | Command | Port |
 |---|---|---|
-| **Start API** | `pnpm install && cd artifacts/api-server && pnpm run build && PORT=8080 node --enable-source-maps ./dist/index.mjs` | 8080 |
+| **Start API** | `pnpm install && cd artifacts/api-server && pnpm run build && cd ../.. && PORT=8080 node --enable-source-maps scripts/run-api.mjs` | 8080 |
 | **Start Frontend** | `pnpm install && cd artifacts/fishtokri-admin && PORT=5000 BASE_PATH=/ pnpm run dev` | 5000 |
 
 The frontend proxies `/api` requests to the API at port 8080 (configured in `vite.config.ts`).
 
-## Required secrets
+## Secrets
+`MONGODB_URI` and `SESSION_SECRET` are configured for this import. Feature-specific credentials below are not required to display the login screen. Keep all credentials in Secrets, never in tracked process configuration.
+
 | Secret | Purpose |
 |---|---|
 | `MONGODB_URI` | MongoDB Atlas connection string |
 | `SESSION_SECRET` | Express session signing |
-| `CLOUDINARY_CLOUD_NAME` | Cloudinary image uploads |
-| `CLOUDINARY_API_KEY` | Cloudinary image uploads |
-| `CLOUDINARY_API_SECRET` | Cloudinary image uploads |
-| `QZ_CERTIFICATE` | QZ Tray print certificate |
-| `QZ_PRIVATE_KEY` | QZ Tray print signing key |
+| `CLOUDINARY_CLOUD_NAME` | Optional: Cloudinary image uploads |
+| `CLOUDINARY_API_KEY` | Optional: Cloudinary image uploads |
+| `CLOUDINARY_API_SECRET` | Optional: Cloudinary image uploads |
+| `QZ_CERTIFICATE` | Optional: QZ Tray print certificate |
+| `QZ_PRIVATE_KEY` | Optional: QZ Tray print signing key |
 
 ## Project structure
 ```
@@ -48,7 +50,7 @@ scripts/
 - The API has **no watch mode** — after editing `api-server/src/`, restart the `Start API` workflow to rebuild and reload.
 - Login requires user accounts seeded in MongoDB (`hub_users` collection).
 
-## Verified working on Replit (2026-07-21)
+## Startup verified on Replit (2026-10-21)
 
 Both workflows must be running simultaneously:
 
@@ -63,10 +65,10 @@ Both workflows must be running simultaneously:
 2. **Start Frontend** — installs deps, starts Vite dev server on port 5000.
    Expected output: `VITE v7.x  ready in ...ms`
 
-All required secrets are configured in the Replit Secrets panel:
-`MONGODB_URI`, `SESSION_SECRET`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`,
-`CLOUDINARY_API_SECRET`, `QZ_CERTIFICATE`, `QZ_PRIVATE_KEY`, `WABA_API_KEY`, `WABA_PHONE_ID`.
+Verified: MongoDB connection, API health through the frontend proxy (`/api/healthz` returns `{"status":"ok"}`), and the rendered account-selection screen without browser errors. Authenticated dashboard screens have not been verified.
+
+The imported lockfile contained firewall-blocked versions of Express's proxy dependency and Orval. Express was updated within version 5 and Orval within version 8; a full frozen-lockfile install now succeeds.
 
 The login screen is served at `/` — account type selection (Master Admin / Super Hub / Sub Hub / Delivery Partner). Users must exist in the `hub_users` MongoDB collection.
 
-## User preferences
+Existing credentials previously embedded in the imported PM2 configuration were replaced with environment references. Rotate previously committed credentials; removing them from the current file does not remove them from Git history.
