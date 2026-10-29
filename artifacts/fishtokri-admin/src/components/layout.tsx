@@ -8,6 +8,9 @@ import { NewOrderPopup } from "@/components/NewOrderPopup";
 import { CancelOrderPopup } from "@/components/CancelOrderPopup";
 import { createPortal } from "react-dom";
 
+// Set this to true to restore the WhatsApp sidebar module.
+const WHATSAPP_NAV_ENABLED = false;
+
 const masterAdminNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/hubs", label: "Hubs", icon: Warehouse },
@@ -26,15 +29,17 @@ const masterAdminNavItems = [
   { href: "/admin-users", label: "Admin Users", icon: Users },
   { href: "/customers", label: "Customers", icon: ShoppingBasket },
   { href: "/day-end-report", label: "Day End Report", icon: FileSpreadsheet },
-  {
-    href: "/live-chat",
-    label: "WhatsApp",
-    icon: MessageSquare,
-    children: [
-      { href: "/live-chat",   label: "Live Chat",       icon: MessageSquare },
-      { href: "/wa-contacts", label: "Contacts",        icon: BookUser },
-    ],
-  },
+  ...(WHATSAPP_NAV_ENABLED
+    ? [{
+        href: "/live-chat",
+        label: "WhatsApp",
+        icon: MessageSquare,
+        children: [
+          { href: "/live-chat", label: "Live Chat", icon: MessageSquare },
+          { href: "/wa-contacts", label: "Contacts", icon: BookUser },
+        ],
+      }]
+    : []),
 ];
 
 function getAdminData() {
