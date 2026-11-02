@@ -27,11 +27,12 @@ export type ProductVariantsManagerHandle = {
 };
 
 function toDraft(variant: ProductVariant): VariantDraft {
+  const variantLabel = String(variant.variantLabel ?? "");
   return {
     price: String(variant.price ?? 0),
     originalPrice: String(variant.originalPrice ?? variant.price ?? 0),
-    grossWeight: variant.grossWeight ?? "",
-    netWeight: variant.netWeight ?? (variant.variantLabel === "Standard" ? "" : variant.variantLabel ?? ""),
+    grossWeight: String(variant.grossWeight ?? ""),
+    netWeight: String(variant.netWeight ?? (variantLabel === "Standard" ? "" : variantLabel)),
   };
 }
 
@@ -138,7 +139,7 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
     });
 
     const labels = variants.map((variant) =>
-      (drafts[String(variant._id)]?.netWeight ?? toDraft(variant).netWeight).trim().toLowerCase()
+      String(drafts[String(variant._id)]?.netWeight ?? toDraft(variant).netWeight).trim().toLowerCase()
     ).filter(Boolean);
     if (new Set(labels).size !== labels.length) {
       toast({ title: "Variant weights must be unique", variant: "destructive" });
@@ -253,7 +254,7 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
 
   const permanentlyDeleteVariant = async (variant: ProductVariant) => {
     const variantId = String(variant._id);
-    const label = drafts[variantId]?.netWeight.trim() || variant.variantLabel || variant.name;
+    const label = String(drafts[variantId]?.netWeight ?? "").trim() || String(variant.variantLabel ?? "") || variant.name;
     const unsavedWarning = variantId === String(product._id)
       ? " Unsaved product and variant edits will be discarded."
       : " Unsaved variant edits will be discarded.";
@@ -325,6 +326,7 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
                 const draft = drafts[id] ?? toDraft(variant);
                 const isCurrent = id === String(product._id);
                 const isSaving = savingAll || savingId === id;
+                const isOnlyVariant = variants.length <= 1;
                 return (
                   <tr key={id} className={variant.isArchived ? "bg-gray-50/80" : "hover:bg-indigo-50/20"}>
                     <td className="border-b border-r border-gray-200 p-1">
@@ -404,9 +406,9 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
                         <button
                           type="button"
                           onClick={() => void permanentlyDeleteVariant(variant)}
-                          disabled={isSaving}
-                          aria-label={`Permanently delete ${draft.netWeight || variant.variantLabel}`}
-                          title="Permanently delete variant and all its batches"
+                          disabled={isSaving || isOnlyVariant}
+                          aria-label={isOnlyVariant ? "At least one variant must remain" : `Permanently delete ${draft.netWeight || variant.variantLabel}`}
+                          title={isOnlyVariant ? "At least one variant must remain" : "Permanently delete variant and all its batches"}
                           className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
                         >
                           <Trash2 className="h-3 w-3" />
@@ -419,6 +421,11 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
               })}
             </tbody>
           </table>
+          {variants.length <= 1 && (
+            <p className="border-t border-gray-100 px-2 py-1.5 text-[10px] text-gray-500">
+              At least one variant must remain, so permanent deletion is disabled.
+            </p>
+          )}
         </div>
       )}
 

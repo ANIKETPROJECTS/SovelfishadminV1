@@ -422,6 +422,17 @@ router.delete("/products/:productId/variants/:variantId", async (req, res) => {
       return;
     }
 
+    const variantCount = groupId
+      ? await products.countDocuments({ variantGroupId: groupId })
+      : 1;
+    if (variantCount <= 1) {
+      res.status(409).json({
+        error: "LastVariant",
+        message: "At least one product variant must remain.",
+      });
+      return;
+    }
+
     const batchCount = Array.isArray(variant.batches) ? variant.batches.length : 0;
     const result = await products.deleteOne({ _id: variantId });
     if (result.deletedCount !== 1) {
