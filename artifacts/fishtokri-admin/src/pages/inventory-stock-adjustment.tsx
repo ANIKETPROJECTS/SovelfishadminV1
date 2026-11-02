@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Building2, Plus, Search, X, Trash2, ChevronDown, ChevronRight, ChevronLeft,
-  Lock, PackageOpen, Calendar, Hash, Layers, Clock,
+  Lock, PackageOpen, Calendar, Layers, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,7 +49,7 @@ type Batch = {
   expiryTime?: string;
   notes: string;
 };
-type Product = { id: string; name: string; shortCode?: string; category: string; unit: string; quantity: number; batches?: Batch[] };
+type Product = { id: string; name: string; shortCode?: string; category: string; unit: string; price: number; quantity: number; batches?: Batch[] };
 
 type FormMode = "add" | "remove" | "add_existing";
 type FormRow = {
@@ -57,6 +57,7 @@ type FormRow = {
   productName: string;
   category: string;
   unit: string;
+  price: string;
   quantityBefore: number;
   mode: FormMode;
   addQuantity: string;
@@ -148,7 +149,7 @@ function generateNextBatchNumber(productName: string, productBatches: Batch[], s
 
 function emptyRow(): FormRow {
   return {
-    productId: "", productName: "", category: "", unit: "", quantityBefore: 0,
+    productId: "", productName: "", category: "", unit: "", price: "", quantityBefore: 0,
     mode: "add", addQuantity: "", shelfLifeDays: "", expiryDate: "", expiryTime: getCurrentTime12h(), batchNumber: "",
     batchNotes: "",
     removeQuantity: "", selectedBatchId: "", search: "",
@@ -733,7 +734,6 @@ function ExistingBatchesCard({
   onReload: () => void;
 }) {
   const { toast } = useToast();
-  const [open, setOpen] = useState(false);
   const [edited, setEdited] = useState<Batch[]>([]);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -748,12 +748,12 @@ function ExistingBatchesCard({
     : recentBatches.length > 0 ? recentBatches : batches;
   const hiddenCount = batches.length - recentBatches.length;
 
-  // Sync local edit state when batches prop changes or panel opens
+  // Sync local edit state when the batch list changes or the visible range changes.
   useEffect(() => {
     setEdited(visibleBatches.map((b) => ({ ...b, expiryTime: extractTime12hFromISO(b.expiryDate) })));
     setDirty(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batches, open, showAllBatches]);
+  }, [batches, showAllBatches]);
 
   if (batches.length === 0) return null;
 
@@ -792,33 +792,25 @@ function ExistingBatchesCard({
   }
 
   return (
-    <div className="mt-3 rounded-xl border border-[#364F9F]/15 bg-[#364F9F]/3 overflow-hidden">
-      <div className="flex items-center">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="flex-1 px-4 py-2 bg-[#364F9F]/8 flex items-center gap-2 hover:bg-[#364F9F]/12 transition-colors"
-        >
-          <Layers className="w-3.5 h-3.5 text-[#364F9F]" />
-          <span className="text-[11px] font-bold text-[#364F9F] uppercase tracking-widest flex-1 text-left">
-            Existing Batches ({showAllBatches ? batches.length : `${visibleBatches.length} recent`})
-          </span>
-          <ChevronDown className={`w-3.5 h-3.5 text-[#364F9F] transition-transform ${open ? "rotate-180" : ""}`} />
-        </button>
+    <div className="rounded-xl border border-[#364F9F]/15 bg-[#364F9F]/3 overflow-hidden">
+      <div className="flex items-center px-4 py-2 bg-[#364F9F]/8">
+        <Layers className="w-3.5 h-3.5 text-[#364F9F]" />
+        <span className="ml-2 text-[11px] font-bold text-[#364F9F] uppercase tracking-widest flex-1">
+          Existing Batches ({showAllBatches ? batches.length : `${visibleBatches.length} recent`})
+        </span>
         {hiddenCount > 0 && recentBatches.length > 0 && (
           <button
             type="button"
             onClick={() => setShowAllBatches((v) => !v)}
-            className="px-3 py-2 bg-[#364F9F]/8 hover:bg-[#364F9F]/15 border-l border-[#364F9F]/15 text-[10px] font-bold text-[#364F9F] uppercase tracking-wide transition-colors whitespace-nowrap"
+            className="px-3 py-1.5 bg-white hover:bg-[#364F9F]/5 border border-[#364F9F]/15 rounded-md text-[10px] font-bold text-[#364F9F] uppercase tracking-wide transition-colors whitespace-nowrap"
           >
             {showAllBatches ? "Last 7 days" : `Show all (${batches.length})`}
           </button>
         )}
       </div>
 
-      {open && (
-        <>
-          {/* Column headers */}
+      <>
+        {/* Column headers */}
           <div className="px-3 py-1.5 bg-[#364F9F]/5 border-y border-[#364F9F]/10">
             <div className="grid grid-cols-6 gap-2">
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Batch ID</span>
@@ -950,8 +942,7 @@ function ExistingBatchesCard({
               </button>
             </div>
           )}
-        </>
-      )}
+      </>
     </div>
   );
 }
@@ -968,6 +959,8 @@ export default function InventoryStockAdjustment() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [saving, setSaving] = useState(false);
+  const [savingPriceProductId, setSavingPriceProductId] = useState("");
+  const [expandedBatchProductId, setExpandedBatchProductId] = useState("");
 
   const [formDate, setFormDate] = useState(toInputDate(new Date()));
   const [formReason, setFormReason] = useState("");
@@ -1034,7 +1027,7 @@ export default function InventoryStockAdjustment() {
     setFormRows((rows) => rows.map((r, idx) => idx === i ? {
       ...r,
       productId: p.id, productName: p.name, category: p.category || "",
-      unit: p.unit, quantityBefore: p.quantity, search: p.name,
+      unit: p.unit, price: String(p.price ?? 0), quantityBefore: p.quantity, search: p.name,
       batchNumber: r.mode === "add" ? autoNum : "",
       batchNotes: "",
       selectedBatchId: "",
@@ -1042,11 +1035,11 @@ export default function InventoryStockAdjustment() {
   }
 
   function clearProduct(i: number) {
-    updateRow(i, { productId: "", productName: "", category: "", unit: "", quantityBefore: 0, search: "", batchNumber: "", selectedBatchId: "" });
+    updateRow(i, { productId: "", productName: "", category: "", unit: "", price: "", quantityBefore: 0, search: "", batchNumber: "", selectedBatchId: "" });
   }
 
   function onSearchChange(i: number, val: string) {
-    updateRow(i, { search: val, productId: "", productName: "", category: "", unit: "", quantityBefore: 0, batchNumber: "", selectedBatchId: "" });
+    updateRow(i, { search: val, productId: "", productName: "", category: "", unit: "", price: "", quantityBefore: 0, batchNumber: "", selectedBatchId: "" });
   }
 
   function changeMode(i: number, mode: FormMode) {
@@ -1074,6 +1067,38 @@ export default function InventoryStockAdjustment() {
       if (days >= 0) shelfLifeDays = String(days);
     }
     updateRow(i, { expiryDate: val, shelfLifeDays });
+  }
+
+  async function saveProductPrice(i: number) {
+    const row = formRows[i];
+    if (!row?.productId || !selectedSubHubId) return;
+    if (row.price.trim() === "") {
+      toast({ title: "Enter a price", variant: "destructive" });
+      return;
+    }
+    const price = Number(row.price);
+    if (!Number.isFinite(price) || price < 0) {
+      toast({ title: "Enter a valid non-negative price", variant: "destructive" });
+      return;
+    }
+    const currentPrice = Number(products.find((p) => p.id === row.productId)?.price ?? 0);
+    if (price === currentPrice) return;
+
+    setSavingPriceProductId(row.productId);
+    try {
+      await apiFetch(`/api/sub-hubs/${selectedSubHubId}/menu/products/${row.productId}`, {
+        method: "PUT",
+        body: JSON.stringify({ price }),
+      });
+      setProducts((current) => current.map((product) =>
+        product.id === row.productId ? { ...product, price } : product
+      ));
+      toast({ title: "Product price updated", description: `${row.productName} is now ₹${price.toFixed(2)}.` });
+    } catch (err: any) {
+      toast({ title: "Failed to update price", description: err.message, variant: "destructive" });
+    } finally {
+      setSavingPriceProductId("");
+    }
   }
 
   function resetForm() {
@@ -1215,211 +1240,241 @@ export default function InventoryStockAdjustment() {
               <span className="text-[11px] text-gray-400 font-medium">{formRows.filter(r => r.productId).length} / {formRows.length} selected</span>
             </div>
 
-            <div className="space-y-3">
-              {formRows.map((row, idx) => {
-                const isAdd = row.mode === "add";
-                const isAddExisting = row.mode === "add_existing";
-                const isAddAny = isAdd || isAddExisting;
-                const dLeft = isAdd ? daysUntil(row.expiryDate) : null;
-                const expTone = dLeft == null ? "text-gray-400"
-                  : dLeft < 0 ? "text-red-600"
-                  : dLeft <= 7 ? "text-amber-600"
-                  : "text-emerald-600";
+            <div className="overflow-x-auto rounded-xl border border-gray-200">
+              <table className="w-full min-w-[1510px] border-collapse text-left">
+                <thead className="bg-gray-50">
+                  <tr className="border-b border-gray-200">
+                    {["#", "Product", "Price", "Mode", "Quantity", "Shelf Life (days)", "Expiry Date & Time", "Batch / Selection", "Batch Info", ""].map((heading, index) => (
+                      <th key={`${heading}-${index}`} className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap">
+                        {heading}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {formRows.map((row, idx) => {
+                    const isAdd = row.mode === "add";
+                    const isAddExisting = row.mode === "add_existing";
+                    const isAddAny = isAdd || isAddExisting;
+                    const dLeft = isAdd ? daysUntil(row.expiryDate) : null;
+                    const expTone = dLeft == null ? "text-gray-400"
+                      : dLeft < 0 ? "text-red-600"
+                      : dLeft <= 7 ? "text-amber-600"
+                      : "text-emerald-600";
+                    const prod = products.find((p) => p.id === row.productId);
+                    const prodBatches: Batch[] = prod?.batches ?? [];
+                    const activeBatches = prodBatches.filter((b) => {
+                      if (b.quantity <= 0) return false;
+                      if (b.expiryDate) {
+                        const exp = new Date(b.expiryDate);
+                        if (!isNaN(exp.getTime()) && exp.getTime() <= Date.now()) return false;
+                      }
+                      return true;
+                    });
+                    const priceNumber = row.price.trim() === "" ? NaN : Number(row.price);
+                    const hasPriceChange = Number.isFinite(priceNumber) &&
+                      priceNumber >= 0 &&
+                      priceNumber !== Number(prod?.price ?? 0);
+                    const batchesOpen = expandedBatchProductId === row.productId;
 
-                const prod = products.find((p) => p.id === row.productId);
-                const prodBatches: Batch[] = prod?.batches ?? [];
-                const activeBatches = prodBatches.filter(b => {
-                  if (b.quantity <= 0) return false;
-                  if (b.expiryDate) {
-                    const exp = new Date(b.expiryDate);
-                    if (!isNaN(exp.getTime()) && exp.getTime() <= Date.now()) return false;
-                  }
-                  return true;
-                });
-
-                const badgeClass = isAdd
-                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                  : isAddExisting
-                  ? "bg-[#364F9F]/10 text-[#364F9F] border border-[#364F9F]/25"
-                  : "bg-red-50 text-red-700 border border-red-200";
-                const badgeLabel = isAdd ? "ADD BATCH" : isAddExisting ? "ADD TO BATCH" : "REDUCE";
-
-                return (
-                  <div
-                    key={idx}
-                    className={`rounded-xl border transition-colors ${
-                      row.productId
-                        ? "border-gray-200 bg-white shadow-sm"
-                        : "border-dashed border-gray-200 bg-gray-50/50"
-                    }`}
-                  >
-                    {/* Row header */}
-                    <div className="px-4 py-3 flex items-center gap-2 border-b border-gray-100">
-                      <span className="w-5 h-5 rounded-full bg-[#364F9F]/10 text-[#364F9F] text-[11px] font-bold flex items-center justify-center flex-shrink-0">
-                        {idx + 1}
-                      </span>
-                      <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                        {row.productId ? row.productName : "New Product Row"}
-                      </span>
-                      {row.productId && (
-                        <span className={`ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${badgeClass}`}>
-                          {badgeLabel}
-                        </span>
-                      )}
-                      {formRows.length > 1 && (
-                        <button onClick={() => removeRow(idx)} className="ml-auto text-gray-300 hover:text-red-500 transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Row fields */}
-                    <div className="px-4 py-3">
-                      <div className="grid grid-cols-12 gap-3 items-start">
-                        {/* Product selector */}
-                        <div className="col-span-12 md:col-span-4 space-y-1">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Product *</label>
-                          <ProductSelector
-                            row={row} idx={idx} allProducts={products} usedIds={usedIds}
-                            onSelect={selectProduct} onClear={clearProduct} onSearchChange={onSearchChange}
-                          />
-                          {row.productId && (
-                            <p className="text-[10px] text-gray-400 font-medium">
-                              {row.unit} · <span className="text-[#162B4D] font-bold">{row.quantityBefore}</span> available
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Mode */}
-                        <div className="col-span-6 md:col-span-2 space-y-1">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Mode</label>
-                          <Select value={row.mode} onValueChange={(v) => changeMode(idx, v as FormMode)}>
-                            <SelectTrigger className="h-9 text-sm font-semibold">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="add">
-                                <span className="font-semibold text-emerald-700">+ New Batch</span>
-                              </SelectItem>
-                              <SelectItem value="add_existing">
-                                <span className="font-semibold text-[#364F9F]">+ Add to Batch</span>
-                              </SelectItem>
-                              <SelectItem value="remove">
-                                <span className="font-semibold text-red-700">– Reduce</span>
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Quantity */}
-                        <div className="col-span-6 md:col-span-2 space-y-1">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Quantity</label>
-                          <input
-                            type="number" min="0"
-                            value={isAddAny ? row.addQuantity : row.removeQuantity}
-                            onChange={(e) => updateRow(idx, isAddAny ? { addQuantity: e.target.value } : { removeQuantity: e.target.value })}
-                            placeholder="0"
-                            className="w-full h-9 px-3 text-sm font-bold text-[#162B4D] text-center border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
-                          />
-                        </div>
-
-                        {/* Conditional fields */}
-                        {isAdd ? (
-                          <>
-                            {/* Shelf Life */}
-                            <div className="col-span-6 md:col-span-2 space-y-1">
-                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Shelf Life (days)</label>
+                    return (
+                      <Fragment key={idx}>
+                        <tr className="align-top hover:bg-gray-50/60">
+                          <td className="px-3 py-3 text-xs font-bold text-gray-400">{idx + 1}</td>
+                          <td className="px-3 py-3 min-w-[220px]">
+                            <ProductSelector
+                              row={row} idx={idx} allProducts={products} usedIds={usedIds}
+                              onSelect={selectProduct} onClear={clearProduct} onSearchChange={onSearchChange}
+                            />
+                            {row.productId && (
+                              <p className="mt-1 text-[10px] text-gray-400 font-medium">
+                                {row.unit} · <span className="text-[#162B4D] font-bold">{row.quantityBefore}</span> available
+                              </p>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 min-w-[135px]">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-gray-400">₹</span>
                               <input
-                                type="number" min="0"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                inputMode="decimal"
+                                aria-label={`Price for ${row.productName || "selected product"}`}
+                                value={row.price}
+                                onChange={(e) => updateRow(idx, { price: e.target.value })}
+                                disabled={!row.productId}
+                                placeholder="0.00"
+                                className="w-24 h-8 px-2 text-sm font-semibold text-[#162B4D] border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] disabled:bg-gray-50 disabled:text-gray-400"
+                              />
+                            </div>
+                            {row.productId && (
+                              <button
+                                type="button"
+                                onClick={() => saveProductPrice(idx)}
+                                disabled={!hasPriceChange || savingPriceProductId === row.productId}
+                                className="mt-1 text-[10px] font-semibold text-[#364F9F] hover:text-[#162B4D] disabled:text-gray-300 disabled:cursor-not-allowed"
+                              >
+                                {savingPriceProductId === row.productId ? "Saving…" : hasPriceChange ? "Save price" : "Current price"}
+                              </button>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 min-w-[150px]">
+                            <Select value={row.mode} onValueChange={(v) => changeMode(idx, v as FormMode)}>
+                              <SelectTrigger className="h-9 text-xs font-semibold">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="add"><span className="font-semibold text-emerald-700">+ New Batch</span></SelectItem>
+                                <SelectItem value="add_existing"><span className="font-semibold text-[#364F9F]">+ Add to Batch</span></SelectItem>
+                                <SelectItem value="remove"><span className="font-semibold text-red-700">– Reduce</span></SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-3 py-3 min-w-[105px]">
+                            <input
+                              type="number"
+                              min="0"
+                              value={isAddAny ? row.addQuantity : row.removeQuantity}
+                              onChange={(e) => updateRow(idx, isAddAny ? { addQuantity: e.target.value } : { removeQuantity: e.target.value })}
+                              placeholder="0"
+                              aria-label={`Quantity for ${row.productName || "selected product"}`}
+                              className="w-full h-9 px-2 text-sm font-bold text-[#162B4D] text-center border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
+                            />
+                          </td>
+                          <td className="px-3 py-3 min-w-[125px]">
+                            {isAdd ? (
+                              <input
+                                type="number"
+                                min="0"
                                 value={row.shelfLifeDays}
                                 onChange={(e) => setShelfLife(idx, e.target.value)}
                                 placeholder="e.g. 7"
-                                className="w-full h-9 px-3 text-sm font-medium text-center border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
+                                aria-label={`Shelf life in days for ${row.productName || "selected product"}`}
+                                className="w-full h-9 px-2 text-sm font-medium text-center border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
                               />
-                            </div>
-                            {/* Expiry Date + Time */}
-                            <div className="col-span-6 md:col-span-2 space-y-1">
-                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Expiry Date &amp; Time</label>
-                              <input
-                                type="date"
-                                value={row.expiryDate}
-                                onChange={(e) => setExpiryDate(idx, e.target.value)}
-                                className={`w-full h-9 px-2 text-xs font-semibold border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] ${expTone}`}
-                              />
-                              <ClockPickerField
-                                value={row.expiryTime}
-                                onChange={(v) => updateRow(idx, { expiryTime: v })}
-                              />
-                              {dLeft != null && (
-                                <p className={`text-[10px] font-bold ${expTone}`}>
-                                  {dLeft < 0 ? `Expired ${Math.abs(dLeft)}d ago` : dLeft === 0 ? "Expires today" : `${dLeft}d left`}
-                                </p>
-                              )}
-                            </div>
-                          </>
-                        ) : (isAddExisting || row.mode === "remove") ? (
-                          <div className="col-span-12 md:col-span-4 space-y-1">
-                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                              {isAddExisting ? "Select Batch to Add Into" : "Select Batch"}
-                            </label>
-                            {activeBatches.length > 0 ? (
-                              <BatchSelector
+                            ) : <span className="text-xs text-gray-300">—</span>}
+                          </td>
+                          <td className="px-3 py-3 min-w-[180px]">
+                            {isAdd ? (
+                              <div className="space-y-1">
+                                <input
+                                  type="date"
+                                  value={row.expiryDate}
+                                  onChange={(e) => setExpiryDate(idx, e.target.value)}
+                                  aria-label={`Expiry date for ${row.productName || "selected product"}`}
+                                  className={`w-full h-8 px-2 text-xs font-semibold border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] ${expTone}`}
+                                />
+                                <ClockPickerField
+                                  value={row.expiryTime}
+                                  onChange={(v) => updateRow(idx, { expiryTime: v })}
+                                />
+                                {dLeft != null && (
+                                  <p className={`text-[10px] font-bold ${expTone}`}>
+                                    {dLeft < 0 ? `Expired ${Math.abs(dLeft)}d ago` : dLeft === 0 ? "Expires today" : `${dLeft}d left`}
+                                  </p>
+                                )}
+                              </div>
+                            ) : <span className="text-xs text-gray-300">—</span>}
+                          </td>
+                          <td className="px-3 py-3 min-w-[240px]">
+                            {isAdd && row.productId ? (
+                              <div className="space-y-2">
+                                <div>
+                                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-gray-400">Batch ID</label>
+                                  <input
+                                    type="text"
+                                    value={row.batchNumber}
+                                    onChange={(e) => updateRow(idx, { batchNumber: e.target.value.toUpperCase() })}
+                                    placeholder="Auto-generated"
+                                    className="w-full h-8 px-2 text-xs font-bold text-[#364F9F] border border-[#364F9F]/30 bg-[#364F9F]/5 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] uppercase tracking-wider"
+                                  />
+                                  <span className="mt-0.5 block text-[9px] text-gray-400">Auto-generated · editable</span>
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-gray-400">Batch Notes</label>
+                                  <input
+                                    type="text"
+                                    value={row.batchNotes}
+                                    onChange={(e) => updateRow(idx, { batchNotes: e.target.value })}
+                                    placeholder="Optional notes..."
+                                    className="w-full h-8 px-2 text-xs text-gray-700 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
+                                  />
+                                </div>
+                              </div>
+                            ) : isAddExisting || row.mode === "remove" ? (
+                              <div>
+                                <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                                  {isAddExisting ? "Select Batch to Add Into" : "Select Batch"}
+                                </label>
+                                {activeBatches.length > 0 ? (
+                                  <BatchSelector
+                                    batches={prodBatches}
+                                    unit={row.unit}
+                                    selectedBatchId={row.selectedBatchId}
+                                    onSelect={(batchId) => updateRow(idx, { selectedBatchId: batchId })}
+                                    mode={isAddExisting ? "add_existing" : "remove"}
+                                  />
+                                ) : (
+                                  <div className="h-9 px-3 flex items-center text-xs text-gray-400 border border-dashed border-gray-200 rounded-lg">
+                                    {row.productId ? "No active batches" : "Select product first"}
+                                  </div>
+                                )}
+                              </div>
+                            ) : <span className="text-xs text-gray-300">Select product first</span>}
+                          </td>
+                          <td className="px-3 py-3 min-w-[135px]">
+                            {row.productId && prodBatches.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedBatchProductId((current) => current === row.productId ? "" : row.productId)}
+                                aria-expanded={batchesOpen}
+                                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
+                                  batchesOpen
+                                    ? "border-[#364F9F]/30 bg-[#364F9F]/10 text-[#364F9F]"
+                                    : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                                }`}
+                              >
+                                <Layers className="h-3.5 w-3.5" />
+                                <span>Batch info ({prodBatches.length})</span>
+                                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${batchesOpen ? "rotate-180" : ""}`} />
+                              </button>
+                            ) : <span className="text-xs text-gray-300">—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-right">
+                            {formRows.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (batchesOpen) setExpandedBatchProductId("");
+                                  removeRow(idx);
+                                }}
+                                aria-label={`Remove ${row.productName || "product row"}`}
+                                className="rounded-md p-1 text-gray-300 hover:bg-red-50 hover:text-red-500 transition-colors"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                        {batchesOpen && (
+                          <tr className="bg-[#364F9F]/[0.025]">
+                            <td colSpan={10} className="px-4 pb-4 pt-1">
+                              <ExistingBatchesCard
                                 batches={prodBatches}
                                 unit={row.unit}
-                                selectedBatchId={row.selectedBatchId}
-                                onSelect={(batchId) => updateRow(idx, { selectedBatchId: batchId })}
-                                mode={isAddExisting ? "add_existing" : "remove"}
+                                productId={row.productId}
+                                subHubId={selectedSubHubId}
+                                onReload={reload}
                               />
-                            ) : (
-                              <div className="h-9 px-3 flex items-center text-xs text-gray-400 border border-dashed border-gray-200 rounded-lg">
-                                {row.productId ? "No active batches" : "Select product first"}
-                              </div>
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {/* Batch number + notes row for new batch mode only */}
-                      {isAdd && row.productId && (
-                        <div className="mt-3 flex flex-wrap items-center gap-3">
-                          <div className="flex items-center gap-2">
-                            <Hash className="w-3.5 h-3.5 text-[#364F9F]" />
-                            <label className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Batch ID</label>
-                          </div>
-                          <input
-                            type="text"
-                            value={row.batchNumber}
-                            onChange={(e) => updateRow(idx, { batchNumber: e.target.value.toUpperCase() })}
-                            placeholder="Auto-generated"
-                            className="w-36 h-8 px-3 text-xs font-bold text-[#364F9F] border border-[#364F9F]/30 bg-[#364F9F]/5 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] uppercase tracking-wider"
-                          />
-                          <span className="text-[10px] text-gray-400">Auto-generated · editable</span>
-                          <div className="h-4 w-px bg-gray-200 hidden sm:block" />
-                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Batch Notes</label>
-                          <input
-                            type="text"
-                            value={row.batchNotes}
-                            onChange={(e) => updateRow(idx, { batchNotes: e.target.value })}
-                            placeholder="Optional notes for this batch..."
-                            className="flex-1 min-w-[160px] h-8 px-3 text-xs text-gray-700 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
-                          />
-                        </div>
-                      )}
-
-                      {/* Existing batches collapsible */}
-                      {row.productId && prodBatches.length > 0 && (
-                        <ExistingBatchesCard
-                          batches={prodBatches}
-                          unit={row.unit}
-                          productId={row.productId}
-                          subHubId={selectedSubHubId}
-                          onReload={reload}
-                        />
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
 
             <div className="mt-4 flex items-center justify-between">
