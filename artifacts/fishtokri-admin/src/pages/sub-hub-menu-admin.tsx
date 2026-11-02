@@ -37,6 +37,7 @@ import { PaginationBar } from "@/components/pagination-bar";
 import { usePaginated } from "@/hooks/use-paginated";
 import { ImageUpload } from "@/components/image-upload";
 import { ProductVariantsManager, type ProductVariantsManagerHandle } from "@/components/product-variants-manager";
+import { formatVariantLabelWithUnit, normalizeProductUnit } from "@/lib/product-units";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -1221,7 +1222,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
         category: p.category ?? "",
         price: p.price ?? 0,
         mrp: p.originalPrice ?? 0,
-        unit: p.unit ?? "",
+        unit: normalizeProductUnit(p.unit, ""),
         grossWeight: p.grossWeight ?? "",
         netWeight: p.netWeight ?? "",
         pieces: p.pieces ?? "",
@@ -1251,7 +1252,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
         errorStyle: "warning",
         errorTitle: "Invalid Unit",
         error: "Please select a valid unit from the dropdown.",
-        formulae: ['"per kg,per 500g,per 250g,per 100g,per tray,per pack,per piece"'],
+        formulae: ['"kg,gram,per tray,pack,per piece"'],
       };
 
       // Status dropdown — column L (G=GrossWeight, H=NetWeight, I=Pieces, J=Serves, K=Stock, L=Status)
@@ -1401,7 +1402,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
           category: r["Category"] ?? r["category"] ?? "",
           price: Number(r["Price"] ?? r["price"] ?? 0),
           originalPrice: Number(r["MRP"] ?? r["originalPrice"] ?? 0),
-          unit: r["Unit"] ?? r["unit"] ?? "per pack",
+          unit: normalizeProductUnit(r["Unit"] ?? r["unit"] ?? "pack"),
           grossWeight: String(r["Gross Weight"] ?? r["grossWeight"] ?? ""),
           netWeight: String(r["Net Weight"] ?? r["netWeight"] ?? ""),
           pieces: String(r["Pieces"] ?? r["pieces"] ?? ""),
@@ -1449,7 +1450,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
             category: r["Category"] ?? r["category"] ?? orig?.category ?? "",
             price: Number(r["Price"] ?? r["price"] ?? orig?.price ?? 0),
             originalPrice: Number(r["MRP"] ?? r["originalPrice"] ?? orig?.originalPrice ?? 0),
-            unit: r["Unit"] ?? r["unit"] ?? orig?.unit ?? "per pack",
+            unit: normalizeProductUnit(r["Unit"] ?? r["unit"] ?? orig?.unit ?? "pack"),
             grossWeight: String(r["Gross Weight"] ?? r["grossWeight"] ?? orig?.grossWeight ?? ""),
             netWeight: String(r["Net Weight"] ?? r["netWeight"] ?? orig?.netWeight ?? ""),
             pieces: String(r["Pieces"] ?? r["pieces"] ?? orig?.pieces ?? ""),
@@ -1555,7 +1556,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
                     <div className="min-w-0">
                       <p className="font-semibold text-black text-base leading-tight">
                         {p.name}
-                        {p.variantLabel && <span className="ml-2 inline-flex rounded-full bg-indigo-50 px-2 py-0.5 align-middle text-[10px] font-bold text-indigo-700">{p.variantLabel}</span>}
+                        {p.variantLabel && <span className="ml-2 inline-flex rounded-full bg-indigo-50 px-2 py-0.5 align-middle text-[10px] font-bold text-indigo-700">{formatVariantLabelWithUnit(p.variantLabel, p.unit)}</span>}
                       </p>
                       {p.description && <p className="text-sm text-black mt-0.5 leading-tight line-clamp-1">{p.description}</p>}
                     </div>
@@ -1573,7 +1574,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
                     )}
                   </td>
                   <td className="px-5 py-4">
-                    <p className="text-sm text-black font-medium">{p.unit || "—"}</p>
+                    <p className="text-sm text-black font-medium">{normalizeProductUnit(p.unit, "—")}</p>
                   </td>
                   <td className="px-5 py-4">
                     <p className="text-sm text-black font-medium">{p.pieces || "—"}</p>
@@ -2993,7 +2994,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
       setSubCategory(product.subCategory ?? "");
       setPrice(String(product.price ?? ""));
       setOriginalPrice(String(product.originalPrice ?? ""));
-      setUnit(product.unit ?? "pack");
+      setUnit(normalizeProductUnit(product.unit));
       setGrossWeight(product.grossWeight ?? "");
       setNetWeight(product.netWeight ?? "");
       setPieces(product.pieces ?? "");
@@ -3425,7 +3426,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
                 <Select value={unit} onValueChange={setUnit}>
                   <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["per kg", "per 500g", "per 250g", "per 100g", "per tray", "pack", "per piece"].map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                    {["kg", "gram", "per tray", "pack", "per piece"].map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

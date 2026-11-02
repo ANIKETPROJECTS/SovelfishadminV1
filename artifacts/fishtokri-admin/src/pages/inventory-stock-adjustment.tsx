@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { getCurrentAdminScope } from "@/lib/api";
+import { formatVariantLabelWithUnit, getProductUnitSuffix, normalizeProductUnit } from "@/lib/product-units";
 
 function getToken() { return localStorage.getItem("fishtokri_token") ?? ""; }
 
@@ -101,7 +102,7 @@ function groupProducts(products: Product[]): ProductGroup[] {
       id,
       name: product.name,
       category: product.category || "Uncategorized",
-      unit: product.unit,
+      unit: normalizeProductUnit(product.unit),
       products: members,
       quantity: members.reduce((total, member) => total + (Number(member.quantity) || 0), 0),
     };
@@ -497,14 +498,18 @@ function ProductSelector({
     ? availableGroups.filter((group) =>
       group.name.toLowerCase().includes(q) ||
       group.category.toLowerCase().includes(q) ||
-      group.products.some((product) => (product.variantLabel || "").toLowerCase().includes(q))
+      group.products.some((product) =>
+        formatVariantLabelWithUnit(product.variantLabel, product.unit).toLowerCase().includes(q)
+      )
     )
     : [];
 
   function groupDescription(group: ProductGroup) {
     const hasVariants = group.products.some((product) => Boolean(product.variantGroupId || product.variantLabel));
     if (!hasVariants) return group.category;
-    const labels = group.products.map((product) => product.variantLabel).filter(Boolean);
+    const labels = group.products
+      .filter((product) => Boolean(product.variantLabel))
+      .map((product) => formatVariantLabelWithUnit(product.variantLabel, product.unit));
     return `${group.products.length} weight ${group.products.length === 1 ? "variant" : "variants"}${labels.length ? ` · ${labels.join(" · ")}` : ""}`;
   }
 
@@ -521,7 +526,7 @@ function ProductSelector({
           <p className="text-xs text-gray-400 font-medium truncate">{groupDescription(group)}</p>
         </div>
         <p className="text-xs font-bold text-gray-500 flex-shrink-0">
-          {group.quantity} <span className="font-normal text-gray-400">{group.unit}</span>
+          {group.quantity} <span className="font-normal text-gray-400">{getProductUnitSuffix(group.unit)}</span>
         </p>
       </button>
     );
@@ -1090,7 +1095,8 @@ export default function InventoryStockAdjustment() {
 
     const mode = formRows[i]?.mode ?? "add";
     const selectedRows = group.products.map((product) => {
-      const displayName = product.variantLabel ? `${product.name} (${product.variantLabel})` : product.name;
+      const displayLabel = formatVariantLabelWithUnit(product.variantLabel, product.unit);
+      const displayName = product.variantLabel ? `${product.name} (${displayLabel})` : product.name;
       // Keep batch sequencing and inventory attached to each variant's own product record.
       const productBatches: Batch[] = product.batches ?? [];
       const autoNum = generateNextBatchNumber(displayName, productBatches, product.shortCode);
@@ -1100,7 +1106,7 @@ export default function InventoryStockAdjustment() {
         selectionGroupId: group.id,
         productName: displayName,
         category: product.category || "",
-        unit: product.unit,
+        unit: normalizeProductUnit(product.unit),
         price: String(product.price ?? 0),
         quantityBefore: product.quantity,
         mode,
@@ -1508,14 +1514,17 @@ export default function InventoryStockAdjustment() {
                               priceNumber >= 0 &&
                               priceNumber !== Number(product?.price ?? 0);
                             const batchesOpen = expandedBatchProductId === row.productId;
-                            const variantName = product?.variantLabel || "Standard";
+                            const variantName = formatVariantLabelWithUnit(
+                              product?.variantLabel,
+                              product?.unit ?? row.unit,
+                            );
 
                             return (
                               <Fragment key={row.productId || idx}>
                                 <tr className="hover:bg-gray-50/70">
                                   <td className="border-b border-r border-gray-200 px-2.5 py-2 align-middle">
                                     <p className="text-sm font-semibold text-[#162B4D]">{variantName}</p>
-                                    <p className="mt-0.5 text-[10px] text-gray-400">{row.unit} · {row.quantityBefore} available</p>
+                                    <p className="mt-0.5 text-[10px] text-gray-400">{getProductUnitSuffix(row.unit)} · {row.quantityBefore} available</p>
                                   </td>
                                   <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                                     <div className="flex items-center gap-1">
