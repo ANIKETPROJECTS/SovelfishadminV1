@@ -49,7 +49,58 @@ type Batch = {
   expiryTime?: string;
   notes: string;
 };
-type Product = { id: string; name: string; variantLabel?: string; shortCode?: string; category: string; unit: string; price: number; quantity: number; batches?: Batch[] };
+type Product = {
+  id: string;
+  name: string;
+  variantGroupId?: string;
+  variantLabel?: string;
+  shortCode?: string;
+  category: string;
+  unit: string;
+  price: number;
+  quantity: number;
+  batches?: Batch[];
+};
+
+type ProductGroup = {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  products: Product[];
+  quantity: number;
+};
+
+function getProductGroupId(product: Product): string {
+  return product.variantGroupId || product.id;
+}
+
+function groupProducts(products: Product[]): ProductGroup[] {
+  const grouped = new Map<string, Product[]>();
+  for (const product of products) {
+    const groupId = getProductGroupId(product);
+    const members = grouped.get(groupId) ?? [];
+    members.push(product);
+    grouped.set(groupId, members);
+  }
+
+  return [...grouped.entries()].map(([id, members]) => {
+    members.sort((a, b) => {
+      if (a.id === id) return -1;
+      if (b.id === id) return 1;
+      return (a.variantLabel || "").localeCompare(b.variantLabel || "", undefined, { numeric: true });
+    });
+    const product = members[0];
+    return {
+      id,
+      name: product.name,
+      category: product.category || "Uncategorized",
+      unit: product.unit,
+      products: members,
+      quantity: members.reduce((total, member) => total + (Number(member.quantity) || 0), 0),
+    };
+  }).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+}
 
 type FormMode = "add" | "remove" | "add_existing";
 type FormRow = {
@@ -405,13 +456,13 @@ function LockedHubBadge({ label, name, location }: { label: string; name: string
 
 // ─── PRODUCT SELECTOR ────────────────────────────────────────────────────────
 function ProductSelector({
-  row, idx, allProducts, usedIds, onSelect, onClear, onSearchChange,
+  row, idx, allProducts, usedGroupIds, onSelect, onClear, onSearchChange,
 }: {
   row: FormRow;
   idx: number;
   allProducts: Product[];
-  usedIds: Set<string>;
-  onSelect: (idx: number, p: Product) => void;
+  usedGroupIds: Set<string>;
+  onSelect: (idx: number, group: ProductGroup) => void;
   onClear: (idx: number) => void;
   onSearchChange: (idx: number, val: string) => void;
 }) {
@@ -421,19 +472,53 @@ function ProductSelector({
   const portalRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const available = allProducts.filter((p) => !(usedIds.has(p.id) && p.id !== row.productId));
-  const grouped: Record<string, Product[]> = {};
-  for (const p of available) {
-    const cat = p.category || "Uncategorized";
-    (grouped[cat] = grouped[cat] || []).push(p);
+  const selectedProduct = allProducts.find((product) => product.id === row.productId);
+  const selectedGroupId = selectedProduct ? getProductGroupId(selectedProduct) : "";
+  const availableGroups = groupProducts(allProducts).filter((group) =>
+    !usedGroupIds.has(group.id) || group.id === selectedGroupId
+  );
+  const grouped: Record<string, ProductGroup[]> = {};
+  for (const group of availableGroups) {
+    const cat = group.category || "Uncategorized";
+    (grouped[cat] = grouped[cat] || []).push(group);
   }
   const categories = Object.keys(grouped).sort();
 
   const q = row.search.trim().toLowerCase();
   const isSearching = q.length > 0;
   const searchResults = isSearching
-    ? available.filter((p) => p.name.toLowerCase().includes(q) || (p.variantLabel || "").toLowerCase().includes(q) || (p.category || "").toLowerCase().includes(q))
+    ? availableGroups.filter((group) =>
+      group.name.toLowerCase().includes(q) ||
+      group.category.toLowerCase().includes(q) ||
+      group.products.some((product) => (product.variantLabel || "").toLowerCase().includes(q))
+    )
     : [];
+
+  function groupDescription(group: ProductGroup) {
+    const hasVariants = group.products.some((product) => Boolean(product.variantGroupId));
+    if (!hasVariants) return group.category;
+    const labels = group.products.map((product) => product.variantLabel).filter(Boolean);
+    return `${group.products.length} weight ${group.products.length === 1 ? "variant" : "variants"}${labels.length ? ` · ${labels.join(" · ")}` : ""}`;
+  }
+
+  function renderGroupOption(group: ProductGroup) {
+    return (
+      <button
+        key={group.id}
+        type="button"
+        onMouseDown={(e) => { e.preventDefault(); onSelect(idx, group); doClose(); }}
+        className="w-full text-left px-4 py-2.5 hover:bg-[#F05B4E]/5 transition-colors flex items-center justify-between gap-3 border-b border-gray-50 last:border-0"
+      >
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-[#162B4D] truncate">{group.name}</p>
+          <p className="text-xs text-gray-400 font-medium truncate">{groupDescription(group)}</p>
+        </div>
+        <p className="text-xs font-bold text-gray-500 flex-shrink-0">
+          {group.quantity} <span className="font-normal text-gray-400">{group.unit}</span>
+        </p>
+      </button>
+    );
+  }
 
   function doClose() { setOpen(false); setSelectedCategory(null); }
   function doOpen() { if (!open) setSelectedCategory(null); setOpen(true); }
@@ -475,21 +560,7 @@ function ProductSelector({
           <div className="max-h-64 overflow-y-auto">
             {searchResults.length === 0 ? (
               <div className="px-4 py-6 text-sm text-gray-400 text-center">No products found</div>
-            ) : searchResults.map((p) => (
-              <button
-                key={p.id} type="button"
-                onMouseDown={(e) => { e.preventDefault(); onSelect(idx, p); doClose(); }}
-                className="w-full text-left px-4 py-2.5 hover:bg-[#F05B4E]/5 transition-colors flex items-center justify-between gap-3 border-b border-gray-50 last:border-0"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-[#162B4D] truncate">{p.name}{p.variantLabel ? ` (${p.variantLabel})` : ""}</p>
-                  <p className="text-xs text-gray-400 font-medium">{p.category || "Uncategorized"}</p>
-                </div>
-                <p className="text-xs font-bold text-gray-500 flex-shrink-0">
-                  {p.quantity} <span className="font-normal text-gray-400">{p.unit}</span>
-                </p>
-              </button>
-            ))}
+            ) : searchResults.map(renderGroupOption)}
           </div>
         </>
       ) : (
@@ -512,7 +583,7 @@ function ProductSelector({
                 >
                   <span className="text-sm font-semibold text-[#162B4D]">{cat}</span>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-[11px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5 font-semibold">{grouped[cat]?.length ?? 0}</span>
+                  <span className="text-[11px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5 font-semibold">{grouped[cat]?.length ?? 0}</span>
                     <ChevronRight className="w-3.5 h-3.5 text-gray-400" />
                   </div>
                 </button>
@@ -528,21 +599,7 @@ function ProductSelector({
                 <div className="px-4 py-8 text-sm text-gray-400 text-center">Hover a category to see products</div>
               ) : (grouped[selectedCategory] ?? []).length === 0 ? (
                 <div className="px-4 py-4 text-sm text-gray-400 text-center">No products</div>
-              ) : (grouped[selectedCategory] ?? []).map((p) => (
-                <button
-                  key={p.id} type="button"
-                  onMouseDown={(e) => { e.preventDefault(); onSelect(idx, p); doClose(); }}
-                  className="w-full text-left px-4 py-2.5 hover:bg-[#F05B4E]/5 transition-colors flex items-center justify-between gap-3 border-b border-gray-50 last:border-0"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[#162B4D] truncate">{p.name}{p.variantLabel ? ` (${p.variantLabel})` : ""}</p>
-                    <p className="text-xs text-gray-400">{p.unit || "—"}</p>
-                  </div>
-                  <p className="text-xs font-bold text-gray-500 flex-shrink-0">
-                    {p.quantity} <span className="font-normal text-gray-400">{p.unit}</span>
-                  </p>
-                </button>
-              ))}
+              ) : (grouped[selectedCategory] ?? []).map(renderGroupOption)}
             </div>
           </div>
         </div>
@@ -1020,19 +1077,35 @@ export default function InventoryStockAdjustment() {
     setFormRows((rows) => rows.map((r, idx) => idx === i ? { ...r, ...patch } : r));
   }
 
-  function selectProduct(i: number, p: Product) {
-    const displayName = p.variantLabel ? `${p.name} (${p.variantLabel})` : p.name;
-    // Only pass this product's own batches so the sequence counter is per-product.
-    const productBatches: Batch[] = p.batches ?? [];
-    const autoNum = generateNextBatchNumber(displayName, productBatches, p.shortCode);
-    setFormRows((rows) => rows.map((r, idx) => idx === i ? {
-      ...r,
-      productId: p.id, productName: displayName, category: p.category || "",
-      unit: p.unit, price: String(p.price ?? 0), quantityBefore: p.quantity, search: displayName,
-      batchNumber: r.mode === "add" ? autoNum : "",
-      batchNotes: "",
-      selectedBatchId: "",
-    } : r));
+  function selectProduct(i: number, group: ProductGroup) {
+    const currentProduct = products.find((product) => product.id === formRows[i]?.productId);
+    if (currentProduct && getProductGroupId(currentProduct) === group.id) return;
+
+    const mode = formRows[i]?.mode ?? "add";
+    const selectedRows = group.products.map((product) => {
+      const displayName = product.variantLabel ? `${product.name} (${product.variantLabel})` : product.name;
+      // Keep batch sequencing and inventory attached to each variant's own product record.
+      const productBatches: Batch[] = product.batches ?? [];
+      const autoNum = generateNextBatchNumber(displayName, productBatches, product.shortCode);
+      return {
+        ...emptyRow(),
+        productId: product.id,
+        productName: displayName,
+        category: product.category || "",
+        unit: product.unit,
+        price: String(product.price ?? 0),
+        quantityBefore: product.quantity,
+        mode,
+        search: displayName,
+        batchNumber: mode === "add" ? autoNum : "",
+      };
+    });
+
+    setFormRows((rows) => [
+      ...rows.slice(0, i),
+      ...selectedRows,
+      ...rows.slice(i + 1),
+    ]);
   }
 
   function clearProduct(i: number) {
@@ -1173,14 +1246,22 @@ export default function InventoryStockAdjustment() {
     }
   }
 
-  const usedIds = useMemo(() => new Set(formRows.map((r) => r.productId).filter(Boolean)), [formRows]);
+  const usedGroupIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const row of formRows) {
+      if (!row.productId) continue;
+      const product = products.find((item) => item.id === row.productId);
+      ids.add(product ? getProductGroupId(product) : row.productId);
+    }
+    return ids;
+  }, [formRows, products]);
 
   const headerSlot = document.getElementById("page-header-slot");
   const headerContent = (
     <div className="flex items-center justify-between w-full gap-4 min-w-0">
       <div className="min-w-0 flex-shrink-0">
         <p className="text-sm font-bold text-[#162B4D] leading-tight">Inventory Stock Management</p>
-        <p className="text-[11px] text-gray-400 leading-tight hidden sm:block">Adjust quantities for multiple products at once.</p>
+        <p className="text-[11px] text-gray-400 leading-tight hidden sm:block">Select a product to load its weight variants; manage each price and batch separately.</p>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         {selectedSuperHub && <LockedHubBadge label="Super Hub" name={selectedSuperHub.name} location={selectedSuperHub.location} />}
@@ -1296,7 +1377,7 @@ export default function InventoryStockAdjustment() {
                           <td className="border-b border-r border-gray-200 px-2 py-2 align-middle text-xs font-bold text-gray-400">{idx + 1}</td>
                           <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                             <ProductSelector
-                              row={row} idx={idx} allProducts={products} usedIds={usedIds}
+                              row={row} idx={idx} allProducts={products} usedGroupIds={usedGroupIds}
                               onSelect={selectProduct} onClear={clearProduct} onSearchChange={onSearchChange}
                             />
                             {row.productId && (
