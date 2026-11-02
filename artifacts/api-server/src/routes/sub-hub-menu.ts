@@ -156,7 +156,7 @@ router.get("/products", async (req, res) => {
       const total = batches
         .filter((b: any) => !b?.expiryDate || new Date(b.expiryDate).getTime() >= nowMs)
         .reduce((s: number, b: any) => s + (Math.max(0, Number(b?.quantity) || 0)), 0);
-      const hasVariantLabel = Boolean(p.variantGroupId || p.variantLabel);
+      const hasVariantLabel = Boolean(p.variantGroupId || p.netWeight || p.variantLabel || p.weight || p.grossWeight);
       return {
         ...p,
         unit: p.variantGroupId ? groupUnits.get(String(p.variantGroupId)) ?? p.unit : p.unit,
@@ -428,6 +428,7 @@ router.post("/products", async (req, res) => {
       weight: weight ?? "",
       grossWeight: grossWeight ?? "",
       netWeight: netWeight ?? "",
+      variantLabel: String(netWeight ?? "").trim(),
       pieces: pieces ?? "",
       serves: serves ?? "",
       quantity: Number(quantity) || 0,
@@ -605,6 +606,7 @@ router.post("/products/bulk-upsert", async (req, res) => {
           weight: row.weight ?? "",
           grossWeight: row.grossWeight ?? "",
           netWeight: row.netWeight ?? "",
+          variantLabel: String(row.netWeight ?? "").trim(),
           pieces: row.pieces ?? "",
           serves: row.serves ?? "",
           quantity: Number(row.quantity ?? row.stock) || 0,

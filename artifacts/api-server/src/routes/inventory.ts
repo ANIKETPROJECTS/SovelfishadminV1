@@ -457,7 +457,10 @@ router.get("/products", async (req, res) => {
         return {
           id: String(p._id),
           name: p.name,
-          variantLabel: p.variantGroupId || p.variantLabel ? inventoryVariantLabel(p) : "",
+          variantGroupId: p.variantGroupId ? String(p.variantGroupId) : undefined,
+          variantLabel: p.variantGroupId || p.netWeight || p.variantLabel || p.weight || p.grossWeight
+            ? inventoryVariantLabel(p)
+            : "",
           shortCode: p.shortCode ?? "",
           category: p.category ?? "",
           subCategory: p.subCategory ?? "",

@@ -71,6 +71,12 @@ type ProductGroup = {
   quantity: number;
 };
 
+type AdjustmentCard = {
+  key: string;
+  groupId?: string;
+  rows: Array<{ row: FormRow; idx: number }>;
+};
+
 function getProductGroupId(product: Product): string {
   return product.variantGroupId || product.id;
 }
@@ -105,6 +111,7 @@ function groupProducts(products: Product[]): ProductGroup[] {
 type FormMode = "add" | "remove" | "add_existing";
 type FormRow = {
   productId: string;
+  selectionGroupId?: string;
   productName: string;
   category: string;
   unit: string;
@@ -495,7 +502,7 @@ function ProductSelector({
     : [];
 
   function groupDescription(group: ProductGroup) {
-    const hasVariants = group.products.some((product) => Boolean(product.variantGroupId));
+    const hasVariants = group.products.some((product) => Boolean(product.variantGroupId || product.variantLabel));
     if (!hasVariants) return group.category;
     const labels = group.products.map((product) => product.variantLabel).filter(Boolean);
     return `${group.products.length} weight ${group.products.length === 1 ? "variant" : "variants"}${labels.length ? ` · ${labels.join(" · ")}` : ""}`;
@@ -1090,30 +1097,75 @@ export default function InventoryStockAdjustment() {
       return {
         ...emptyRow(),
         productId: product.id,
+        selectionGroupId: group.id,
         productName: displayName,
         category: product.category || "",
         unit: product.unit,
         price: String(product.price ?? 0),
         quantityBefore: product.quantity,
         mode,
-        search: displayName,
+        search: group.name,
         batchNumber: mode === "add" ? autoNum : "",
       };
     });
 
-    setFormRows((rows) => [
-      ...rows.slice(0, i),
-      ...selectedRows,
-      ...rows.slice(i + 1),
-    ]);
+    setFormRows((rows) => {
+      const oldGroupId = rows[i]?.selectionGroupId;
+      const insertionIndex = rows.slice(0, i).filter((row) => row.selectionGroupId !== oldGroupId || !oldGroupId).length;
+      const remaining = rows.filter((row, index) => oldGroupId
+        ? row.selectionGroupId !== oldGroupId
+        : index !== i);
+      return [
+        ...remaining.slice(0, insertionIndex),
+        ...selectedRows,
+        ...remaining.slice(insertionIndex),
+      ];
+    });
   }
 
   function clearProduct(i: number) {
-    updateRow(i, { productId: "", productName: "", category: "", unit: "", price: "", quantityBefore: 0, search: "", batchNumber: "", selectedBatchId: "" });
+    const currentGroupId = formRows[i]?.selectionGroupId;
+    setFormRows((rows) => {
+      const insertionIndex = rows.slice(0, i).filter((row) => row.selectionGroupId !== currentGroupId || !currentGroupId).length;
+      const remaining = rows.filter((row, index) => currentGroupId
+        ? row.selectionGroupId !== currentGroupId
+        : index !== i);
+      return [
+        ...remaining.slice(0, insertionIndex),
+        emptyRow(),
+        ...remaining.slice(insertionIndex),
+      ];
+    });
+    setExpandedBatchProductId("");
   }
 
   function onSearchChange(i: number, val: string) {
-    updateRow(i, { search: val, productId: "", productName: "", category: "", unit: "", price: "", quantityBefore: 0, batchNumber: "", selectedBatchId: "" });
+    const currentGroupId = formRows[i]?.selectionGroupId;
+    if (!currentGroupId) {
+      updateRow(i, { search: val, productId: "", productName: "", category: "", unit: "", price: "", quantityBefore: 0, batchNumber: "", selectedBatchId: "" });
+      return;
+    }
+    setFormRows((rows) => {
+      const insertionIndex = rows.slice(0, i).filter((row) => row.selectionGroupId !== currentGroupId).length;
+      const remaining = rows.filter((row) => row.selectionGroupId !== currentGroupId);
+      return [
+        ...remaining.slice(0, insertionIndex),
+        { ...emptyRow(), search: val },
+        ...remaining.slice(insertionIndex),
+      ];
+    });
+    setExpandedBatchProductId("");
+  }
+
+  function removeProductCard(card: AdjustmentCard) {
+    setFormRows((rows) => {
+      const remaining = card.groupId
+        ? rows.filter((row) => row.selectionGroupId !== card.groupId)
+        : rows.filter((_, index) => index !== card.rows[0]?.idx);
+      return remaining.length ? remaining : [emptyRow()];
+    });
+    const removedIds = new Set(card.rows.map(({ row }) => row.productId).filter(Boolean));
+    if (removedIds.has(expandedBatchProductId)) setExpandedBatchProductId("");
   }
 
   function changeMode(i: number, mode: FormMode) {
@@ -1256,6 +1308,25 @@ export default function InventoryStockAdjustment() {
     return ids;
   }, [formRows, products]);
 
+  const adjustmentCards = useMemo(() => {
+    const cards: AdjustmentCard[] = [];
+    formRows.forEach((row, idx) => {
+      const product = products.find((item) => item.id === row.productId);
+      const groupId = row.selectionGroupId || (product ? getProductGroupId(product) : undefined);
+      const previous = cards[cards.length - 1];
+      if (groupId && previous?.groupId === groupId) {
+        previous.rows.push({ row, idx });
+      } else {
+        cards.push({
+          key: groupId || `empty-${idx}`,
+          groupId,
+          rows: [{ row, idx }],
+        });
+      }
+    });
+    return cards;
+  }, [formRows, products]);
+
   const headerSlot = document.getElementById("page-header-slot");
   const headerContent = (
     <div className="flex items-center justify-between w-full gap-4 min-w-0">
@@ -1319,253 +1390,286 @@ export default function InventoryStockAdjustment() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-bold text-[#162B4D]">Products</h2>
-              <span className="text-[11px] text-gray-400 font-medium">{formRows.filter(r => r.productId).length} / {formRows.length} selected</span>
+              <span className="text-[11px] text-gray-400 font-medium">
+                {adjustmentCards.filter((card) => card.groupId).length} / {adjustmentCards.length} selected
+              </span>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-gray-300">
-              <table className="w-full min-w-[1684px] table-fixed border-collapse text-left">
-                <colgroup>
-                  <col style={{ width: 44 }} />
-                  <col style={{ width: 245 }} />
-                  <col style={{ width: 185 }} />
-                  <col style={{ width: 160 }} />
-                  <col style={{ width: 110 }} />
-                  <col style={{ width: 135 }} />
-                  <col style={{ width: 270 }} />
-                  <col style={{ width: 320 }} />
-                  <col style={{ width: 165 }} />
-                  <col style={{ width: 50 }} />
-                </colgroup>
-                <thead className="bg-gray-50">
-                  <tr>
-                    {["#", "Product", "Price", "Mode", "Quantity", "Shelf Life (days)", "Expiry Date & Time", "Batch / Selection", "Batch Info", ""].map((heading, index) => (
-                      <th key={`${heading}-${index}`} className="border-b border-r border-gray-300 px-2.5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap last:border-r-0">
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="bg-white">
-                  {formRows.map((row, idx) => {
-                    const isAdd = row.mode === "add";
-                    const isAddExisting = row.mode === "add_existing";
-                    const isAddAny = isAdd || isAddExisting;
-                    const dLeft = isAdd ? daysUntil(row.expiryDate) : null;
-                    const expTone = dLeft == null ? "text-gray-400"
-                      : dLeft < 0 ? "text-red-600"
-                      : dLeft <= 7 ? "text-amber-600"
-                      : "text-emerald-600";
-                    const prod = products.find((p) => p.id === row.productId);
-                    const prodBatches: Batch[] = prod?.batches ?? [];
-                    const activeBatches = prodBatches.filter((b) => {
-                      if (b.quantity <= 0) return false;
-                      if (b.expiryDate) {
-                        const exp = new Date(b.expiryDate);
-                        if (!isNaN(exp.getTime()) && exp.getTime() <= Date.now()) return false;
-                      }
-                      return true;
-                    });
-                    const priceNumber = row.price.trim() === "" ? NaN : Number(row.price);
-                    const hasPriceChange = Number.isFinite(priceNumber) &&
-                      priceNumber >= 0 &&
-                      priceNumber !== Number(prod?.price ?? 0);
-                    const batchesOpen = expandedBatchProductId === row.productId;
+            <div className="space-y-3">
+              {adjustmentCards.map((card) => {
+                const firstEntry = card.rows[0];
+                const firstRow = firstEntry.row;
+                const group = card.groupId
+                  ? groupProducts(products).find((candidate) => candidate.id === card.groupId)
+                  : undefined;
 
-                    return (
-                      <Fragment key={idx}>
-                        <tr className="hover:bg-gray-50/70">
-                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle text-xs font-bold text-gray-400">{idx + 1}</td>
-                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
-                            <ProductSelector
-                              row={row} idx={idx} allProducts={products} usedGroupIds={usedGroupIds}
-                              onSelect={selectProduct} onClear={clearProduct} onSearchChange={onSearchChange}
-                            />
-                            {row.productId && (
-                              <p className="mt-0.5 whitespace-nowrap text-[10px] text-gray-400 font-medium">
-                                {row.unit} · <span className="text-[#162B4D] font-bold">{row.quantityBefore}</span> available
-                              </p>
-                            )}
-                          </td>
-                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
-                            <div className="flex items-center gap-1">
-                              <span className="shrink-0 text-xs text-gray-400">₹</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                inputMode="decimal"
-                                aria-label={`Price for ${row.productName || "selected product"}`}
-                                value={row.price}
-                                onChange={(e) => updateRow(idx, { price: e.target.value })}
-                                disabled={!row.productId}
-                                placeholder="0.00"
-                                className="min-w-0 w-[76px] h-8 px-1.5 text-sm font-semibold text-[#162B4D] border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] disabled:bg-gray-50 disabled:text-gray-400"
-                              />
-                              {row.productId && (
-                                <button
-                                  type="button"
-                                  onClick={() => saveProductPrice(idx)}
-                                  disabled={!hasPriceChange || Boolean(savingPriceProductId)}
-                                  aria-label={`Save price for ${row.productName}`}
-                                  title={hasPriceChange ? "Save price" : "Price is current"}
-                                  className="shrink-0 rounded-md border border-gray-200 px-1.5 py-1 text-[10px] font-semibold text-[#364F9F] hover:bg-[#364F9F]/5 disabled:cursor-not-allowed disabled:text-gray-400"
-                                >
-                                  {savingPriceProductId === row.productId ? "Saving…" : hasPriceChange ? "Save" : "Saved"}
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
-                            <Select value={row.mode} onValueChange={(v) => changeMode(idx, v as FormMode)}>
-                              <SelectTrigger className="h-9 text-xs font-semibold">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="add"><span className="font-semibold text-emerald-700">+ New Batch</span></SelectItem>
-                                <SelectItem value="add_existing"><span className="font-semibold text-[#364F9F]">+ Add to Batch</span></SelectItem>
-                                <SelectItem value="remove"><span className="font-semibold text-red-700">– Reduce</span></SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </td>
-                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
-                            <input
-                              type="number"
-                              min="0"
-                              value={isAddAny ? row.addQuantity : row.removeQuantity}
-                              onChange={(e) => updateRow(idx, isAddAny ? { addQuantity: e.target.value } : { removeQuantity: e.target.value })}
-                              placeholder="0"
-                              aria-label={`Quantity for ${row.productName || "selected product"}`}
-                              className="w-full h-9 px-2 text-sm font-bold text-[#162B4D] text-center border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
-                            />
-                          </td>
-                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
-                            {isAdd ? (
-                              <input
-                                type="number"
-                                min="0"
-                                value={row.shelfLifeDays}
-                                onChange={(e) => setShelfLife(idx, e.target.value)}
-                                placeholder="e.g. 7"
-                                aria-label={`Shelf life in days for ${row.productName || "selected product"}`}
-                                className="w-full h-9 px-2 text-sm font-medium text-center border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
-                              />
-                            ) : <span className="text-xs text-gray-300">—</span>}
-                          </td>
-                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
-                            {isAdd ? (
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="date"
-                                  value={row.expiryDate}
-                                  onChange={(e) => setExpiryDate(idx, e.target.value)}
-                                  aria-label={`Expiry date for ${row.productName || "selected product"}`}
-                                  className={`min-w-0 flex-1 h-8 px-1.5 text-[11px] font-semibold border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] ${expTone}`}
-                                />
-                                <div className="w-[112px] shrink-0">
-                                  <ClockPickerField
-                                    value={row.expiryTime}
-                                    onChange={(v) => updateRow(idx, { expiryTime: v })}
-                                  />
-                                </div>
-                                {dLeft != null && (
-                                  <p className={`text-[10px] font-bold ${expTone}`}>
-                                    {dLeft < 0 ? `Expired ${Math.abs(dLeft)}d ago` : dLeft === 0 ? "Expires today" : `${dLeft}d left`}
-                                  </p>
-                                )}
-                              </div>
-                            ) : <span className="text-xs text-gray-300">—</span>}
-                          </td>
-                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
-                            {isAdd && row.productId ? (
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="text"
-                                  value={row.batchNumber}
-                                  onChange={(e) => updateRow(idx, { batchNumber: e.target.value.toUpperCase() })}
-                                  placeholder="Batch ID"
-                                  aria-label={`Batch ID for ${row.productName}`}
-                                  title="Auto-generated and editable"
-                                  className="min-w-0 w-1/2 h-8 px-2 text-[11px] font-bold text-[#364F9F] border border-[#364F9F]/30 bg-[#364F9F]/5 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] uppercase tracking-wider"
-                                />
-                                  <input
-                                    type="text"
-                                    value={row.batchNotes}
-                                    onChange={(e) => updateRow(idx, { batchNotes: e.target.value })}
-                                    placeholder="Batch notes"
-                                    aria-label={`Batch notes for ${row.productName}`}
-                                    className="min-w-0 w-1/2 h-8 px-2 text-[11px] text-gray-700 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
-                                  />
-                              </div>
-                            ) : isAddExisting || row.mode === "remove" ? (
-                              <div>
-                                {activeBatches.length > 0 ? (
-                                  <BatchSelector
-                                    batches={prodBatches}
-                                    unit={row.unit}
-                                    selectedBatchId={row.selectedBatchId}
-                                    onSelect={(batchId) => updateRow(idx, { selectedBatchId: batchId })}
-                                    mode={isAddExisting ? "add_existing" : "remove"}
-                                  />
-                                ) : (
-                                  <div className="h-9 px-2 flex items-center text-[11px] text-gray-400 border border-dashed border-gray-200 rounded-lg whitespace-nowrap">
-                                    {row.productId ? "No active batches" : "Select product first"}
-                                  </div>
-                                )}
-                              </div>
-                            ) : <span className="whitespace-nowrap text-xs text-gray-300">Select product first</span>}
-                          </td>
-                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
-                            {row.productId && prodBatches.length > 0 ? (
-                              <button
-                                type="button"
-                                onClick={() => setExpandedBatchProductId((current) => current === row.productId ? "" : row.productId)}
-                                aria-expanded={batchesOpen}
-                                  className={`inline-flex items-center gap-1 rounded-lg border px-2 py-2 text-[11px] font-semibold transition-colors whitespace-nowrap ${
-                                  batchesOpen
-                                    ? "border-[#364F9F]/30 bg-[#364F9F]/10 text-[#364F9F]"
-                                    : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-                                }`}
-                              >
-                                <Layers className="h-3.5 w-3.5" />
-                                <span>Batch info ({prodBatches.length})</span>
-                                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${batchesOpen ? "rotate-180" : ""}`} />
-                              </button>
-                            ) : <span className="text-xs text-gray-300">—</span>}
-                          </td>
-                          <td className="border-b border-gray-200 px-2 py-2 align-middle text-right">
-                            {formRows.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (batchesOpen) setExpandedBatchProductId("");
-                                  removeRow(idx);
-                                }}
-                                aria-label={`Remove ${row.productName || "product row"}`}
-                                className="rounded-md p-1 text-gray-300 hover:bg-red-50 hover:text-red-500 transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                        {batchesOpen && (
-                          <tr className="bg-[#364F9F]/[0.025]">
-                            <td colSpan={10} className="border-b border-gray-200 px-4 pb-4 pt-1">
-                              <ExistingBatchesCard
-                                batches={prodBatches}
-                                unit={row.unit}
-                                productId={row.productId}
-                                subHubId={selectedSubHubId}
-                                onReload={reload}
-                              />
-                            </td>
-                          </tr>
+                if (!firstRow.productId) {
+                  return (
+                    <div key={card.key} className="rounded-xl border border-gray-300 bg-white p-3">
+                      <div className="flex items-end justify-between gap-3">
+                        <div className="w-full max-w-md space-y-1.5">
+                          <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Product</Label>
+                          <ProductSelector
+                            row={firstRow} idx={firstEntry.idx} allProducts={products} usedGroupIds={usedGroupIds}
+                            onSelect={selectProduct} onClear={clearProduct} onSearchChange={onSearchChange}
+                          />
+                        </div>
+                        {adjustmentCards.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeProductCard(card)}
+                            aria-label="Remove product selection"
+                            className="rounded-md p-2 text-gray-400 hover:bg-red-50 hover:text-red-500"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         )}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-400">Choose a product to load all of its weight variants together.</p>
+                    </div>
+                  );
+                }
+
+                const totalQuantity = card.rows.reduce((total, entry) => total + entry.row.quantityBefore, 0);
+                return (
+                  <div key={card.key} className="overflow-hidden rounded-xl border border-gray-300 bg-white">
+                    <div className="flex flex-wrap items-end justify-between gap-3 border-b border-gray-200 bg-gray-50/70 p-3">
+                      <div className="w-full max-w-md space-y-1.5">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Product</Label>
+                        <ProductSelector
+                          row={firstRow} idx={firstEntry.idx} allProducts={products} usedGroupIds={usedGroupIds}
+                          onSelect={selectProduct} onClear={clearProduct} onSearchChange={onSearchChange}
+                        />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-xs font-bold text-[#162B4D]">
+                            {card.rows.length} {card.rows.length === 1 ? "variant" : "variants"}
+                          </p>
+                          <p className="text-[10px] text-gray-500">
+                            {totalQuantity} {firstRow.unit} available across variants
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeProductCard(card)}
+                          aria-label={`Remove ${group?.name || firstRow.productName}`}
+                          title="Remove product and its variants"
+                          className="rounded-md p-2 text-gray-400 hover:bg-red-50 hover:text-red-500"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[1430px] table-fixed border-collapse text-left">
+                        <colgroup>
+                          <col style={{ width: 145 }} />
+                          <col style={{ width: 170 }} />
+                          <col style={{ width: 155 }} />
+                          <col style={{ width: 110 }} />
+                          <col style={{ width: 130 }} />
+                          <col style={{ width: 265 }} />
+                          <col style={{ width: 300 }} />
+                          <col style={{ width: 155 }} />
+                        </colgroup>
+                        <thead className="bg-white">
+                          <tr>
+                            {["Weight / Variant", "Price", "Mode", "Quantity", "Shelf Life (days)", "Expiry Date & Time", "Batch / Selection", "Batch Info"].map((heading) => (
+                              <th key={heading} className="border-b border-r border-gray-200 px-2.5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap last:border-r-0">
+                                {heading}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {card.rows.map(({ row, idx }) => {
+                            const isAdd = row.mode === "add";
+                            const isAddExisting = row.mode === "add_existing";
+                            const isAddAny = isAdd || isAddExisting;
+                            const dLeft = isAdd ? daysUntil(row.expiryDate) : null;
+                            const expTone = dLeft == null ? "text-gray-400"
+                              : dLeft < 0 ? "text-red-600"
+                              : dLeft <= 7 ? "text-amber-600"
+                              : "text-emerald-600";
+                            const product = products.find((item) => item.id === row.productId);
+                            const productBatches: Batch[] = product?.batches ?? [];
+                            const activeBatches = productBatches.filter((batch) => {
+                              if (batch.quantity <= 0) return false;
+                              if (batch.expiryDate) {
+                                const expiry = new Date(batch.expiryDate);
+                                if (!isNaN(expiry.getTime()) && expiry.getTime() <= Date.now()) return false;
+                              }
+                              return true;
+                            });
+                            const priceNumber = row.price.trim() === "" ? NaN : Number(row.price);
+                            const hasPriceChange = Number.isFinite(priceNumber) &&
+                              priceNumber >= 0 &&
+                              priceNumber !== Number(product?.price ?? 0);
+                            const batchesOpen = expandedBatchProductId === row.productId;
+                            const variantName = product?.variantLabel || "Standard";
+
+                            return (
+                              <Fragment key={row.productId || idx}>
+                                <tr className="hover:bg-gray-50/70">
+                                  <td className="border-b border-r border-gray-200 px-2.5 py-2 align-middle">
+                                    <p className="text-sm font-semibold text-[#162B4D]">{variantName}</p>
+                                    <p className="mt-0.5 text-[10px] text-gray-400">{row.unit} · {row.quantityBefore} available</p>
+                                  </td>
+                                  <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
+                                    <div className="flex items-center gap-1">
+                                      <span className="shrink-0 text-xs text-gray-400">₹</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        inputMode="decimal"
+                                        aria-label={`Price for ${row.productName || "selected product"}`}
+                                        value={row.price}
+                                        onChange={(event) => updateRow(idx, { price: event.target.value })}
+                                        placeholder="0.00"
+                                        className="min-w-0 w-[92px] h-8 px-1.5 text-sm font-semibold text-[#162B4D] border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => saveProductPrice(idx)}
+                                        disabled={!hasPriceChange || Boolean(savingPriceProductId)}
+                                        aria-label={`Save price for ${row.productName}`}
+                                        title={hasPriceChange ? "Save price" : "Price is current"}
+                                        className="shrink-0 rounded-md border border-gray-200 px-1.5 py-1 text-[10px] font-semibold text-[#364F9F] hover:bg-[#364F9F]/5 disabled:cursor-not-allowed disabled:text-gray-400"
+                                      >
+                                        {savingPriceProductId === row.productId ? "Saving…" : hasPriceChange ? "Save" : "Saved"}
+                                      </button>
+                                    </div>
+                                  </td>
+                                  <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
+                                    <Select value={row.mode} onValueChange={(value) => changeMode(idx, value as FormMode)}>
+                                      <SelectTrigger className="h-9 text-xs font-semibold"><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="add"><span className="font-semibold text-emerald-700">+ New Batch</span></SelectItem>
+                                        <SelectItem value="add_existing"><span className="font-semibold text-[#364F9F]">+ Add to Batch</span></SelectItem>
+                                        <SelectItem value="remove"><span className="font-semibold text-red-700">– Reduce</span></SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </td>
+                                  <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={isAddAny ? row.addQuantity : row.removeQuantity}
+                                      onChange={(event) => updateRow(idx, isAddAny ? { addQuantity: event.target.value } : { removeQuantity: event.target.value })}
+                                      placeholder="0"
+                                      aria-label={`Quantity for ${row.productName || "selected product"}`}
+                                      className="w-full h-9 px-2 text-sm font-bold text-[#162B4D] text-center border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
+                                    />
+                                  </td>
+                                  <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
+                                    {isAdd ? (
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={row.shelfLifeDays}
+                                        onChange={(event) => setShelfLife(idx, event.target.value)}
+                                        placeholder="e.g. 7"
+                                        aria-label={`Shelf life in days for ${row.productName || "selected product"}`}
+                                        className="w-full h-9 px-2 text-sm font-medium text-center border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
+                                      />
+                                    ) : <span className="text-xs text-gray-300">—</span>}
+                                  </td>
+                                  <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
+                                    {isAdd ? (
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="date"
+                                          value={row.expiryDate}
+                                          onChange={(event) => setExpiryDate(idx, event.target.value)}
+                                          aria-label={`Expiry date for ${row.productName || "selected product"}`}
+                                          className={`min-w-0 flex-1 h-8 px-1.5 text-[11px] font-semibold border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] ${expTone}`}
+                                        />
+                                        <div className="w-[112px] shrink-0">
+                                          <ClockPickerField value={row.expiryTime} onChange={(value) => updateRow(idx, { expiryTime: value })} />
+                                        </div>
+                                        {dLeft != null && <p className={`text-[10px] font-bold ${expTone}`}>{dLeft < 0 ? `Expired ${Math.abs(dLeft)}d ago` : dLeft === 0 ? "Expires today" : `${dLeft}d left`}</p>}
+                                      </div>
+                                    ) : <span className="text-xs text-gray-300">—</span>}
+                                  </td>
+                                  <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
+                                    {isAdd ? (
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="text"
+                                          value={row.batchNumber}
+                                          onChange={(event) => updateRow(idx, { batchNumber: event.target.value.toUpperCase() })}
+                                          placeholder="Batch ID"
+                                          aria-label={`Batch ID for ${row.productName}`}
+                                          title="Auto-generated and editable"
+                                          className="min-w-0 w-1/2 h-8 px-2 text-[11px] font-bold text-[#364F9F] border border-[#364F9F]/30 bg-[#364F9F]/5 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] uppercase tracking-wider"
+                                        />
+                                        <input
+                                          type="text"
+                                          value={row.batchNotes}
+                                          onChange={(event) => updateRow(idx, { batchNotes: event.target.value })}
+                                          placeholder="Batch notes"
+                                          aria-label={`Batch notes for ${row.productName}`}
+                                          className="min-w-0 w-1/2 h-8 px-2 text-[11px] text-gray-700 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
+                                        />
+                                      </div>
+                                    ) : isAddExisting || row.mode === "remove" ? (
+                                      activeBatches.length > 0 ? (
+                                        <BatchSelector
+                                          batches={productBatches}
+                                          unit={row.unit}
+                                          selectedBatchId={row.selectedBatchId}
+                                          onSelect={(batchId) => updateRow(idx, { selectedBatchId: batchId })}
+                                          mode={isAddExisting ? "add_existing" : "remove"}
+                                        />
+                                      ) : (
+                                        <div className="h-9 px-2 flex items-center text-[11px] text-gray-400 border border-dashed border-gray-200 rounded-lg whitespace-nowrap">No active batches</div>
+                                      )
+                                    ) : <span className="whitespace-nowrap text-xs text-gray-300">—</span>}
+                                  </td>
+                                  <td className="border-b border-gray-200 px-2 py-2 align-middle">
+                                    {productBatches.length > 0 ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedBatchProductId((current) => current === row.productId ? "" : row.productId)}
+                                        aria-expanded={batchesOpen}
+                                        className={`inline-flex items-center gap-1 rounded-lg border px-2 py-2 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                                          batchesOpen
+                                            ? "border-[#364F9F]/30 bg-[#364F9F]/10 text-[#364F9F]"
+                                            : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                                        }`}
+                                      >
+                                        <Layers className="h-3.5 w-3.5" />
+                                        <span>Batch info ({productBatches.length})</span>
+                                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${batchesOpen ? "rotate-180" : ""}`} />
+                                      </button>
+                                    ) : <span className="text-xs text-gray-300">—</span>}
+                                  </td>
+                                </tr>
+                                {batchesOpen && (
+                                  <tr className="bg-[#364F9F]/[0.025]">
+                                    <td colSpan={8} className="border-b border-gray-200 px-4 pb-4 pt-1">
+                                      <ExistingBatchesCard
+                                        batches={productBatches}
+                                        unit={row.unit}
+                                        productId={row.productId}
+                                        subHubId={selectedSubHubId}
+                                        onReload={reload}
+                                      />
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             <div className="mt-4 flex items-center justify-between">
