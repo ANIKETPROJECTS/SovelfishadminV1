@@ -49,7 +49,7 @@ type Batch = {
   expiryTime?: string;
   notes: string;
 };
-type Product = { id: string; name: string; shortCode?: string; category: string; unit: string; price: number; quantity: number; batches?: Batch[] };
+type Product = { id: string; name: string; variantLabel?: string; shortCode?: string; category: string; unit: string; price: number; quantity: number; batches?: Batch[] };
 
 type FormMode = "add" | "remove" | "add_existing";
 type FormRow = {
@@ -432,7 +432,7 @@ function ProductSelector({
   const q = row.search.trim().toLowerCase();
   const isSearching = q.length > 0;
   const searchResults = isSearching
-    ? available.filter((p) => p.name.toLowerCase().includes(q) || (p.category || "").toLowerCase().includes(q))
+    ? available.filter((p) => p.name.toLowerCase().includes(q) || (p.variantLabel || "").toLowerCase().includes(q) || (p.category || "").toLowerCase().includes(q))
     : [];
 
   function doClose() { setOpen(false); setSelectedCategory(null); }
@@ -482,7 +482,7 @@ function ProductSelector({
                 className="w-full text-left px-4 py-2.5 hover:bg-[#F05B4E]/5 transition-colors flex items-center justify-between gap-3 border-b border-gray-50 last:border-0"
               >
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-[#162B4D] truncate">{p.name}</p>
+                  <p className="text-sm font-semibold text-[#162B4D] truncate">{p.name}{p.variantLabel ? ` (${p.variantLabel})` : ""}</p>
                   <p className="text-xs text-gray-400 font-medium">{p.category || "Uncategorized"}</p>
                 </div>
                 <p className="text-xs font-bold text-gray-500 flex-shrink-0">
@@ -535,7 +535,7 @@ function ProductSelector({
                   className="w-full text-left px-4 py-2.5 hover:bg-[#F05B4E]/5 transition-colors flex items-center justify-between gap-3 border-b border-gray-50 last:border-0"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[#162B4D] truncate">{p.name}</p>
+                    <p className="text-sm font-semibold text-[#162B4D] truncate">{p.name}{p.variantLabel ? ` (${p.variantLabel})` : ""}</p>
                     <p className="text-xs text-gray-400">{p.unit || "—"}</p>
                   </div>
                   <p className="text-xs font-bold text-gray-500 flex-shrink-0">
@@ -1021,13 +1021,14 @@ export default function InventoryStockAdjustment() {
   }
 
   function selectProduct(i: number, p: Product) {
+    const displayName = p.variantLabel ? `${p.name} (${p.variantLabel})` : p.name;
     // Only pass this product's own batches so the sequence counter is per-product.
     const productBatches: Batch[] = p.batches ?? [];
-    const autoNum = generateNextBatchNumber(p.name, productBatches, p.shortCode);
+    const autoNum = generateNextBatchNumber(displayName, productBatches, p.shortCode);
     setFormRows((rows) => rows.map((r, idx) => idx === i ? {
       ...r,
-      productId: p.id, productName: p.name, category: p.category || "",
-      unit: p.unit, price: String(p.price ?? 0), quantityBefore: p.quantity, search: p.name,
+      productId: p.id, productName: displayName, category: p.category || "",
+      unit: p.unit, price: String(p.price ?? 0), quantityBefore: p.quantity, search: displayName,
       batchNumber: r.mode === "add" ? autoNum : "",
       batchNotes: "",
       selectedBatchId: "",

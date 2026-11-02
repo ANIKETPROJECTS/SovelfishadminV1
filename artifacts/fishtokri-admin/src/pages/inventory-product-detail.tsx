@@ -34,6 +34,7 @@ type Batch = {
 type Product = {
   id: string;
   name: string;
+  variantLabel?: string;
   category: string;
   subCategory: string;
   unit: string;
@@ -242,7 +243,9 @@ export default function InventoryProductDetail() {
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
-                  <h1 className="text-xl font-bold text-[#162B4D]">{product.name}</h1>
+                  <h1 className="text-xl font-bold text-[#162B4D]">
+                    {product.name}{product.variantLabel ? ` (${product.variantLabel})` : ""}
+                  </h1>
                   <p className="text-sm text-gray-400 mt-0.5">
                     {product.category}{product.subCategory && ` / ${product.subCategory}`}
                     {product.unit && <span className="ml-2 text-gray-300">· {product.unit}</span>}

@@ -1412,9 +1412,12 @@ export default function Orders() {
   }, [activeTimeslots, loadingTimeslots, selectedTimeslotId, timeslots.length]);
 
   const productsForMode = useMemo(() => {
-    const products = subHubProducts.filter((p) => posProductMode === "preorder"
-      ? isPreorderOnlyProduct(p) && isProductAvailableForPreorder(p, orderDate)
-      : !isPreorderOnlyProduct(p));
+    const products = subHubProducts.filter((p) =>
+      p.isArchived !== true &&
+      (posProductMode === "preorder"
+        ? isPreorderOnlyProduct(p) && isProductAvailableForPreorder(p, orderDate)
+        : !isPreorderOnlyProduct(p))
+    );
     if (posProductMode === "preorder") return products;
     const combos = subHubCombos
       .filter((combo) => combo.isActive !== false)
@@ -1504,7 +1507,7 @@ export default function Orders() {
     }
     if (q) {
       list = list.filter((p) =>
-        [p.name, p.description, p.category, p.subCategory, p.shortCode, ...(Array.isArray(p.tags) ? p.tags : [])]
+        [p.name, p.variantLabel, p.description, p.category, p.subCategory, p.shortCode, ...(Array.isArray(p.tags) ? p.tags : [])]
           .some((v) => String(v ?? "").toLowerCase().includes(q))
       );
     }
@@ -4288,6 +4291,7 @@ export default function Orders() {
                 <div className="grid grid-cols-4 gap-3">
                   {filteredProducts.map((p) => {
                     const pid = String(p._id);
+                    const displayName = p.variantLabel ? `${p.name} (${p.variantLabel})` : p.name;
                     const cartItem = selectedProducts.find((sp) => sp.productId === pid);
                     const stock = Number(p.quantity) || 0;
                     const outOfStock = stock <= 0;
@@ -4304,14 +4308,14 @@ export default function Orders() {
                               : "border-gray-200 bg-white hover:border-[#1A56DB]/60 hover:shadow-md cursor-pointer"
                         }`}
                         onClick={() => {
-                          if (outOfStock) { toast({ title: "Out of stock", description: `${p.name} is unavailable.`, variant: "destructive" }); return; }
+                          if (outOfStock) { toast({ title: "Out of stock", description: `${displayName} is unavailable.`, variant: "destructive" }); return; }
                           if (atMax) { toast({ title: "Stock limit reached", description: `Only ${stock} available.`, variant: "destructive" }); return; }
                           setSelectedProducts((prev) => {
                             const exists = prev.find((sp) => sp.productId === pid);
                             if (exists) return prev.map((sp) => sp.productId === pid ? { ...sp, quantity: sp.quantity + 1 } : sp);
                             return [...prev, {
                               productId: pid,
-                              name: p.name,
+                              name: displayName,
                               price: Number(p.price) || 0,
                               unit: p.unit ?? "",
                               quantity: 1,
@@ -4324,7 +4328,7 @@ export default function Orders() {
                           <img src={p.imageUrl} alt="" className="w-full h-20 object-cover rounded-t-[10px]" />
                         )}
                         <div className="p-2.5 flex flex-col flex-1">
-                          <p className="text-sm font-medium text-[#162B4D] leading-snug line-clamp-2 min-h-[2.5rem]">{p.name}</p>
+                          <p className="text-sm font-medium text-[#162B4D] leading-snug line-clamp-2 min-h-[2.5rem]">{displayName}</p>
                           <p className="text-xs text-gray-400 uppercase tracking-wide truncate h-4">{p.category || "\u00A0"}</p>
                           <div className="flex items-center justify-between mt-auto pt-1.5 gap-1">
                             <div className="min-w-0 flex-1">

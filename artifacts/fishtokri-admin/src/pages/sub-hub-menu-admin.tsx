@@ -36,6 +36,7 @@ import { useToast } from "@/hooks/use-toast";
 import { PaginationBar } from "@/components/pagination-bar";
 import { usePaginated } from "@/hooks/use-paginated";
 import { ImageUpload } from "@/components/image-upload";
+import { ProductVariantsManager } from "@/components/product-variants-manager";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -1123,7 +1124,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
 
   const processed = useMemo(() => {
     let items = [...products];
-    if (search) items = items.filter((p) => [p.name, p.category, p.subCategory, p.description].filter(Boolean).some((f: string) => f.toLowerCase().includes(search.toLowerCase())));
+    if (search) items = items.filter((p) => [p.name, p.variantLabel, p.category, p.subCategory, p.description].filter(Boolean).some((f: string) => String(f).toLowerCase().includes(search.toLowerCase())));
     if (filters.status === "available") items = items.filter((p) => !p.isArchived && (Number(p.quantity) || 0) > 0);
     if (filters.status === "out_of_stock") items = items.filter((p) => !p.isArchived && (Number(p.quantity) || 0) <= 0);
     if (filters.category !== "all") items = items.filter((p) => p.category === filters.category);
@@ -1134,7 +1135,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
       if (sortValue === "price_desc") return (b.price ?? 0) - (a.price ?? 0);
       if (sortValue === "discount_desc") return (b.discountPct ?? 0) - (a.discountPct ?? 0);
       if (sortValue === "qty_desc") return (b.quantity ?? 0) - (a.quantity ?? 0);
-      return 0;
+      return (a.name ?? "").localeCompare(b.name ?? "") || String(a.variantLabel ?? "").localeCompare(String(b.variantLabel ?? ""));
     });
     return items;
   }, [products, search, filters, sortValue]);
@@ -1166,7 +1167,8 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
     if (!deleteId) return;
     try {
       await apiFetch(`/api/sub-hubs/${subHubId}/menu/products/${deleteId}`, { method: "DELETE" });
-      toast({ title: "Product deleted" }); load();
+      const deleting = products.find((product) => String(product._id) === deleteId);
+      toast({ title: deleting?.variantGroupId ? "Variant archived" : "Product deleted" }); load();
     } catch (err: any) { toast({ title: "Error", description: err.message, variant: "destructive" }); }
     finally { setDeleteId(null); }
   };
@@ -1551,7 +1553,10 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
                 <tr key={String(p._id)} className="hover:bg-gray-50/60 transition-colors">
                   <td className="px-5 py-4">
                     <div className="min-w-0">
-                      <p className="font-semibold text-black text-base leading-tight">{p.name}</p>
+                      <p className="font-semibold text-black text-base leading-tight">
+                        {p.name}
+                        {p.variantLabel && <span className="ml-2 inline-flex rounded-full bg-indigo-50 px-2 py-0.5 align-middle text-[10px] font-bold text-indigo-700">{p.variantLabel}</span>}
+                      </p>
                       {p.description && <p className="text-sm text-black mt-0.5 leading-tight line-clamp-1">{p.description}</p>}
                     </div>
                   </td>
@@ -1621,8 +1626,24 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
         label="products"
       />
 
-      <ProductModal isOpen={modalOpen} onClose={() => setModalOpen(false)} product={editing} subHubId={subHubId} categories={categories} onSaved={load} />
-      <DeleteDialog open={!!deleteId} onCancel={() => setDeleteId(null)} onConfirm={handleDelete} title="Delete Product" description="This will permanently remove the product from the menu." />
+      <ProductModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        product={editing}
+        subHubId={subHubId}
+        categories={categories}
+        onSaved={load}
+        onEditVariant={(variant: any) => { setEditing(variant); setModalOpen(true); }}
+      />
+      <DeleteDialog
+        open={!!deleteId}
+        onCancel={() => setDeleteId(null)}
+        onConfirm={handleDelete}
+        title="Remove Product"
+        description={products.find((product) => String(product._id) === deleteId)?.variantGroupId
+          ? "This variant will be hidden from POS and archived so its stock and order history remain available."
+          : "This will permanently remove the product from the menu."}
+      />
       <Dialog open={activeProductsPreviewOpen} onOpenChange={setActiveProductsPreviewOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
@@ -2915,7 +2936,7 @@ function RecipeEditor({ recipe, onChange, onRemove }: { recipe: any; onChange: (
   );
 }
 
-function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved }: any) {
+function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved, onEditVariant }: any) {
   const { toast } = useToast();
   const isEditing = !!product;
 
@@ -3430,6 +3451,28 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved 
               )}
             </div>
           </section>
+
+          {isEditing && (
+            <ProductVariantsManager
+              subHubId={subHubId}
+              product={product}
+              onEditVariant={onEditVariant}
+              onSaved={onSaved}
+              onCurrentVariantUpdated={(variantId, draft) => {
+                if (String(product._id) !== variantId) return;
+                setPrice(String(draft.price));
+                setOriginalPrice(String(draft.originalPrice));
+                setUnit(draft.unit);
+                setGrossWeight(draft.grossWeight);
+                setNetWeight(draft.netWeight);
+                setPieces(draft.pieces);
+                setServes(draft.serves);
+              }}
+              onCurrentVariantArchived={(variantId, archived) => {
+                if (String(product._id) === variantId) setIsArchived(archived);
+              }}
+            />
+          )}
 
           {/* ── STATUS ─────────────────────────────────────── */}
           <section>

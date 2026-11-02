@@ -296,7 +296,7 @@ router.get("/analytics/summary", async (req: ScopedRequest, res) => {
     let adjustmentsTotal = 0;
     let categories = new Set<string>();
 
-    type LowItem = { id: string; name: string; quantity: number; unit: string; category: string; subHubName: string; subHubId: string };
+    type LowItem = { id: string; name: string; variantLabel?: string; quantity: number; unit: string; category: string; subHubName: string; subHubId: string };
     type ExpiringItem = { id: string; name: string; quantity: number; unit: string; expiryDate: string; subHubName: string; subHubId: string; daysLeft: number };
     type SubSummary = { id: string; name: string; products: number; outOfStock: number; lowStock: number; stockValue: number };
     type RecentMove = any;
@@ -337,6 +337,7 @@ router.get("/analytics/summary", async (req: ScopedRequest, res) => {
           lowItems.push({
             id: String(p._id),
             name: p.name ?? "",
+            variantLabel: p.variantLabel ?? "",
             quantity: qty,
             unit: p.unit ?? "",
             category: p.category ?? "",
@@ -422,6 +423,11 @@ router.get("/analytics/summary", async (req: ScopedRequest, res) => {
   }
 });
 
+function inventoryProductDisplayName(product: any): string {
+  const name = String(product?.name ?? "");
+  return product?.variantLabel ? `${name} (${product.variantLabel})` : name;
+}
+
 // ─── PRODUCT LIST (for selected sub-hub) ──────────────────────────────────────
 router.get("/products", async (req, res) => {
   try {
@@ -439,6 +445,7 @@ router.get("/products", async (req, res) => {
         return {
           id: String(p._id),
           name: p.name,
+          variantLabel: p.variantLabel ?? "",
           shortCode: p.shortCode ?? "",
           category: p.category ?? "",
           subCategory: p.subCategory ?? "",
@@ -745,7 +752,7 @@ router.post("/adjustments", async (req, res) => {
         delta = newQty - before;
         if (delta === 0 && !it.force) {
           adjustmentItems.push({
-            productId: String(pid), productName: existing.name, unit: existing.unit ?? "",
+            productId: String(pid), productName: inventoryProductDisplayName(existing), unit: existing.unit ?? "",
             quantityBefore: before, newQuantity: newQty, quantityAdjusted: 0, mode: "set",
           });
           continue;
@@ -775,7 +782,7 @@ router.post("/adjustments", async (req, res) => {
 
       adjustmentItems.push({
         productId: String(pid),
-        productName: existing.name,
+        productName: inventoryProductDisplayName(existing),
         unit: existing.unit ?? "",
         quantityBefore: before,
         newQuantity: persisted.quantity,
@@ -791,7 +798,7 @@ router.post("/adjustments", async (req, res) => {
       movementDocs.push({
         type: "adjustment",
         productId: String(pid),
-        productName: existing.name,
+        productName: inventoryProductDisplayName(existing),
         unit: existing.unit ?? "",
         change: delta,
         balance: persisted.quantity,
@@ -1301,7 +1308,7 @@ async function restoreOrderDeductionsFromMovements(
     await movements.insertOne({
       type: "order_restore",
       productId,
-      productName: product.name ?? "",
+      productName: inventoryProductDisplayName(product),
       unit: product.unit ?? "",
       change: totalRestored,
       balance,
@@ -1393,7 +1400,7 @@ async function applyDelta(order: OrderForSync, direction: "deduct" | "restore", 
         : Math.max(0, Number(product.quantity) || 0);
       if (available < it.quantity) {
         logger.warn(
-          { orderId, productId: String(pid), productName: product.name, available, requested: it.quantity },
+          { orderId, productId: String(pid), productName: inventoryProductDisplayName(product), available, requested: it.quantity },
           "applyDelta: pre-flight stock check FAILED — insufficient stock, rejecting order"
         );
         throw new InsufficientStockError(product.name ?? it.name ?? "Unknown product", available, it.quantity);
@@ -1415,7 +1422,7 @@ async function applyDelta(order: OrderForSync, direction: "deduct" | "restore", 
       continue;
     }
     const currentBatches: Batch[] = Array.isArray(existing.batches) ? existing.batches.map((b: any) => normalizeBatch(b)) : [];
-    logger.info({ orderId, direction, productId: String(pid), productName: existing.name, qty, batchCount: currentBatches.length, batchTotal: batchesTotal(currentBatches), storedQuantity: existing.quantity }, "applyDelta: processing item");
+    logger.info({ orderId, direction, productId: String(pid), productName: inventoryProductDisplayName(existing), qty, batchCount: currentBatches.length, batchTotal: batchesTotal(currentBatches), storedQuantity: existing.quantity }, "applyDelta: processing item");
 
     let newBatches = currentBatches;
     let appliedExpiry: Date | null = null;
@@ -1445,10 +1452,10 @@ async function applyDelta(order: OrderForSync, direction: "deduct" | "restore", 
           { _id: pid },
           { $inc: { quantity: -qty }, $set: { updatedAt: now } }
         );
-        const after = await products.findOne({ _id: pid }, { projection: { quantity: 1, name: 1, unit: 1 } });
+        const after = await products.findOne({ _id: pid }, { projection: { quantity: 1, name: 1, unit: 1, variantLabel: 1 } });
         await movements.insertOne({
           type: "order_deduct", productId: String(pid),
-          productName: (after as any)?.name ?? it.name ?? "",
+          productName: inventoryProductDisplayName(after) || it.name || "",
           unit: (after as any)?.unit ?? it.unit ?? "",
           change: -qty, balance: Number((after as any)?.quantity) || 0,
           orderId, orderRef, ...(subReason ? { subReason } : {}),
@@ -1461,13 +1468,13 @@ async function applyDelta(order: OrderForSync, direction: "deduct" | "restore", 
 
     const persisted = await persistBatches(products, pid, newBatches, {}, combos);
     logger.info(
-      { orderId, direction, productId: String(pid), productName: existing.name, newStockTotal: persisted.quantity },
+      { orderId, direction, productId: String(pid), productName: inventoryProductDisplayName(existing), newStockTotal: persisted.quantity },
       "applyDelta: stock persisted ✓"
     );
     await movements.insertOne({
       type: "order_deduct",
       productId: String(pid),
-      productName: existing.name ?? it.name ?? "",
+      productName: inventoryProductDisplayName(existing) || it.name || "",
       unit: existing.unit ?? it.unit ?? "",
       change: -qty,
       balance: persisted.quantity,

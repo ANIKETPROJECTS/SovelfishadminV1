@@ -23,7 +23,7 @@ type InventoryAnalytics = {
     adjustmentsTotal: number;
     adjustments30d: number;
   };
-  lowStock: Array<{ id: string; name: string; quantity: number; unit: string; category: string; subHubName: string }>;
+  lowStock: Array<{ id: string; name: string; variantLabel?: string; quantity: number; unit: string; category: string; subHubName: string }>;
   recentMovements: Array<{ _id?: string; type: string; productName?: string; change?: number; balance?: number; orderRef?: string; reason?: string; subHubName?: string; createdAt?: string }>;
   subHubBreakdown: Array<{ id: string; name: string; products: number; outOfStock: number; lowStock: number; stockValue: number }>;
 };
@@ -236,7 +236,9 @@ export default function InventoryOverview() {
                       <AlertTriangle className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm text-[#162B4D] truncate">{p.name}</p>
+                      <p className="font-semibold text-sm text-[#162B4D] truncate">
+                        {p.name}{p.variantLabel ? ` (${p.variantLabel})` : ""}
+                      </p>
                       <p className="text-xs text-gray-400 mt-0.5 truncate">
                         {p.subHubName}{p.category ? ` • ${p.category}` : ""}
                       </p>

@@ -158,6 +158,203 @@ router.get("/products", async (req, res) => {
   }
 });
 
+function getVariantLabel(product: any): string {
+  return String(
+    product?.variantLabel ||
+    product?.netWeight ||
+    product?.weight ||
+    product?.grossWeight ||
+    "Standard",
+  ).trim();
+}
+
+router.get("/products/:productId/variants", async (req, res) => {
+  try {
+    const ctx = await getSubHubDb(String((req.params as any).id), res, req as ScopedRequest);
+    if (!ctx) return;
+    const productId = toId(req.params.productId);
+    if (!productId) { res.status(400).json({ error: "InvalidId", message: "Invalid product ID" }); return; }
+    const db = ctx.conn.db!;
+    const products = db.collection("products");
+    const product = await products.findOne({ _id: productId });
+    if (!product) { res.status(404).json({ error: "NotFound", message: "Product not found" }); return; }
+
+    const groupId = String(product.variantGroupId || product._id);
+    const variants = product.variantGroupId
+      ? await products.find({ variantGroupId: groupId }).sort({ createdAt: 1, _id: 1 }).toArray()
+      : [product];
+    const withQuantity = variants.map((variant: any) => {
+      const batches = Array.isArray(variant.batches) ? variant.batches : [];
+      const quantity = batches.length > 0
+        ? batches.reduce((total: number, batch: any) => total + Math.max(0, Number(batch?.quantity) || 0), 0)
+        : Math.max(0, Number(variant.quantity) || 0);
+      return { ...variant, variantLabel: getVariantLabel(variant), quantity };
+    });
+
+    res.json({ groupId: product.variantGroupId ? groupId : null, variants: withQuantity });
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch product variants");
+    res.status(500).json({ error: "InternalError", message: "Failed to fetch product variants" });
+  }
+});
+
+router.post("/products/:productId/variants", async (req, res) => {
+  try {
+    const ctx = await getSubHubDb(String((req.params as any).id), res, req as ScopedRequest);
+    if (!ctx) return;
+    const productId = toId(req.params.productId);
+    if (!productId) { res.status(400).json({ error: "InvalidId", message: "Invalid product ID" }); return; }
+
+    const db = ctx.conn.db!;
+    const products = db.collection("products");
+    const base = await products.findOne({ _id: productId });
+    if (!base) { res.status(404).json({ error: "NotFound", message: "Product not found" }); return; }
+
+    const variantLabel = String(req.body.variantLabel ?? "").trim();
+    const price = Number(req.body.price);
+    if (!variantLabel) { res.status(400).json({ error: "ValidationError", message: "Variant weight or label is required" }); return; }
+    if (!Number.isFinite(price) || price < 0) { res.status(400).json({ error: "ValidationError", message: "Enter a valid variant price" }); return; }
+
+    const groupId = String(base.variantGroupId || base._id);
+    const existingVariants = base.variantGroupId
+      ? await products.find({ variantGroupId: groupId }).toArray()
+      : [base];
+    if (existingVariants.some((variant: any) => getVariantLabel(variant).toLowerCase() === variantLabel.toLowerCase())) {
+      res.status(409).json({ error: "DuplicateVariant", message: "A variant with this weight or label already exists" });
+      return;
+    }
+
+    const now = new Date();
+    const baseVariantLabel = getVariantLabel(base);
+    if (!base.variantGroupId) {
+      await products.updateOne(
+        { _id: productId },
+        { $set: { variantGroupId: groupId, variantLabel: baseVariantLabel, updatedAt: now } },
+      );
+    }
+
+    const originalPrice = Number(req.body.originalPrice);
+    const variant: any = {
+      name: base.name,
+      description: base.description ?? "",
+      category: base.category ?? "",
+      subCategory: base.subCategory ?? "",
+      shortCode: base.shortCode ?? "",
+      price,
+      originalPrice: Number.isFinite(originalPrice) && originalPrice >= price ? originalPrice : price,
+      discountPct: Number.isFinite(originalPrice) && originalPrice > price
+        ? Math.round(((originalPrice - price) / originalPrice) * 100)
+        : 0,
+      unit: req.body.unit ?? base.unit ?? "per pack",
+      weight: req.body.weight ?? req.body.netWeight ?? "",
+      grossWeight: req.body.grossWeight ?? "",
+      netWeight: req.body.netWeight ?? "",
+      pieces: req.body.pieces ?? "",
+      serves: req.body.serves ?? "",
+      quantity: 0,
+      batches: [],
+      status: "available",
+      isArchived: false,
+      imageUrl: base.imageUrl ?? "",
+      limitedStockNote: base.limitedStockNote ?? "",
+      lowStockThreshold: Number(base.lowStockThreshold) || 0,
+      preorderMode: base.preorderMode ?? "normal",
+      preorderAvailability: base.preorderAvailability ?? { type: "all", weekdays: [0, 1, 2, 3, 4, 5, 6], startDate: "", endDate: "" },
+      recipes: Array.isArray(base.recipes) ? base.recipes : [],
+      sectionId: Array.isArray(base.sectionId) ? base.sectionId : [],
+      couponIds: Array.isArray(base.couponIds) ? base.couponIds : [],
+      variantGroupId: groupId,
+      variantLabel,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const result = await products.insertOne(variant);
+
+    const couponObjectIds = (Array.isArray(base.couponIds) ? base.couponIds : [])
+      .map((couponId: any) => toId(String(couponId?.$oid ?? couponId?._id ?? couponId)))
+      .filter((id: any) => id !== null) as any[];
+    if (couponObjectIds.length > 0) {
+      await db.collection("coupons").updateMany(
+        { _id: { $in: couponObjectIds } },
+        { $addToSet: { applicableProducts: String(result.insertedId) } },
+      );
+    }
+
+    res.status(201).json({ variant: { ...variant, _id: result.insertedId }, groupId });
+  } catch (err) {
+    req.log.error({ err }, "Failed to create product variant");
+    res.status(500).json({ error: "InternalError", message: "Failed to create product variant" });
+  }
+});
+
+router.put("/products/:productId/variants/:variantId", async (req, res) => {
+  try {
+    const ctx = await getSubHubDb(String((req.params as any).id), res, req as ScopedRequest);
+    if (!ctx) return;
+    const productId = toId(req.params.productId);
+    const variantId = toId(req.params.variantId);
+    if (!productId || !variantId) { res.status(400).json({ error: "InvalidId", message: "Invalid product or variant ID" }); return; }
+
+    const products = ctx.conn.db!.collection("products");
+    const base = await products.findOne({ _id: productId });
+    const variant = await products.findOne({ _id: variantId });
+    if (!base || !variant) { res.status(404).json({ error: "NotFound", message: "Product variant not found" }); return; }
+    const groupId = base.variantGroupId ? String(base.variantGroupId) : "";
+    const belongsToGroup = groupId
+      ? String(variant.variantGroupId ?? "") === groupId
+      : String(variant._id) === String(base._id);
+    if (!belongsToGroup) { res.status(404).json({ error: "NotFound", message: "Product variant not found" }); return; }
+
+    const update: any = { updatedAt: new Date() };
+    if (req.body.variantLabel !== undefined) {
+      const label = String(req.body.variantLabel).trim();
+      if (!label) { res.status(400).json({ error: "ValidationError", message: "Variant weight or label is required" }); return; }
+      const siblings = groupId
+        ? await products.find({ variantGroupId: groupId, _id: { $ne: variantId } }).toArray()
+        : [];
+      if (siblings.some((sibling: any) => getVariantLabel(sibling).toLowerCase() === label.toLowerCase())) {
+        res.status(409).json({ error: "DuplicateVariant", message: "A variant with this weight or label already exists" });
+        return;
+      }
+      update.variantLabel = label;
+    }
+    if (req.body.price !== undefined) {
+      const price = Number(req.body.price);
+      if (!Number.isFinite(price) || price < 0) { res.status(400).json({ error: "ValidationError", message: "Enter a valid variant price" }); return; }
+      update.price = price;
+    }
+    if (req.body.originalPrice !== undefined) {
+      const originalPrice = Number(req.body.originalPrice);
+      if (!Number.isFinite(originalPrice) || originalPrice < 0) { res.status(400).json({ error: "ValidationError", message: "Enter a valid original price" }); return; }
+      update.originalPrice = originalPrice;
+      const effectivePrice = Number(req.body.price ?? variant.price) || 0;
+      update.discountPct = originalPrice > effectivePrice
+        ? Math.round(((originalPrice - effectivePrice) / originalPrice) * 100)
+        : 0;
+    } else if (req.body.price !== undefined) {
+      const originalPrice = Number(variant.originalPrice) || 0;
+      update.discountPct = originalPrice > Number(update.price)
+        ? Math.round(((originalPrice - Number(update.price)) / originalPrice) * 100)
+        : 0;
+    }
+    for (const field of ["unit", "weight", "grossWeight", "netWeight", "pieces", "serves"] as const) {
+      if (req.body[field] !== undefined) update[field] = req.body[field];
+    }
+    if (req.body.isArchived !== undefined) update.isArchived = req.body.isArchived === true;
+
+    const updated = await products.findOneAndUpdate(
+      { _id: variantId },
+      { $set: update },
+      { returnDocument: "after" },
+    );
+    if (!updated) { res.status(404).json({ error: "NotFound", message: "Product variant not found" }); return; }
+    res.json({ variant: updated });
+  } catch (err) {
+    req.log.error({ err }, "Failed to update product variant");
+    res.status(500).json({ error: "InternalError", message: "Failed to update product variant" });
+  }
+});
+
 router.post("/products", async (req, res) => {
   try {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);
@@ -220,6 +417,7 @@ router.put("/products/:productId", async (req, res) => {
   try {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);
     if (!ctx) return;
+    const db = ctx.conn.db!;
     const oid = toId(req.params.productId);
     if (!oid) { res.status(400).json({ error: "InvalidId", message: "Invalid product ID" }); return; }
     const {
@@ -269,9 +467,25 @@ router.put("/products/:productId", async (req, res) => {
     if (recipes !== undefined) update.recipes = Array.isArray(recipes) ? recipes : [];
     if (sectionId !== undefined) update.sectionId = normalizeIdList(sectionId);
     if (couponIds !== undefined) update.couponIds = normalizeIdList(couponIds);
-    const existing = await ctx.conn.db.collection("products").findOne({ _id: oid });
+    const existing = await db.collection("products").findOne({ _id: oid });
     if (!existing) { res.status(404).json({ error: "NotFound", message: "Product not found" }); return; }
-    const result = await ctx.conn.db.collection("products").findOneAndUpdate({ _id: oid }, { $set: update }, { returnDocument: "after" });
+    if (existing.variantGroupId) {
+      const sharedFields = [
+        "name", "description", "category", "subCategory", "shortCode",
+        "imageUrl", "preorderMode", "preorderAvailability", "recipes",
+      ];
+      const sharedUpdate: Record<string, unknown> = { updatedAt: update.updatedAt };
+      for (const field of sharedFields) {
+        if (update[field] !== undefined) sharedUpdate[field] = update[field];
+      }
+      if (Object.keys(sharedUpdate).length > 1) {
+        await db.collection("products").updateMany(
+          { variantGroupId: String(existing.variantGroupId) },
+          { $set: sharedUpdate },
+        );
+      }
+    }
+    const result = await db.collection("products").findOneAndUpdate({ _id: oid }, { $set: update }, { returnDocument: "after" });
     if (!result) { res.status(404).json({ error: "NotFound", message: "Product not found" }); return; }
     if (couponIds !== undefined) {
       const oldCouponIds: string[] = (existing.couponIds ?? []).map((c: any) => String(c));
@@ -280,13 +494,13 @@ router.put("/products/:productId", async (req, res) => {
       const addedCouponIds = newCouponIds.filter((id) => !oldCouponIds.includes(id)).map((id) => toId(id)).filter(Boolean);
       const productIdStr = String(oid);
       if (removedCouponIds.length > 0) {
-        await ctx.conn.db.collection("coupons").updateMany(
+        await db.collection("coupons").updateMany(
           { _id: { $in: removedCouponIds } },
           { $pull: { applicableProducts: productIdStr } }
         );
       }
       if (addedCouponIds.length > 0) {
-        await ctx.conn.db.collection("coupons").updateMany(
+        await db.collection("coupons").updateMany(
           { _id: { $in: addedCouponIds } },
           { $addToSet: { applicableProducts: productIdStr } }
         );
@@ -305,7 +519,18 @@ router.delete("/products/:productId", async (req, res) => {
     if (!ctx) return;
     const oid = toId(req.params.productId);
     if (!oid) { res.status(400).json({ error: "InvalidId", message: "Invalid product ID" }); return; }
-    await ctx.conn.db.collection("products").deleteOne({ _id: oid });
+    const products = ctx.conn.db.collection("products");
+    const existing = await products.findOne({ _id: oid });
+    if (!existing) { res.status(404).json({ error: "NotFound", message: "Product not found" }); return; }
+    if (existing.variantGroupId) {
+      await products.updateOne(
+        { _id: oid },
+        { $set: { isArchived: true, updatedAt: new Date() } },
+      );
+      res.json({ message: "Variant archived" });
+      return;
+    }
+    await products.deleteOne({ _id: oid });
     res.json({ message: "Product deleted" });
   } catch (err) {
     req.log.error({ err }, "Failed to delete product");

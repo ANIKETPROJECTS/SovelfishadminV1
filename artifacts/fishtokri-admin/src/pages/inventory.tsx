@@ -43,6 +43,7 @@ type Batch = {
 type Product = {
   id: string;
   name: string;
+  variantLabel?: string;
   category: string;
   subCategory: string;
   unit: string;
@@ -158,6 +159,7 @@ export default function InventoryPage() {
       if (!q) return true;
       return (
         p.name.toLowerCase().includes(q) ||
+        (p.variantLabel ?? "").toLowerCase().includes(q) ||
         p.category.toLowerCase().includes(q) ||
         p.subCategory.toLowerCase().includes(q)
       );
@@ -181,7 +183,7 @@ export default function InventoryPage() {
       const batches = p.batches ?? [];
       const nextExpiry = batches.find((b) => b.quantity > 0 && b.expiryDate)?.expiryDate ?? "";
       return {
-        Product: p.name,
+        Product: p.variantLabel ? `${p.name} (${p.variantLabel})` : p.name,
         Category: p.category,
         Stock: p.quantity,
         Batches: batches.map((b) => b.batchNumber).filter(Boolean).join(", "),
@@ -202,7 +204,7 @@ export default function InventoryPage() {
       superHubId: selectedSuperHubId,
       subHubName: selectedSubHub?.name ?? "",
       superHubName: selectedSuperHub?.name ?? "",
-      productName: p.name,
+      productName: p.variantLabel ? `${p.name} (${p.variantLabel})` : p.name,
     });
     navigate(`/inventory/products/${p.id}?${params.toString()}`);
   }
@@ -360,7 +362,9 @@ export default function InventoryPage() {
                                   </div>
                                 )}
                                 <div className="min-w-0">
-                                  <p className="text-base font-semibold text-[#162B4D] truncate group-hover:text-[#1A56DB] transition-colors">{p.name}</p>
+                                   <p className="text-base font-semibold text-[#162B4D] truncate group-hover:text-[#1A56DB] transition-colors">
+                                     {p.name}{p.variantLabel ? <span className="ml-1 text-indigo-600">({p.variantLabel})</span> : null}
+                                   </p>
                                   {p.unit && <p className="text-xs text-gray-400">{p.unit}</p>}
                                 </div>
                               </div>
