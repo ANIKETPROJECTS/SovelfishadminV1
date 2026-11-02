@@ -1240,18 +1240,30 @@ export default function InventoryStockAdjustment() {
               <span className="text-[11px] text-gray-400 font-medium">{formRows.filter(r => r.productId).length} / {formRows.length} selected</span>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-gray-200">
-              <table className="w-full min-w-[1510px] border-collapse text-left">
+            <div className="overflow-x-auto rounded-xl border border-gray-300">
+              <table className="w-full min-w-[1684px] table-fixed border-collapse text-left">
+                <colgroup>
+                  <col style={{ width: 44 }} />
+                  <col style={{ width: 245 }} />
+                  <col style={{ width: 185 }} />
+                  <col style={{ width: 160 }} />
+                  <col style={{ width: 110 }} />
+                  <col style={{ width: 135 }} />
+                  <col style={{ width: 270 }} />
+                  <col style={{ width: 320 }} />
+                  <col style={{ width: 165 }} />
+                  <col style={{ width: 50 }} />
+                </colgroup>
                 <thead className="bg-gray-50">
-                  <tr className="border-b border-gray-200">
+                  <tr>
                     {["#", "Product", "Price", "Mode", "Quantity", "Shelf Life (days)", "Expiry Date & Time", "Batch / Selection", "Batch Info", ""].map((heading, index) => (
-                      <th key={`${heading}-${index}`} className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap">
+                      <th key={`${heading}-${index}`} className="border-b border-r border-gray-300 px-2.5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap last:border-r-0">
                         {heading}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="bg-white">
                   {formRows.map((row, idx) => {
                     const isAdd = row.mode === "add";
                     const isAddExisting = row.mode === "add_existing";
@@ -1279,22 +1291,22 @@ export default function InventoryStockAdjustment() {
 
                     return (
                       <Fragment key={idx}>
-                        <tr className="align-top hover:bg-gray-50/60">
-                          <td className="px-3 py-3 text-xs font-bold text-gray-400">{idx + 1}</td>
-                          <td className="px-3 py-3 min-w-[220px]">
+                        <tr className="hover:bg-gray-50/70">
+                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle text-xs font-bold text-gray-400">{idx + 1}</td>
+                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                             <ProductSelector
                               row={row} idx={idx} allProducts={products} usedIds={usedIds}
                               onSelect={selectProduct} onClear={clearProduct} onSearchChange={onSearchChange}
                             />
                             {row.productId && (
-                              <p className="mt-1 text-[10px] text-gray-400 font-medium">
+                              <p className="mt-0.5 whitespace-nowrap text-[10px] text-gray-400 font-medium">
                                 {row.unit} · <span className="text-[#162B4D] font-bold">{row.quantityBefore}</span> available
                               </p>
                             )}
                           </td>
-                          <td className="px-3 py-3 min-w-[135px]">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs text-gray-400">₹</span>
+                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
+                            <div className="flex items-center gap-1">
+                              <span className="shrink-0 text-xs text-gray-400">₹</span>
                               <input
                                 type="number"
                                 min="0"
@@ -1305,21 +1317,23 @@ export default function InventoryStockAdjustment() {
                                 onChange={(e) => updateRow(idx, { price: e.target.value })}
                                 disabled={!row.productId}
                                 placeholder="0.00"
-                                className="w-24 h-8 px-2 text-sm font-semibold text-[#162B4D] border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] disabled:bg-gray-50 disabled:text-gray-400"
+                                className="min-w-0 w-[76px] h-8 px-1.5 text-sm font-semibold text-[#162B4D] border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] disabled:bg-gray-50 disabled:text-gray-400"
                               />
+                              {row.productId && (
+                                <button
+                                  type="button"
+                                  onClick={() => saveProductPrice(idx)}
+                                  disabled={!hasPriceChange || Boolean(savingPriceProductId)}
+                                  aria-label={`Save price for ${row.productName}`}
+                                  title={hasPriceChange ? "Save price" : "Price is current"}
+                                  className="shrink-0 rounded-md border border-gray-200 px-1.5 py-1 text-[10px] font-semibold text-[#364F9F] hover:bg-[#364F9F]/5 disabled:cursor-not-allowed disabled:text-gray-400"
+                                >
+                                  {savingPriceProductId === row.productId ? "Saving…" : hasPriceChange ? "Save" : "Saved"}
+                                </button>
+                              )}
                             </div>
-                            {row.productId && (
-                              <button
-                                type="button"
-                                onClick={() => saveProductPrice(idx)}
-                                disabled={!hasPriceChange || savingPriceProductId === row.productId}
-                                className="mt-1 text-[10px] font-semibold text-[#364F9F] hover:text-[#162B4D] disabled:text-gray-300 disabled:cursor-not-allowed"
-                              >
-                                {savingPriceProductId === row.productId ? "Saving…" : hasPriceChange ? "Save price" : "Current price"}
-                              </button>
-                            )}
                           </td>
-                          <td className="px-3 py-3 min-w-[150px]">
+                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                             <Select value={row.mode} onValueChange={(v) => changeMode(idx, v as FormMode)}>
                               <SelectTrigger className="h-9 text-xs font-semibold">
                                 <SelectValue />
@@ -1331,7 +1345,7 @@ export default function InventoryStockAdjustment() {
                               </SelectContent>
                             </Select>
                           </td>
-                          <td className="px-3 py-3 min-w-[105px]">
+                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                             <input
                               type="number"
                               min="0"
@@ -1342,7 +1356,7 @@ export default function InventoryStockAdjustment() {
                               className="w-full h-9 px-2 text-sm font-bold text-[#162B4D] text-center border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
                             />
                           </td>
-                          <td className="px-3 py-3 min-w-[125px]">
+                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                             {isAdd ? (
                               <input
                                 type="number"
@@ -1355,20 +1369,22 @@ export default function InventoryStockAdjustment() {
                               />
                             ) : <span className="text-xs text-gray-300">—</span>}
                           </td>
-                          <td className="px-3 py-3 min-w-[180px]">
+                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                             {isAdd ? (
-                              <div className="space-y-1">
+                              <div className="flex items-center gap-1.5">
                                 <input
                                   type="date"
                                   value={row.expiryDate}
                                   onChange={(e) => setExpiryDate(idx, e.target.value)}
                                   aria-label={`Expiry date for ${row.productName || "selected product"}`}
-                                  className={`w-full h-8 px-2 text-xs font-semibold border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] ${expTone}`}
+                                  className={`min-w-0 flex-1 h-8 px-1.5 text-[11px] font-semibold border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] ${expTone}`}
                                 />
-                                <ClockPickerField
-                                  value={row.expiryTime}
-                                  onChange={(v) => updateRow(idx, { expiryTime: v })}
-                                />
+                                <div className="w-[112px] shrink-0">
+                                  <ClockPickerField
+                                    value={row.expiryTime}
+                                    onChange={(v) => updateRow(idx, { expiryTime: v })}
+                                  />
+                                </div>
                                 {dLeft != null && (
                                   <p className={`text-[10px] font-bold ${expTone}`}>
                                     {dLeft < 0 ? `Expired ${Math.abs(dLeft)}d ago` : dLeft === 0 ? "Expires today" : `${dLeft}d left`}
@@ -1377,36 +1393,29 @@ export default function InventoryStockAdjustment() {
                               </div>
                             ) : <span className="text-xs text-gray-300">—</span>}
                           </td>
-                          <td className="px-3 py-3 min-w-[240px]">
+                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                             {isAdd && row.productId ? (
-                              <div className="space-y-2">
-                                <div>
-                                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-gray-400">Batch ID</label>
-                                  <input
-                                    type="text"
-                                    value={row.batchNumber}
-                                    onChange={(e) => updateRow(idx, { batchNumber: e.target.value.toUpperCase() })}
-                                    placeholder="Auto-generated"
-                                    className="w-full h-8 px-2 text-xs font-bold text-[#364F9F] border border-[#364F9F]/30 bg-[#364F9F]/5 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] uppercase tracking-wider"
-                                  />
-                                  <span className="mt-0.5 block text-[9px] text-gray-400">Auto-generated · editable</span>
-                                </div>
-                                <div>
-                                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-gray-400">Batch Notes</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  value={row.batchNumber}
+                                  onChange={(e) => updateRow(idx, { batchNumber: e.target.value.toUpperCase() })}
+                                  placeholder="Batch ID"
+                                  aria-label={`Batch ID for ${row.productName}`}
+                                  title="Auto-generated and editable"
+                                  className="min-w-0 w-1/2 h-8 px-2 text-[11px] font-bold text-[#364F9F] border border-[#364F9F]/30 bg-[#364F9F]/5 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] uppercase tracking-wider"
+                                />
                                   <input
                                     type="text"
                                     value={row.batchNotes}
                                     onChange={(e) => updateRow(idx, { batchNotes: e.target.value })}
-                                    placeholder="Optional notes..."
-                                    className="w-full h-8 px-2 text-xs text-gray-700 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
+                                    placeholder="Batch notes"
+                                    aria-label={`Batch notes for ${row.productName}`}
+                                    className="min-w-0 w-1/2 h-8 px-2 text-[11px] text-gray-700 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
                                   />
-                                </div>
                               </div>
                             ) : isAddExisting || row.mode === "remove" ? (
                               <div>
-                                <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                                  {isAddExisting ? "Select Batch to Add Into" : "Select Batch"}
-                                </label>
                                 {activeBatches.length > 0 ? (
                                   <BatchSelector
                                     batches={prodBatches}
@@ -1416,20 +1425,20 @@ export default function InventoryStockAdjustment() {
                                     mode={isAddExisting ? "add_existing" : "remove"}
                                   />
                                 ) : (
-                                  <div className="h-9 px-3 flex items-center text-xs text-gray-400 border border-dashed border-gray-200 rounded-lg">
+                                  <div className="h-9 px-2 flex items-center text-[11px] text-gray-400 border border-dashed border-gray-200 rounded-lg whitespace-nowrap">
                                     {row.productId ? "No active batches" : "Select product first"}
                                   </div>
                                 )}
                               </div>
-                            ) : <span className="text-xs text-gray-300">Select product first</span>}
+                            ) : <span className="whitespace-nowrap text-xs text-gray-300">Select product first</span>}
                           </td>
-                          <td className="px-3 py-3 min-w-[135px]">
+                          <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                             {row.productId && prodBatches.length > 0 ? (
                               <button
                                 type="button"
                                 onClick={() => setExpandedBatchProductId((current) => current === row.productId ? "" : row.productId)}
                                 aria-expanded={batchesOpen}
-                                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
+                                  className={`inline-flex items-center gap-1 rounded-lg border px-2 py-2 text-[11px] font-semibold transition-colors whitespace-nowrap ${
                                   batchesOpen
                                     ? "border-[#364F9F]/30 bg-[#364F9F]/10 text-[#364F9F]"
                                     : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
@@ -1441,7 +1450,7 @@ export default function InventoryStockAdjustment() {
                               </button>
                             ) : <span className="text-xs text-gray-300">—</span>}
                           </td>
-                          <td className="px-3 py-3 text-right">
+                          <td className="border-b border-gray-200 px-2 py-2 align-middle text-right">
                             {formRows.length > 1 && (
                               <button
                                 type="button"
@@ -1459,7 +1468,7 @@ export default function InventoryStockAdjustment() {
                         </tr>
                         {batchesOpen && (
                           <tr className="bg-[#364F9F]/[0.025]">
-                            <td colSpan={10} className="px-4 pb-4 pt-1">
+                            <td colSpan={10} className="border-b border-gray-200 px-4 pb-4 pt-1">
                               <ExistingBatchesCard
                                 batches={prodBatches}
                                 unit={row.unit}
