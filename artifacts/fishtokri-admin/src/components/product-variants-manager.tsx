@@ -9,39 +9,25 @@ type ProductVariant = {
   variantLabel: string;
   price: number;
   originalPrice?: number;
-  unit?: string;
-  weight?: string;
   grossWeight?: string;
   netWeight?: string;
-  pieces?: string;
-  serves?: string;
   quantity: number;
   isArchived?: boolean;
 };
 
 type VariantDraft = {
-  variantLabel: string;
   price: string;
   originalPrice: string;
-  unit: string;
-  weight: string;
   grossWeight: string;
   netWeight: string;
-  pieces: string;
-  serves: string;
 };
 
 function toDraft(variant: ProductVariant): VariantDraft {
   return {
-    variantLabel: variant.variantLabel ?? "",
     price: String(variant.price ?? 0),
     originalPrice: String(variant.originalPrice ?? variant.price ?? 0),
-    unit: variant.unit ?? "per pack",
-    weight: variant.weight ?? "",
     grossWeight: variant.grossWeight ?? "",
-    netWeight: variant.netWeight ?? "",
-    pieces: variant.pieces ?? "",
-    serves: variant.serves ?? "",
+    netWeight: variant.netWeight ?? (variant.variantLabel === "Standard" ? "" : variant.variantLabel ?? ""),
   };
 }
 
@@ -88,15 +74,10 @@ export function ProductVariantsManager({
   const [adding, setAdding] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newDraft, setNewDraft] = useState<VariantDraft>(() => ({
-    variantLabel: "",
     price: String(product?.price ?? ""),
     originalPrice: String(product?.originalPrice ?? product?.price ?? ""),
-    unit: product?.unit ?? "per pack",
-    weight: "",
     grossWeight: "",
     netWeight: "",
-    pieces: "",
-    serves: "",
   }));
 
   const loadVariants = useCallback(async () => {
@@ -119,15 +100,10 @@ export function ProductVariantsManager({
   useEffect(() => {
     setAdding(false);
     setNewDraft({
-      variantLabel: "",
       price: String(product?.price ?? ""),
       originalPrice: String(product?.originalPrice ?? product?.price ?? ""),
-      unit: product?.unit ?? "per pack",
-      weight: "",
       grossWeight: "",
       netWeight: "",
-      pieces: "",
-      serves: "",
     });
     void loadVariants();
   }, [loadVariants, product?._id]);
@@ -143,10 +119,6 @@ export function ProductVariantsManager({
     const variantId = String(variant._id);
     const draft = drafts[variantId];
     if (!draft) return;
-    if (!draft.variantLabel.trim()) {
-      toast({ title: "Variant weight required", description: "Enter a weight or label such as 500 g.", variant: "destructive" });
-      return;
-    }
     const price = Number(draft.price);
     const originalPrice = Number(draft.originalPrice || draft.price);
     if (!Number.isFinite(price) || price < 0 || !Number.isFinite(originalPrice) || originalPrice < 0) {
@@ -175,8 +147,8 @@ export function ProductVariantsManager({
   };
 
   const createVariant = async () => {
-    if (!newDraft.variantLabel.trim()) {
-      toast({ title: "Variant weight required", description: "Enter a weight or label such as 500 g.", variant: "destructive" });
+    if (!newDraft.netWeight.trim()) {
+      toast({ title: "Net weight required", description: "Enter the weight for this variant, such as 500 g.", variant: "destructive" });
       return;
     }
     const price = Number(newDraft.price);
@@ -192,21 +164,16 @@ export function ProductVariantsManager({
         `/api/sub-hubs/${subHubId}/menu/products/${product._id}/variants`,
         {
           method: "POST",
-          body: JSON.stringify({ ...newDraft, price, originalPrice }),
+          body: JSON.stringify({ price, originalPrice, netWeight: newDraft.netWeight, grossWeight: newDraft.grossWeight }),
         },
       );
       toast({ title: "Weight variant added", description: "Add its stock batches from the variant editor." });
       setAdding(false);
       setNewDraft({
-        variantLabel: "",
         price: String(product.price ?? ""),
         originalPrice: String(product.originalPrice ?? product.price ?? ""),
-        unit: product.unit ?? "per pack",
-        weight: "",
         grossWeight: "",
         netWeight: "",
-        pieces: "",
-        serves: "",
       });
       await loadVariants();
       onSaved();
@@ -244,7 +211,7 @@ export function ProductVariantsManager({
         <div>
           <h3 className="text-sm font-bold text-[#162B4D]">Weight Variants</h3>
           <p className="mt-0.5 text-[11px] text-gray-500">
-            Each weight has its own price, POS item, and stock batches.
+            Each net weight has its own price, POS item, and stock batches. Unit follows the product.
           </p>
         </div>
         <button
@@ -262,12 +229,10 @@ export function ProductVariantsManager({
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="w-full min-w-[760px] text-left text-xs">
+          <table className="w-full min-w-[600px] text-left text-xs">
             <thead className="bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="border-b border-r border-gray-200 px-2.5 py-2">Weight / label</th>
                 <th className="border-b border-r border-gray-200 px-2.5 py-2 w-24">Price</th>
-                <th className="border-b border-r border-gray-200 px-2.5 py-2 w-32">Unit</th>
                 <th className="border-b border-r border-gray-200 px-2.5 py-2 w-28">Net weight</th>
                 <th className="border-b border-r border-gray-200 px-2.5 py-2 w-16 text-center">Stock</th>
                 <th className="border-b border-gray-200 px-2.5 py-2 w-36">Actions</th>
@@ -282,17 +247,6 @@ export function ProductVariantsManager({
                 return (
                   <tr key={id} className={variant.isArchived ? "bg-gray-50/80" : "hover:bg-indigo-50/20"}>
                     <td className="border-b border-r border-gray-200 p-2">
-                      <input
-                        className={inputClass}
-                        aria-label={`Variant weight for ${variant.name}`}
-                        value={draft.variantLabel}
-                        onChange={(event) => updateDraft(id, { variantLabel: event.target.value })}
-                        disabled={isSaving}
-                        placeholder="e.g. 500 g"
-                      />
-                      {variant.isArchived && <span className="mt-1 inline-block text-[10px] font-semibold text-gray-500">Archived — hidden from POS</span>}
-                    </td>
-                    <td className="border-b border-r border-gray-200 p-2">
                       <div className="flex items-center gap-1">
                         <span className="text-gray-400">₹</span>
                         <input
@@ -300,7 +254,7 @@ export function ProductVariantsManager({
                           min="0"
                           step="0.01"
                           className={inputClass}
-                          aria-label={`Price for ${variant.variantLabel}`}
+                          aria-label={`Price for ${draft.netWeight || variant.variantLabel}`}
                           value={draft.price}
                           onChange={(event) => updateDraft(id, { price: event.target.value })}
                           disabled={isSaving}
@@ -308,27 +262,15 @@ export function ProductVariantsManager({
                       </div>
                     </td>
                     <td className="border-b border-r border-gray-200 p-2">
-                      <select
-                        className={inputClass}
-                        aria-label={`Unit for ${variant.variantLabel}`}
-                        value={draft.unit}
-                        onChange={(event) => updateDraft(id, { unit: event.target.value })}
-                        disabled={isSaving}
-                      >
-                        {["per kg", "per 500g", "per 250g", "per 100g", "per tray", "pack", "per piece"].map((unit) => (
-                          <option key={unit} value={unit}>{unit}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="border-b border-r border-gray-200 p-2">
                       <input
                         className={inputClass}
-                        aria-label={`Net weight for ${variant.variantLabel}`}
+                        aria-label={`Net weight for ${variant.name}`}
                         value={draft.netWeight}
                         onChange={(event) => updateDraft(id, { netWeight: event.target.value })}
                         disabled={isSaving}
                         placeholder="e.g. 500 g"
                       />
+                      {variant.isArchived && <span className="mt-1 inline-block text-[10px] font-semibold text-gray-500">Archived — hidden from POS</span>}
                     </td>
                     <td className="border-b border-r border-gray-200 px-2 py-2 text-center font-semibold text-[#162B4D]">
                       {Number(variant.quantity) || 0}
@@ -357,7 +299,7 @@ export function ProductVariantsManager({
                           type="button"
                           onClick={() => void setArchived(variant, !variant.isArchived)}
                           disabled={isSaving}
-                          aria-label={variant.isArchived ? `Restore ${variant.variantLabel}` : `Archive ${variant.variantLabel}`}
+                          aria-label={variant.isArchived ? `Restore ${draft.netWeight || variant.variantLabel}` : `Archive ${draft.netWeight || variant.variantLabel}`}
                           title={variant.isArchived ? "Restore variant" : "Hide variant from POS"}
                           className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                         >
@@ -379,10 +321,6 @@ export function ProductVariantsManager({
           <p className="text-xs font-bold text-[#162B4D]">New weight variant</p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <label className="space-y-1 text-[10px] font-semibold text-gray-500">
-              Weight / label *
-              <input className={inputClass} value={newDraft.variantLabel} onChange={(event) => setNewDraft((draft) => ({ ...draft, variantLabel: event.target.value }))} placeholder="e.g. 1 kg" required />
-            </label>
-            <label className="space-y-1 text-[10px] font-semibold text-gray-500">
               Sale price *
               <input className={inputClass} type="number" min="0" step="0.01" value={newDraft.price} onChange={(event) => setNewDraft((draft) => ({ ...draft, price: event.target.value }))} required />
             </label>
@@ -391,16 +329,8 @@ export function ProductVariantsManager({
               <input className={inputClass} type="number" min="0" step="0.01" value={newDraft.originalPrice} onChange={(event) => setNewDraft((draft) => ({ ...draft, originalPrice: event.target.value }))} />
             </label>
             <label className="space-y-1 text-[10px] font-semibold text-gray-500">
-              Unit
-              <select className={inputClass} value={newDraft.unit} onChange={(event) => setNewDraft((draft) => ({ ...draft, unit: event.target.value }))}>
-                {["per kg", "per 500g", "per 250g", "per 100g", "per tray", "pack", "per piece"].map((unit) => (
-                  <option key={unit} value={unit}>{unit}</option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1 text-[10px] font-semibold text-gray-500">
-              Net weight
-              <input className={inputClass} value={newDraft.netWeight} onChange={(event) => setNewDraft((draft) => ({ ...draft, netWeight: event.target.value }))} placeholder="e.g. 1 kg" />
+              Net weight *
+              <input className={inputClass} value={newDraft.netWeight} onChange={(event) => setNewDraft((draft) => ({ ...draft, netWeight: event.target.value }))} placeholder="e.g. 500 g" required />
             </label>
             <label className="space-y-1 text-[10px] font-semibold text-gray-500">
               Gross weight

@@ -3462,11 +3462,8 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
                 if (String(product._id) !== variantId) return;
                 setPrice(String(draft.price));
                 setOriginalPrice(String(draft.originalPrice));
-                setUnit(draft.unit);
                 setGrossWeight(draft.grossWeight);
                 setNetWeight(draft.netWeight);
-                setPieces(draft.pieces);
-                setServes(draft.serves);
               }}
               onCurrentVariantArchived={(variantId, archived) => {
                 if (String(product._id) === variantId) setIsArchived(archived);

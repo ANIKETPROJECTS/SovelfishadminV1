@@ -337,7 +337,7 @@ router.get("/analytics/summary", async (req: ScopedRequest, res) => {
           lowItems.push({
             id: String(p._id),
             name: p.name ?? "",
-            variantLabel: p.variantLabel ?? "",
+            variantLabel: inventoryVariantLabel(p),
             quantity: qty,
             unit: p.unit ?? "",
             category: p.category ?? "",
@@ -425,7 +425,12 @@ router.get("/analytics/summary", async (req: ScopedRequest, res) => {
 
 function inventoryProductDisplayName(product: any): string {
   const name = String(product?.name ?? "");
-  return product?.variantLabel ? `${name} (${product.variantLabel})` : name;
+  const label = product?.variantGroupId || product?.variantLabel ? inventoryVariantLabel(product) : "";
+  return label ? `${name} (${label})` : name;
+}
+
+function inventoryVariantLabel(product: any): string {
+  return String(product?.netWeight || product?.variantLabel || product?.weight || product?.grossWeight || "").trim();
 }
 
 // ─── PRODUCT LIST (for selected sub-hub) ──────────────────────────────────────
@@ -437,7 +442,14 @@ router.get("/products", async (req, res) => {
     if (!ctx) return;
     const search = String(req.query.search || "");
     const query: any = search ? { name: { $regex: search, $options: "i" } } : {};
-    const products = await ctx.conn.db.collection("products").find(query).sort({ category: 1, name: 1 }).toArray();
+    const productsCollection = ctx.conn.db!.collection("products");
+    const products = await productsCollection.find(query).sort({ category: 1, name: 1 }).toArray();
+    const groupIds = [...new Set(products.map((product: any) => String(product.variantGroupId ?? "")).filter(Boolean))];
+    const rootIds = groupIds.map((groupId) => toId(groupId)).filter((id) => id !== null) as any[];
+    const roots = rootIds.length
+      ? await productsCollection.find({ _id: { $in: rootIds } }).project({ unit: 1 }).toArray()
+      : [];
+    const groupUnits = new Map(roots.map((root: any) => [String(root._id), root.unit || "per pack"]));
     res.json({
       products: products.map((p: any) => {
         const batches: Batch[] = Array.isArray(p.batches) ? p.batches : [];
@@ -445,11 +457,11 @@ router.get("/products", async (req, res) => {
         return {
           id: String(p._id),
           name: p.name,
-          variantLabel: p.variantLabel ?? "",
+          variantLabel: p.variantGroupId || p.variantLabel ? inventoryVariantLabel(p) : "",
           shortCode: p.shortCode ?? "",
           category: p.category ?? "",
           subCategory: p.subCategory ?? "",
-          unit: p.unit ?? "",
+          unit: p.variantGroupId ? groupUnits.get(String(p.variantGroupId)) ?? p.unit ?? "" : p.unit ?? "",
           price: Number(p.price) || 0,
           quantity: qty,
           status: p.status ?? "available",

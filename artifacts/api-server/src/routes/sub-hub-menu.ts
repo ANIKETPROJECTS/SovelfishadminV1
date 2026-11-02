@@ -141,7 +141,14 @@ router.get("/products", async (req, res) => {
     if (!ctx) return;
     const search = String(req.query.search || "");
     const query: any = search ? { name: { $regex: search, $options: "i" } } : {};
-    const products = await ctx.conn.db.collection("products").find(query).sort({ sortOrder: 1, name: 1 }).toArray();
+    const productsCollection = ctx.conn.db!.collection("products");
+    const products = await productsCollection.find(query).sort({ sortOrder: 1, name: 1 }).toArray();
+    const groupIds = [...new Set(products.map((product: any) => String(product.variantGroupId ?? "")).filter(Boolean))];
+    const rootIds = groupIds.map((groupId) => toId(groupId)).filter((id) => id !== null) as any[];
+    const roots = rootIds.length
+      ? await productsCollection.find({ _id: { $in: rootIds } }).project({ unit: 1 }).toArray()
+      : [];
+    const groupUnits = new Map(roots.map((root: any) => [String(root._id), root.unit || "per pack"]));
     // Derive quantity from non-expired batches only — expired stock is not available for sale.
     const nowMs = Date.now();
     const productsWithQty = products.map((p: any) => {
@@ -149,7 +156,13 @@ router.get("/products", async (req, res) => {
       const total = batches
         .filter((b: any) => !b?.expiryDate || new Date(b.expiryDate).getTime() >= nowMs)
         .reduce((s: number, b: any) => s + (Math.max(0, Number(b?.quantity) || 0)), 0);
-      return { ...p, quantity: total };
+      const hasVariantLabel = Boolean(p.variantGroupId || p.variantLabel);
+      return {
+        ...p,
+        unit: p.variantGroupId ? groupUnits.get(String(p.variantGroupId)) ?? p.unit : p.unit,
+        ...(hasVariantLabel ? { variantLabel: getVariantLabel(p) } : {}),
+        quantity: total,
+      };
     });
     res.json({ products: productsWithQty, total: productsWithQty.length });
   } catch (err) {
@@ -160,8 +173,8 @@ router.get("/products", async (req, res) => {
 
 function getVariantLabel(product: any): string {
   return String(
-    product?.variantLabel ||
     product?.netWeight ||
+    product?.variantLabel ||
     product?.weight ||
     product?.grossWeight ||
     "Standard",
@@ -180,6 +193,9 @@ router.get("/products/:productId/variants", async (req, res) => {
     if (!product) { res.status(404).json({ error: "NotFound", message: "Product not found" }); return; }
 
     const groupId = String(product.variantGroupId || product._id);
+    const rootId = product.variantGroupId ? toId(groupId) : product._id;
+    const root = rootId ? await products.findOne({ _id: rootId }, { projection: { unit: 1 } }) : null;
+    const globalUnit = root?.unit || product.unit || "per pack";
     const variants = product.variantGroupId
       ? await products.find({ variantGroupId: groupId }).sort({ createdAt: 1, _id: 1 }).toArray()
       : [product];
@@ -188,7 +204,15 @@ router.get("/products/:productId/variants", async (req, res) => {
       const quantity = batches.length > 0
         ? batches.reduce((total: number, batch: any) => total + Math.max(0, Number(batch?.quantity) || 0), 0)
         : Math.max(0, Number(variant.quantity) || 0);
-      return { ...variant, variantLabel: getVariantLabel(variant), quantity };
+      const hasVariantLabel = Boolean(
+        variant.variantGroupId || variant.netWeight || variant.variantLabel || variant.weight || variant.grossWeight,
+      );
+      return {
+        ...variant,
+        unit: globalUnit,
+        ...(hasVariantLabel ? { variantLabel: getVariantLabel(variant) } : { variantLabel: "" }),
+        quantity,
+      };
     });
 
     res.json({ groupId: product.variantGroupId ? groupId : null, variants: withQuantity });
@@ -210,9 +234,10 @@ router.post("/products/:productId/variants", async (req, res) => {
     const base = await products.findOne({ _id: productId });
     if (!base) { res.status(404).json({ error: "NotFound", message: "Product not found" }); return; }
 
-    const variantLabel = String(req.body.variantLabel ?? "").trim();
+    const netWeight = String(req.body.netWeight ?? "").trim();
+    const variantLabel = netWeight;
     const price = Number(req.body.price);
-    if (!variantLabel) { res.status(400).json({ error: "ValidationError", message: "Variant weight or label is required" }); return; }
+    if (!netWeight) { res.status(400).json({ error: "ValidationError", message: "Net weight is required" }); return; }
     if (!Number.isFinite(price) || price < 0) { res.status(400).json({ error: "ValidationError", message: "Enter a valid variant price" }); return; }
 
     const groupId = String(base.variantGroupId || base._id);
@@ -245,8 +270,8 @@ router.post("/products/:productId/variants", async (req, res) => {
       discountPct: Number.isFinite(originalPrice) && originalPrice > price
         ? Math.round(((originalPrice - price) / originalPrice) * 100)
         : 0,
-      unit: req.body.unit ?? base.unit ?? "per pack",
-      weight: req.body.weight ?? req.body.netWeight ?? "",
+      unit: base.unit || "per pack",
+      weight: netWeight,
       grossWeight: req.body.grossWeight ?? "",
       netWeight: req.body.netWeight ?? "",
       pieces: req.body.pieces ?? "",
@@ -318,6 +343,20 @@ router.put("/products/:productId/variants/:variantId", async (req, res) => {
       }
       update.variantLabel = label;
     }
+    if (req.body.netWeight !== undefined) {
+      const netWeight = String(req.body.netWeight ?? "").trim();
+      const label = netWeight || String(variant.variantLabel ?? "Standard").trim();
+      const siblings = groupId
+        ? await products.find({ variantGroupId: groupId, _id: { $ne: variantId } }).toArray()
+        : [];
+      if (netWeight && siblings.some((sibling: any) => getVariantLabel(sibling).toLowerCase() === label.toLowerCase())) {
+        res.status(409).json({ error: "DuplicateVariant", message: "A variant with this net weight already exists" });
+        return;
+      }
+      update.netWeight = netWeight;
+      update.weight = netWeight;
+      update.variantLabel = label;
+    }
     if (req.body.price !== undefined) {
       const price = Number(req.body.price);
       if (!Number.isFinite(price) || price < 0) { res.status(400).json({ error: "ValidationError", message: "Enter a valid variant price" }); return; }
@@ -337,7 +376,7 @@ router.put("/products/:productId/variants/:variantId", async (req, res) => {
         ? Math.round(((originalPrice - Number(update.price)) / originalPrice) * 100)
         : 0;
     }
-    for (const field of ["unit", "weight", "grossWeight", "netWeight", "pieces", "serves"] as const) {
+    for (const field of ["grossWeight", "pieces", "serves"] as const) {
       if (req.body[field] !== undefined) update[field] = req.body[field];
     }
     if (req.body.isArchived !== undefined) update.isArchived = req.body.isArchived === true;
@@ -472,7 +511,7 @@ router.put("/products/:productId", async (req, res) => {
     if (existing.variantGroupId) {
       const sharedFields = [
         "name", "description", "category", "subCategory", "shortCode",
-        "imageUrl", "preorderMode", "preorderAvailability", "recipes",
+        "imageUrl", "preorderMode", "preorderAvailability", "recipes", "unit",
       ];
       const sharedUpdate: Record<string, unknown> = { updatedAt: update.updatedAt };
       for (const field of sharedFields) {
