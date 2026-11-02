@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Check, ChevronRight, Loader2, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from "react";
+import { ChevronRight, Loader2, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 type ProductVariant = {
@@ -20,6 +20,10 @@ type VariantDraft = {
   originalPrice: string;
   grossWeight: string;
   netWeight: string;
+};
+
+export type ProductVariantsManagerHandle = {
+  saveChanges: () => Promise<boolean>;
 };
 
 function toDraft(variant: ProductVariant): VariantDraft {
@@ -51,26 +55,29 @@ async function apiFetchJson(path: string, options?: RequestInit) {
   return response.json();
 }
 
-export function ProductVariantsManager({
-  subHubId,
-  product,
-  onEditVariant,
-  onCurrentVariantUpdated,
-  onCurrentVariantArchived,
-  onSaved,
-}: {
+type ProductVariantsManagerProps = {
   subHubId: string;
   product: any;
   onEditVariant: (variant: ProductVariant) => void;
   onCurrentVariantUpdated: (variantId: string, draft: VariantDraft) => void;
   onCurrentVariantArchived: (variantId: string, isArchived: boolean) => void;
   onSaved: () => void;
-}) {
+};
+
+export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, ProductVariantsManagerProps>(function ProductVariantsManager({
+  subHubId,
+  product,
+  onEditVariant,
+  onCurrentVariantUpdated,
+  onCurrentVariantArchived,
+  onSaved,
+}, ref) {
   const { toast } = useToast();
   const [variants, setVariants] = useState<ProductVariant[]>([]);
   const [drafts, setDrafts] = useState<Record<string, VariantDraft>>({});
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState("");
+  const [savingAll, setSavingAll] = useState(false);
   const [adding, setAdding] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newDraft, setNewDraft] = useState<VariantDraft>(() => ({
@@ -115,36 +122,75 @@ export function ProductVariantsManager({
     }));
   };
 
-  const saveVariant = async (variant: ProductVariant) => {
-    const variantId = String(variant._id);
-    const draft = drafts[variantId];
-    if (!draft) return;
-    const price = Number(draft.price);
-    const originalPrice = Number(draft.originalPrice || draft.price);
-    if (!Number.isFinite(price) || price < 0 || !Number.isFinite(originalPrice) || originalPrice < 0) {
-      toast({ title: "Enter valid prices", variant: "destructive" });
-      return;
+  const saveChanges = useCallback(async () => {
+    const dirtyVariants = variants.flatMap((variant) => {
+      const variantId = String(variant._id);
+      const draft = drafts[variantId];
+      if (!draft) return [];
+      const original = toDraft(variant);
+      const dirty = draft.price !== original.price ||
+        draft.originalPrice !== original.originalPrice ||
+        draft.grossWeight !== original.grossWeight ||
+        draft.netWeight !== original.netWeight;
+      return dirty ? [{ variant, draft }] : [];
+    });
+
+    const labels = variants.map((variant) =>
+      (drafts[String(variant._id)]?.netWeight ?? toDraft(variant).netWeight).trim().toLowerCase()
+    ).filter(Boolean);
+    if (new Set(labels).size !== labels.length) {
+      toast({ title: "Variant weights must be unique", variant: "destructive" });
+      return false;
     }
 
-    setSavingId(variantId);
+    const pending = dirtyVariants.map(({ variant, draft }) => {
+      const price = Number(draft.price);
+      const originalPrice = Number(draft.originalPrice || draft.price);
+      return { variant, draft, price, originalPrice };
+    });
+    if (pending.some(({ price, originalPrice }) =>
+      !Number.isFinite(price) || price < 0 || !Number.isFinite(originalPrice) || originalPrice < 0
+    )) {
+      toast({ title: "Enter valid prices", variant: "destructive" });
+      return false;
+    }
+
+    setSavingAll(true);
     try {
-      await apiFetchJson(
-        `/api/sub-hubs/${subHubId}/menu/products/${product._id}/variants/${variantId}`,
-        {
-          method: "PUT",
-          body: JSON.stringify({ ...draft, price, originalPrice }),
-        },
-      );
-      if (variantId === String(product._id)) onCurrentVariantUpdated(variantId, draft);
-      toast({ title: "Variant updated" });
-      await loadVariants();
-      onSaved();
+      for (const { variant, draft, price, originalPrice } of pending) {
+        const variantId = String(variant._id);
+        const savedDraft = { ...draft, price: String(price), originalPrice: String(originalPrice) };
+        await apiFetchJson(
+          `/api/sub-hubs/${subHubId}/menu/products/${product._id}/variants/${variantId}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({ ...savedDraft, price, originalPrice }),
+          },
+        );
+        if (variantId === String(product._id)) onCurrentVariantUpdated(variantId, savedDraft);
+        setVariants((current) => current.map((item) => String(item._id) === variantId
+          ? {
+            ...item,
+            price,
+            originalPrice,
+            grossWeight: draft.grossWeight,
+            netWeight: draft.netWeight,
+            variantLabel: draft.netWeight.trim() || "Standard",
+          }
+          : item
+        ));
+        setDrafts((current) => ({ ...current, [variantId]: savedDraft }));
+      }
+      return true;
     } catch (error: any) {
       toast({ title: "Could not update variant", description: error.message, variant: "destructive" });
+      return false;
     } finally {
-      setSavingId("");
+      setSavingAll(false);
     }
-  };
+  }, [drafts, onCurrentVariantUpdated, product?._id, subHubId, toast, variants]);
+
+  useImperativeHandle(ref, () => ({ saveChanges }), [saveChanges]);
 
   const createVariant = async () => {
     if (!newDraft.netWeight.trim()) {
@@ -229,13 +275,15 @@ export function ProductVariantsManager({
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="w-full min-w-[600px] text-left text-xs">
+          <table className="w-full min-w-[780px] text-left text-xs">
             <thead className="bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="border-b border-r border-gray-200 px-2.5 py-2 w-24">Price</th>
+                <th className="border-b border-r border-gray-200 px-2.5 py-2 w-24">Sale price</th>
+                <th className="border-b border-r border-gray-200 px-2.5 py-2 w-24">Original price</th>
                 <th className="border-b border-r border-gray-200 px-2.5 py-2 w-28">Net weight</th>
+                <th className="border-b border-r border-gray-200 px-2.5 py-2 w-28">Gross weight</th>
                 <th className="border-b border-r border-gray-200 px-2.5 py-2 w-16 text-center">Stock</th>
-                <th className="border-b border-gray-200 px-2.5 py-2 w-36">Actions</th>
+                <th className="border-b border-gray-200 px-2.5 py-2 w-28">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -243,23 +291,38 @@ export function ProductVariantsManager({
                 const id = String(variant._id);
                 const draft = drafts[id] ?? toDraft(variant);
                 const isCurrent = id === String(product._id);
-                const isSaving = savingId === id;
+                const isSaving = savingAll || savingId === id;
                 return (
                   <tr key={id} className={variant.isArchived ? "bg-gray-50/80" : "hover:bg-indigo-50/20"}>
                     <td className="border-b border-r border-gray-200 p-2">
-                      <div className="flex items-center gap-1">
+                      <label className="flex items-center gap-1">
                         <span className="text-gray-400">₹</span>
                         <input
                           type="number"
                           min="0"
                           step="0.01"
                           className={inputClass}
-                          aria-label={`Price for ${draft.netWeight || variant.variantLabel}`}
+                          aria-label={`Sale price for ${draft.netWeight || variant.variantLabel}`}
                           value={draft.price}
                           onChange={(event) => updateDraft(id, { price: event.target.value })}
                           disabled={isSaving}
                         />
-                      </div>
+                      </label>
+                    </td>
+                    <td className="border-b border-r border-gray-200 p-2">
+                      <label className="flex items-center gap-1">
+                        <span className="text-gray-400">₹</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className={inputClass}
+                          aria-label={`Original price for ${draft.netWeight || variant.variantLabel}`}
+                          value={draft.originalPrice}
+                          onChange={(event) => updateDraft(id, { originalPrice: event.target.value })}
+                          disabled={isSaving}
+                        />
+                      </label>
                     </td>
                     <td className="border-b border-r border-gray-200 p-2">
                       <input
@@ -272,21 +335,20 @@ export function ProductVariantsManager({
                       />
                       {variant.isArchived && <span className="mt-1 inline-block text-[10px] font-semibold text-gray-500">Archived — hidden from POS</span>}
                     </td>
+                    <td className="border-b border-r border-gray-200 p-2">
+                      <input
+                        className={inputClass}
+                        aria-label={`Gross weight for ${draft.netWeight || variant.variantLabel}`}
+                        value={draft.grossWeight}
+                        onChange={(event) => updateDraft(id, { grossWeight: event.target.value })}
+                        disabled={isSaving}
+                      />
+                    </td>
                     <td className="border-b border-r border-gray-200 px-2 py-2 text-center font-semibold text-[#162B4D]">
                       {Number(variant.quantity) || 0}
                     </td>
                     <td className="border-b border-gray-200 p-2">
                       <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => void saveVariant(variant)}
-                          disabled={isSaving}
-                          title="Save variant details and price"
-                          className="inline-flex h-8 items-center gap-1 rounded-md bg-[#364F9F] px-2 text-[10px] font-semibold text-white hover:bg-[#2b407f] disabled:opacity-50"
-                        >
-                          {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                          Save
-                        </button>
                         <button
                           type="button"
                           onClick={() => onEditVariant(variant)}
@@ -348,4 +410,4 @@ export function ProductVariantsManager({
       )}
     </section>
   );
-}
+});

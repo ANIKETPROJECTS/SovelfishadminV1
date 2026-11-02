@@ -36,7 +36,7 @@ import { useToast } from "@/hooks/use-toast";
 import { PaginationBar } from "@/components/pagination-bar";
 import { usePaginated } from "@/hooks/use-paginated";
 import { ImageUpload } from "@/components/image-upload";
-import { ProductVariantsManager } from "@/components/product-variants-manager";
+import { ProductVariantsManager, type ProductVariantsManagerHandle } from "@/components/product-variants-manager";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -2939,6 +2939,7 @@ function RecipeEditor({ recipe, onChange, onRemove }: { recipe: any; onChange: (
 function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved, onEditVariant }: any) {
   const { toast } = useToast();
   const isEditing = !!product;
+  const variantsManagerRef = useRef<ProductVariantsManagerHandle>(null);
 
   const [name, setName] = useState("");
   const [shortCode, setShortCode] = useState("");
@@ -3098,12 +3099,9 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
       ingredients: r.ingredients.filter((s: string) => s.trim()),
       method: r.method.filter((s: string) => s.trim()),
     }));
-    const payload = {
+    const payload: Record<string, any> = {
       name, shortCode, description, category, subCategory,
-      price: Number(price) || 0,
-      originalPrice: Number(originalPrice) || Number(price) || 0,
-      discountPct,
-      unit, grossWeight, netWeight, pieces, serves,
+      unit, pieces, serves,
       quantity: batchesTotal,
       status, isArchived, imageUrl,
       lowStockThreshold: Number(lowStockThreshold) || 0,
@@ -3114,8 +3112,17 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
       recipes: cleanedRecipes,
       couponIds,
     };
+    if (!isEditing) {
+      payload.price = Number(price) || 0;
+      payload.originalPrice = Number(originalPrice) || Number(price) || 0;
+      payload.discountPct = discountPct;
+      payload.grossWeight = grossWeight;
+      payload.netWeight = netWeight;
+    }
     try {
       if (isEditing) {
+        const variantsSaved = await variantsManagerRef.current?.saveChanges();
+        if (variantsSaved === false) return;
         await apiFetch(`/api/sub-hubs/${subHubId}/menu/products/${product._id}`, { method: "PUT", body: JSON.stringify(payload) });
         toast({ title: "Product updated" });
       } else {
@@ -3393,21 +3400,25 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
           <section>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2 after:flex-1 after:h-px after:bg-gray-100">Pricing</p>
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-gray-600">Sale Price (₹) *</Label>
-                  <Input required type="number" min="0" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0" className="h-9" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-gray-600">Original Price / MRP (₹)</Label>
-                  <Input type="number" min="0" value={originalPrice} onChange={(e) => setOriginalPrice(e.target.value)} placeholder="0" className="h-9" />
-                </div>
-              </div>
-              {discountPct > 0 && (
-                <div className="flex items-center gap-2 text-sm bg-green-50 border border-green-100 rounded-lg px-3 py-2">
-                  <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  <span className="text-green-700 font-semibold">Customer saves {discountPct}% — ₹{Number(originalPrice) - Number(price)} off</span>
-                </div>
+              {!isEditing && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-gray-600">Sale Price (₹) *</Label>
+                      <Input required type="number" min="0" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0" className="h-9" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-gray-600">Original Price / MRP (₹)</Label>
+                      <Input type="number" min="0" value={originalPrice} onChange={(e) => setOriginalPrice(e.target.value)} placeholder="0" className="h-9" />
+                    </div>
+                  </div>
+                  {discountPct > 0 && (
+                    <div className="flex items-center gap-2 text-sm bg-green-50 border border-green-100 rounded-lg px-3 py-2">
+                      <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      <span className="text-green-700 font-semibold">Customer saves {discountPct}% — ₹{Number(originalPrice) - Number(price)} off</span>
+                    </div>
+                  )}
+                </>
               )}
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold text-gray-600">Unit</Label>
@@ -3418,10 +3429,12 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label className="text-xs font-semibold text-gray-600">Gross Weight</Label><Input value={grossWeight} onChange={(e) => setGrossWeight(e.target.value)} placeholder="e.g. 800 - 900 g" className="h-9" /></div>
-                <div className="space-y-1.5"><Label className="text-xs font-semibold text-gray-600">Net Weight</Label><Input value={netWeight} onChange={(e) => setNetWeight(e.target.value)} placeholder="e.g. 500 g" className="h-9" /></div>
-              </div>
+              {!isEditing && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5"><Label className="text-xs font-semibold text-gray-600">Gross Weight</Label><Input value={grossWeight} onChange={(e) => setGrossWeight(e.target.value)} placeholder="e.g. 800 - 900 g" className="h-9" /></div>
+                  <div className="space-y-1.5"><Label className="text-xs font-semibold text-gray-600">Net Weight</Label><Input value={netWeight} onChange={(e) => setNetWeight(e.target.value)} placeholder="e.g. 500 g" className="h-9" /></div>
+                </div>
+              )}
               <div className="grid grid-cols-4 gap-3">
                 <div className="space-y-1.5"><Label className="text-xs font-semibold text-gray-600">Pieces</Label><Input value={pieces} onChange={(e) => setPieces(e.target.value)} placeholder="e.g. 8–10 Pieces" className="h-9" /></div>
                 <div className="space-y-1.5"><Label className="text-xs font-semibold text-gray-600">Serves</Label><Input value={serves} onChange={(e) => setServes(e.target.value)} placeholder="e.g. Serves 4" className="h-9" /></div>
@@ -3454,6 +3467,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
 
           {isEditing && (
             <ProductVariantsManager
+              ref={variantsManagerRef}
               subHubId={subHubId}
               product={product}
               onEditVariant={onEditVariant}
