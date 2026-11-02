@@ -394,6 +394,52 @@ router.put("/products/:productId/variants/:variantId", async (req, res) => {
   }
 });
 
+router.delete("/products/:productId/variants/:variantId", async (req, res) => {
+  try {
+    const ctx = await getSubHubDb(String((req.params as any).id), res, req as ScopedRequest);
+    if (!ctx) return;
+    const productId = toId(req.params.productId);
+    const variantId = toId(req.params.variantId);
+    if (!productId || !variantId) {
+      res.status(400).json({ error: "InvalidId", message: "Invalid product or variant ID" });
+      return;
+    }
+
+    const products = ctx.conn.db!.collection("products");
+    const base = await products.findOne({ _id: productId });
+    const variant = await products.findOne({ _id: variantId });
+    if (!base || !variant) {
+      res.status(404).json({ error: "NotFound", message: "Product variant not found" });
+      return;
+    }
+
+    const groupId = base.variantGroupId ? String(base.variantGroupId) : "";
+    const belongsToGroup = groupId
+      ? String(variant.variantGroupId ?? "") === groupId
+      : String(variant._id) === String(base._id);
+    if (!belongsToGroup) {
+      res.status(404).json({ error: "NotFound", message: "Product variant not found" });
+      return;
+    }
+
+    const batchCount = Array.isArray(variant.batches) ? variant.batches.length : 0;
+    const result = await products.deleteOne({ _id: variantId });
+    if (result.deletedCount !== 1) {
+      res.status(404).json({ error: "NotFound", message: "Product variant not found" });
+      return;
+    }
+
+    res.json({
+      message: "Variant permanently deleted",
+      variantId: String(variantId),
+      batchesDeleted: batchCount,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to permanently delete product variant");
+    res.status(500).json({ error: "InternalError", message: "Failed to delete product variant" });
+  }
+});
+
 router.post("/products", async (req, res) => {
   try {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);

@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from "react";
-import { ChevronRight, Loader2, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Archive, ChevronRight, Loader2, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 type ProductVariant = {
@@ -61,6 +61,7 @@ type ProductVariantsManagerProps = {
   onEditVariant: (variant: ProductVariant) => void;
   onCurrentVariantUpdated: (variantId: string, draft: VariantDraft) => void;
   onCurrentVariantArchived: (variantId: string, isArchived: boolean) => void;
+  onDeleteCurrent: () => void;
   onSaved: () => void;
 };
 
@@ -70,6 +71,7 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
   onEditVariant,
   onCurrentVariantUpdated,
   onCurrentVariantArchived,
+  onDeleteCurrent,
   onSaved,
 }, ref) {
   const { toast } = useToast();
@@ -249,10 +251,41 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
     }
   };
 
-  const inputClass = "h-8 w-full min-w-0 rounded-md border border-gray-200 bg-white px-2 text-xs text-[#162B4D] outline-none focus:border-[#1A56DB] focus:ring-1 focus:ring-[#1A56DB]/20 disabled:bg-gray-50";
+  const permanentlyDeleteVariant = async (variant: ProductVariant) => {
+    const variantId = String(variant._id);
+    const label = drafts[variantId]?.netWeight.trim() || variant.variantLabel || variant.name;
+    const unsavedWarning = variantId === String(product._id)
+      ? " Unsaved product and variant edits will be discarded."
+      : " Unsaved variant edits will be discarded.";
+    if (!window.confirm(`Permanently delete ${label} and all its stock batches? This cannot be undone.${unsavedWarning}`)) return;
+
+    setSavingId(variantId);
+    try {
+      await apiFetchJson(
+        `/api/sub-hubs/${subHubId}/menu/products/${product._id}/variants/${variantId}`,
+        { method: "DELETE" },
+      );
+      toast({
+        title: "Variant permanently deleted",
+        description: "The variant and its stock batches were removed.",
+      });
+      if (variantId === String(product._id)) {
+        onDeleteCurrent();
+      } else {
+        await loadVariants();
+        onSaved();
+      }
+    } catch (error: any) {
+      toast({ title: "Could not delete variant", description: error.message, variant: "destructive" });
+    } finally {
+      setSavingId("");
+    }
+  };
+
+  const inputClass = "h-7 w-full min-w-0 rounded-md border border-gray-200 bg-white px-1.5 text-[11px] text-[#162B4D] outline-none focus:border-[#1A56DB] focus:ring-1 focus:ring-[#1A56DB]/20 disabled:bg-gray-50";
 
   return (
-    <section className="rounded-xl border border-indigo-100 bg-indigo-50/30 p-4 space-y-3">
+    <section className="rounded-xl border border-indigo-100 bg-indigo-50/30 p-3 space-y-2">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-bold text-[#162B4D]">Weight Variants</h3>
@@ -275,15 +308,15 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="w-full min-w-[780px] text-left text-xs">
-            <thead className="bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500">
+          <table className="w-full min-w-[620px] table-fixed text-left text-[11px]">
+            <thead className="bg-gray-50 text-[9px] uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="border-b border-r border-gray-200 px-2.5 py-2 w-24">Sale price</th>
-                <th className="border-b border-r border-gray-200 px-2.5 py-2 w-24">Original price</th>
-                <th className="border-b border-r border-gray-200 px-2.5 py-2 w-28">Net weight</th>
-                <th className="border-b border-r border-gray-200 px-2.5 py-2 w-28">Gross weight</th>
-                <th className="border-b border-r border-gray-200 px-2.5 py-2 w-16 text-center">Stock</th>
-                <th className="border-b border-gray-200 px-2.5 py-2 w-28">Actions</th>
+                <th className="border-b border-r border-gray-200 px-1.5 py-1.5 w-20">Sale price</th>
+                <th className="border-b border-r border-gray-200 px-1.5 py-1.5 w-20">Original price</th>
+                <th className="border-b border-r border-gray-200 px-1.5 py-1.5 w-24">Net weight</th>
+                <th className="border-b border-r border-gray-200 px-1.5 py-1.5 w-24">Gross weight</th>
+                <th className="border-b border-r border-gray-200 px-1.5 py-1.5 w-12 text-center">Stock</th>
+                <th className="border-b border-gray-200 px-1.5 py-1.5 w-32">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -294,7 +327,7 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
                 const isSaving = savingAll || savingId === id;
                 return (
                   <tr key={id} className={variant.isArchived ? "bg-gray-50/80" : "hover:bg-indigo-50/20"}>
-                    <td className="border-b border-r border-gray-200 p-2">
+                    <td className="border-b border-r border-gray-200 p-1">
                       <label className="flex items-center gap-1">
                         <span className="text-gray-400">₹</span>
                         <input
@@ -309,7 +342,7 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
                         />
                       </label>
                     </td>
-                    <td className="border-b border-r border-gray-200 p-2">
+                    <td className="border-b border-r border-gray-200 p-1">
                       <label className="flex items-center gap-1">
                         <span className="text-gray-400">₹</span>
                         <input
@@ -324,7 +357,7 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
                         />
                       </label>
                     </td>
-                    <td className="border-b border-r border-gray-200 p-2">
+                    <td className="border-b border-r border-gray-200 p-1">
                       <input
                         className={inputClass}
                         aria-label={`Net weight for ${variant.name}`}
@@ -335,7 +368,7 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
                       />
                       {variant.isArchived && <span className="mt-1 inline-block text-[10px] font-semibold text-gray-500">Archived — hidden from POS</span>}
                     </td>
-                    <td className="border-b border-r border-gray-200 p-2">
+                    <td className="border-b border-r border-gray-200 p-1">
                       <input
                         className={inputClass}
                         aria-label={`Gross weight for ${draft.netWeight || variant.variantLabel}`}
@@ -344,18 +377,19 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
                         disabled={isSaving}
                       />
                     </td>
-                    <td className="border-b border-r border-gray-200 px-2 py-2 text-center font-semibold text-[#162B4D]">
+                    <td className="border-b border-r border-gray-200 px-1 py-1.5 text-center font-semibold text-[#162B4D]">
                       {Number(variant.quantity) || 0}
                     </td>
-                    <td className="border-b border-gray-200 p-2">
+                    <td className="border-b border-gray-200 p-1">
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => onEditVariant(variant)}
+                          disabled={isSaving}
                           title="Edit product details and batches"
-                          className="inline-flex h-8 items-center gap-0.5 rounded-md border border-gray-200 px-2 text-[10px] font-semibold text-gray-600 hover:bg-gray-50"
+                          className="inline-flex h-7 items-center gap-0.5 rounded-md border border-gray-200 px-1.5 text-[9px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
                         >
-                          Batches <ChevronRight className="h-3 w-3" />
+                          Batches <ChevronRight className="h-2.5 w-2.5" />
                         </button>
                         <button
                           type="button"
@@ -363,9 +397,19 @@ export const ProductVariantsManager = forwardRef<ProductVariantsManagerHandle, P
                           disabled={isSaving}
                           aria-label={variant.isArchived ? `Restore ${draft.netWeight || variant.variantLabel}` : `Archive ${draft.netWeight || variant.variantLabel}`}
                           title={variant.isArchived ? "Restore variant" : "Hide variant from POS"}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                         >
-                          {variant.isArchived ? <RotateCcw className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          {variant.isArchived ? <RotateCcw className="h-3 w-3" /> : <Archive className="h-3 w-3" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void permanentlyDeleteVariant(variant)}
+                          disabled={isSaving}
+                          aria-label={`Permanently delete ${draft.netWeight || variant.variantLabel}`}
+                          title="Permanently delete variant and all its batches"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          <Trash2 className="h-3 w-3" />
                         </button>
                       </div>
                       {isCurrent && <p className="mt-1 text-[9px] text-gray-400">Current product</p>}

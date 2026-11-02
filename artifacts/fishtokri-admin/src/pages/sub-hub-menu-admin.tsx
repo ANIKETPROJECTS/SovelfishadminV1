@@ -3471,6 +3471,10 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
               subHubId={subHubId}
               product={product}
               onEditVariant={onEditVariant}
+              onDeleteCurrent={() => {
+                onSaved();
+                onClose();
+              }}
               onSaved={onSaved}
               onCurrentVariantUpdated={(variantId, draft) => {
                 if (String(product._id) !== variantId) return;
