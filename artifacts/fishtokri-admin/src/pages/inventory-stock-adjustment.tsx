@@ -65,7 +65,7 @@ type Batch = {
 };
 type FishInventoryMode = "standard" | "whole_fish" | "bulk_portions";
 type BulkPortionOption = { weightKg: number; minWeightKg?: number; maxWeightKg?: number };
-type BulkPortionOptionForm = { weightKg: string; minWeightG: string; maxWeightG: string };
+type BulkPortionOptionForm = { weightInput: string };
 type Product = {
   id: string;
   name: string;
@@ -138,55 +138,48 @@ function bulkPortionLabel(weightKg: string | number): string {
     : `${weight.toLocaleString("en-IN", { maximumFractionDigits: 3 })} kg`;
 }
 
-function bulkPortionAverageKg(option: BulkPortionOptionForm): number {
-  const minGrams = Number(option.minWeightG);
-  const maxGrams = Number(option.maxWeightG);
-  if (option.minWeightG !== "" && option.maxWeightG !== "" &&
-    Number.isFinite(minGrams) && Number.isFinite(maxGrams) && maxGrams > minGrams) {
-    return Math.round(((minGrams + maxGrams) / 2000) * 1000) / 1000;
-  }
-  return Number(option.weightKg);
+function parseBulkPortionInput(value: string): BulkPortionOption | null {
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*(?:-\s*(\d+(?:\.\d+)?))?$/);
+  if (!match) return null;
+  const firstWeightKg = Number(match[1]);
+  if (!Number.isFinite(firstWeightKg) || firstWeightKg <= 0) return null;
+  if (match[2] == null) return { weightKg: Math.round(firstWeightKg * 1000) / 1000 };
+  const secondWeightKg = Number(match[2]);
+  if (!Number.isFinite(secondWeightKg) || secondWeightKg <= firstWeightKg) return null;
+  return {
+    weightKg: Math.round(((firstWeightKg + secondWeightKg) / 2) * 1000) / 1000,
+    minWeightKg: Math.round(firstWeightKg * 1000) / 1000,
+    maxWeightKg: Math.round(secondWeightKg * 1000) / 1000,
+  };
 }
 
 function bulkPortionOptionsForProduct(product?: Product): BulkPortionOptionForm[] {
   if (product?.bulkPortionOptions?.length) {
     return product.bulkPortionOptions.map((option) => ({
-      weightKg: String(Number(option.weightKg) || ""),
-      minWeightG: option.minWeightKg != null ? String(Math.round(Number(option.minWeightKg) * 1000)) : "",
-      maxWeightG: option.maxWeightKg != null ? String(Math.round(Number(option.maxWeightKg) * 1000)) : "",
+      weightInput: option.minWeightKg != null && option.maxWeightKg != null
+        ? `${Number(option.minWeightKg)}-${Number(option.maxWeightKg)}`
+        : String(Number(option.weightKg) || ""),
     }));
   }
   if (product?.bulkPortionWeightsKg?.length) {
-    return product.bulkPortionWeightsKg.map((weightKg) => ({
-      weightKg: String(Number(weightKg) || ""),
-      minWeightG: "",
-      maxWeightG: "",
-    }));
+    return product.bulkPortionWeightsKg.map((weightKg) => ({ weightInput: String(Number(weightKg) || "") }));
   }
-  return ["0.5", "1", "2"].map((weightKg) => ({ weightKg, minWeightG: "", maxWeightG: "" }));
+  return ["0.5", "1", "2"].map((weightInput) => ({ weightInput }));
 }
 
 function bulkPortionOptionsForSave(options: BulkPortionOptionForm[]): BulkPortionOption[] {
-  return options.map((option) => {
-    const hasRange = option.minWeightG !== "" || option.maxWeightG !== "";
-    if (hasRange) {
-      const minWeightKg = Number(option.minWeightG) / 1000;
-      const maxWeightKg = Number(option.maxWeightG) / 1000;
-      return {
-        weightKg: Math.round(((minWeightKg + maxWeightKg) / 2) * 1000) / 1000,
-        minWeightKg,
-        maxWeightKg,
-      };
-    }
-    return { weightKg: Number(option.weightKg) };
-  }).sort((a, b) => a.weightKg - b.weightKg);
+  return options
+    .map((option) => parseBulkPortionInput(option.weightInput) ?? { weightKg: Number.NaN })
+    .sort((a, b) => a.weightKg - b.weightKg);
 }
 
 function bulkPortionDisplayLabel(option: BulkPortionOptionForm): string {
-  if (option.minWeightG !== "" && option.maxWeightG !== "") {
-    return `${bulkPortionLabel(Number(option.minWeightG) / 1000)}–${bulkPortionLabel(Number(option.maxWeightG) / 1000)}`;
+  const parsed = parseBulkPortionInput(option.weightInput);
+  if (!parsed) return "Enter weight";
+  if (parsed.minWeightKg != null && parsed.maxWeightKg != null) {
+    return `${bulkPortionLabel(parsed.minWeightKg)}–${bulkPortionLabel(parsed.maxWeightKg)}`;
   }
-  return bulkPortionLabel(option.weightKg);
+  return bulkPortionLabel(parsed.weightKg);
 }
 
 function groupProducts(products: Product[]): ProductGroup[] {
@@ -1419,39 +1412,16 @@ export default function InventoryStockAdjustment() {
     });
   }
 
-  function updateBulkPortionOption(
-    card: AdjustmentCard,
-    portionIndex: number,
-    patch: Partial<BulkPortionOptionForm>,
-  ) {
+  function updateBulkPortionOption(card: AdjustmentCard, portionIndex: number, weightInput: string) {
     if (!card.groupId) return;
     setFormRows((rows) => rows.map((row) => row.selectionGroupId === card.groupId
       ? {
           ...row,
           bulkPortionOptions: row.bulkPortionOptions.map((option, index) =>
-            index === portionIndex ? { ...option, ...patch } : option,
+            index === portionIndex ? { weightInput } : option,
           ),
         }
       : row));
-  }
-
-  function toggleBulkPortionRange(card: AdjustmentCard, portionIndex: number) {
-    const option = card.rows[0]?.row.bulkPortionOptions[portionIndex];
-    if (!option) return;
-    if (option.minWeightG !== "" || option.maxWeightG !== "") {
-      const averageKg = bulkPortionAverageKg(option);
-      updateBulkPortionOption(card, portionIndex, {
-        weightKg: Number.isFinite(averageKg) && averageKg > 0 ? String(averageKg) : "",
-        minWeightG: "",
-        maxWeightG: "",
-      });
-    } else {
-      updateBulkPortionOption(card, portionIndex, {
-        weightKg: "",
-        minWeightG: "",
-        maxWeightG: "",
-      });
-    }
   }
 
   function addBulkPortionOption(card: AdjustmentCard) {
@@ -1459,7 +1429,7 @@ export default function InventoryStockAdjustment() {
     setFormRows((rows) => rows.map((row) => row.selectionGroupId === card.groupId
       ? {
           ...row,
-          bulkPortionOptions: [...row.bulkPortionOptions, { weightKg: "", minWeightG: "", maxWeightG: "" }],
+          bulkPortionOptions: [...row.bulkPortionOptions, { weightInput: "" }],
         }
       : row));
   }
@@ -1814,7 +1784,7 @@ export default function InventoryStockAdjustment() {
       toast({
         title: invalidFishSetup.fishInventoryMode === "bulk_portions" ? "Check the kg rate and portion sizes" : "Enter a valid selling price per kg",
         description: invalidFishSetup.fishInventoryMode === "bulk_portions"
-          ? "Enter an exact weight or a valid min–max range for every sale option. Average weights must be unique."
+          ? "Enter one kg weight (0.5) or a valid range (0.5-0.6) for each option. Average weights must be unique."
           : "A positive per-kg rate is needed to calculate each fish price.",
         variant: "destructive",
       });
@@ -2187,76 +2157,40 @@ export default function InventoryStockAdjustment() {
                               <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Sale pack options</Label>
                               <div className="flex w-full items-center gap-2 overflow-x-auto pb-1">
                                 {firstRow.bulkPortionOptions.map((option, portionIndex) => {
-                                  const isRange = option.minWeightG !== "" || option.maxWeightG !== "";
-                                  const averageWeightKg = bulkPortionAverageKg(option);
+                                  const parsedOption = parseBulkPortionInput(option.weightInput);
+                                  const isRange = parsedOption?.minWeightKg != null && parsedOption?.maxWeightKg != null;
+                                  const averageWeightKg = parsedOption?.weightKg ?? Number.NaN;
                                   const calculatedPrice = fishTotalPrice(averageWeightKg, firstRow.fishPricePerKg);
                                   return (
                                     <div
                                       key={`bulk-portion-${portionIndex}`}
                                       title={`Pack ${portionIndex + 1}`}
                                       className={`flex h-12 shrink-0 items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2 ${
-                                        isRange ? "min-w-[310px]" : "min-w-[240px]"
+                                        isRange ? "min-w-[365px]" : "min-w-[300px]"
                                       }`}
                                     >
                                       <span className="shrink-0 text-[10px] font-semibold text-gray-500">#{portionIndex + 1}</span>
-                                      {isRange ? (
-                                        <>
-                                          <input
-                                            type="number"
-                                            min="1"
-                                            step="1"
-                                            inputMode="numeric"
-                                            value={option.minWeightG}
-                                            onChange={(event) => updateBulkPortionOption(card, portionIndex, { minWeightG: event.target.value })}
-                                            aria-label={`Pack ${portionIndex + 1} minimum weight in grams`}
-                                            data-testid={`input-pack-min-weight-${firstRow.productId}-${portionIndex + 1}`}
-                                            placeholder="Min g"
-                                            className="h-8 w-[58px] shrink-0 rounded-md border border-gray-200 px-1.5 text-xs font-semibold text-[#162B4D] outline-none focus:border-[#364F9F]"
-                                          />
-                                          <span className="shrink-0 text-[10px] text-gray-400">to</span>
-                                          <input
-                                            type="number"
-                                            min="1"
-                                            step="1"
-                                            inputMode="numeric"
-                                            value={option.maxWeightG}
-                                            onChange={(event) => updateBulkPortionOption(card, portionIndex, { maxWeightG: event.target.value })}
-                                            aria-label={`Pack ${portionIndex + 1} maximum weight in grams`}
-                                            data-testid={`input-pack-max-weight-${firstRow.productId}-${portionIndex + 1}`}
-                                            placeholder="Max g"
-                                            className="h-8 w-[58px] shrink-0 rounded-md border border-gray-200 px-1.5 text-xs font-semibold text-[#162B4D] outline-none focus:border-[#364F9F]"
-                                          />
-                                          <span className="shrink-0 whitespace-nowrap text-[9px] text-gray-500">
-                                            ~{Number.isFinite(averageWeightKg) ? bulkPortionLabel(averageWeightKg) : "avg"}
-                                          </span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <input
-                                            type="number"
-                                            min="0.001"
-                                            step="0.001"
-                                            value={option.weightKg}
-                                            onChange={(event) => updateBulkPortionOption(card, portionIndex, { weightKg: event.target.value })}
-                                            aria-label={`Pack ${portionIndex + 1} exact weight in kilograms`}
-                                            data-testid={`input-pack-weight-${firstRow.productId}-${portionIndex + 1}`}
-                                            className="h-8 w-[54px] shrink-0 rounded-md border border-gray-200 px-1.5 text-sm font-semibold text-[#162B4D] outline-none focus:border-[#364F9F]"
-                                          />
-                                          <span className="shrink-0 whitespace-nowrap text-[10px] text-gray-500">{bulkPortionLabel(option.weightKg)}</span>
-                                        </>
+                                      <input
+                                        type="text"
+                                        value={option.weightInput}
+                                        onChange={(event) => updateBulkPortionOption(card, portionIndex, event.target.value)}
+                                        aria-label={`Pack ${portionIndex + 1} weight in kilograms or range`}
+                                        data-testid={`input-pack-weight-${firstRow.productId}-${portionIndex + 1}`}
+                                        placeholder="0.5 or 0.5-0.6"
+                                        title="Enter an exact weight in kg or a minimum-maximum range in kg"
+                                        className="h-8 w-[124px] shrink-0 rounded-md border border-gray-200 px-2 text-xs font-semibold text-[#162B4D] outline-none focus:border-[#364F9F]"
+                                      />
+                                      <span className="shrink-0 whitespace-nowrap text-[10px] text-gray-500">
+                                        {bulkPortionDisplayLabel(option)}
+                                      </span>
+                                      {isRange && (
+                                        <span className="shrink-0 whitespace-nowrap text-[9px] text-gray-500">
+                                          avg {bulkPortionLabel(averageWeightKg)}
+                                        </span>
                                       )}
                                       <span className="ml-auto whitespace-nowrap text-[11px] font-bold text-[#162B4D]">
                                         {calculatedPrice ? `₹${calculatedPrice}` : "Set rate"}
                                       </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => toggleBulkPortionRange(card, portionIndex)}
-                                        aria-label={`${isRange ? "Use exact weight" : "Set weight range"} for pack ${portionIndex + 1}`}
-                                        data-testid={`button-pack-range-${firstRow.productId}-${portionIndex + 1}`}
-                                        className="shrink-0 rounded px-1 text-[9px] font-semibold text-[#364F9F] hover:bg-[#364F9F]/5"
-                                      >
-                                        {isRange ? "Exact" : "Range"}
-                                      </button>
                                       <button
                                         type="button"
                                         onClick={() => removeBulkPortionOption(card, portionIndex)}
@@ -2279,7 +2213,9 @@ export default function InventoryStockAdjustment() {
                                   <Plus className="h-3.5 w-3.5" /> Add pack
                                 </button>
                               </div>
-                              <p className="text-[10px] text-gray-500">Set an exact weight or a range. Ranges are priced and deducted using their average weight.</p>
+                              <p className="text-[10px] text-gray-500">
+                                Enter kg directly: 0.5 = 500 g; use 0.5-0.6 or 0.5-0.550 for a range. Range price and stock use the average weight.
+                              </p>
                             </div>
                           </div>
                         </div>
