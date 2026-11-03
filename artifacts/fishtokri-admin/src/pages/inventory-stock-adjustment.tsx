@@ -134,7 +134,6 @@ type FormRow = {
   expiryDate: string;
   expiryTime: string;
   batchNumber: string;
-  batchNotes: string;
   removeQuantity: string;
   selectedBatchId: string;
   search: string;
@@ -147,7 +146,6 @@ type Adjustment = {
   _id: string;
   date: string;
   reason: string;
-  notes: string;
   superHubName?: string;
   subHubName?: string;
   items: Array<{
@@ -223,7 +221,6 @@ function emptyRow(): FormRow {
   return {
     productId: "", productName: "", category: "", unit: "", price: "", quantityBefore: 0,
     mode: "add", addQuantity: "", shelfLifeDays: "", expiryDate: "", expiryTime: getCurrentTime12h(), batchNumber: "",
-    batchNotes: "",
     removeQuantity: "", selectedBatchId: "", search: "",
     isWholeFishBatch: false, fishWeightKg: "", fishPrice: "",
   };
@@ -904,7 +901,7 @@ function ExistingBatchesCard({
       <>
         {/* Column headers */}
           <div className="px-3 py-1.5 bg-[#364F9F]/5 border-y border-[#364F9F]/10">
-            <div className={`grid ${wholeFishProduct ? "min-w-[1120px] grid-cols-8" : "grid-cols-6"} gap-2`}>
+            <div className={`grid ${wholeFishProduct ? "min-w-[980px] grid-cols-7" : "grid-cols-5"} gap-2`}>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Batch ID</span>
               {wholeFishProduct && <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Weight (kg)</span>}
               {wholeFishProduct && <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Price / fish</span>}
@@ -912,7 +909,6 @@ function ExistingBatchesCard({
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Shelf Life (d)</span>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Received</span>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Expiry Date &amp; Time</span>
-              <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Notes</span>
             </div>
           </div>
 
@@ -925,7 +921,7 @@ function ExistingBatchesCard({
                 : dl <= 7 ? "border-amber-300 bg-amber-50"
                 : "border-emerald-200 bg-emerald-50";
               return (
-                <div key={b.id} className={`px-3 py-2 grid ${wholeFishProduct ? "min-w-[1120px] grid-cols-8" : "grid-cols-6"} gap-2 items-start bg-white/50 hover:bg-white/80 transition-colors`}>
+                <div key={b.id} className={`px-3 py-2 grid ${wholeFishProduct ? "min-w-[980px] grid-cols-7" : "grid-cols-5"} gap-2 items-start bg-white/50 hover:bg-white/80 transition-colors`}>
                   <input
                     type="text"
                     value={b.batchNumber}
@@ -1028,13 +1024,6 @@ function ExistingBatchesCard({
                       }}
                     />
                   </div>
-                  <input
-                    type="text"
-                    value={b.notes}
-                    onChange={(e) => patchBatch(i, { notes: e.target.value })}
-                    placeholder="Notes..."
-                    className="h-7 px-2 text-[11px] text-gray-600 border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#364F9F]/30 mt-0.5"
-                  />
                 </div>
               );
             })}
@@ -1086,10 +1075,10 @@ function WholeFishAdjustmentTable({
   return (
     <div className="space-y-3 p-3">
       <div className="overflow-x-auto rounded-lg border border-gray-200">
-        <table className="w-full min-w-[1000px] border-collapse text-left">
+        <table className="w-full min-w-[900px] border-collapse text-left">
           <thead className="bg-gray-50">
             <tr>
-              {["#", "Weight (kg)", "Total price per fish", "Stock unit", "Expiry date & time", "Batch ID", "Notes", ""].map((heading, index) => (
+              {["#", "Weight (kg)", "Total price per fish", "Stock unit", "Expiry date & time", "Batch ID", ""].map((heading, index) => (
                 <th key={`${heading}-${index}`} className="border-b border-r border-gray-200 px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 last:border-r-0">
                   {heading}
                 </th>
@@ -1151,16 +1140,6 @@ function WholeFishAdjustmentTable({
                     onChange={(event) => onUpdate(idx, { batchNumber: event.target.value.toUpperCase() })}
                     aria-label={`Batch ID for fish ${rowNumber + 1}`}
                     className="h-9 w-full rounded-md border border-[#364F9F]/25 bg-[#364F9F]/5 px-2 text-[11px] font-bold tracking-wide text-[#364F9F]"
-                  />
-                </td>
-                <td className="border-b border-r border-gray-200 px-2 py-2">
-                  <input
-                    type="text"
-                    value={row.batchNotes}
-                    onChange={(event) => onUpdate(idx, { batchNotes: event.target.value })}
-                    placeholder="Optional"
-                    aria-label={`Notes for fish ${rowNumber + 1}`}
-                    className="h-9 w-full rounded-md border border-gray-200 px-2 text-xs text-gray-700"
                   />
                 </td>
                 <td className="border-b border-gray-200 px-2 py-2 text-center">
@@ -1324,8 +1303,8 @@ export default function InventoryStockAdjustment() {
     const currentRows = formRows.filter((row) => row.selectionGroupId === card.groupId);
     if (currentRows.some((row) =>
       (row.isWholeFishBatch
-        ? row.fishWeightKg.trim() || row.fishPrice.trim() || row.batchNotes.trim()
-        : Number(row.addQuantity) > 0 || Number(row.removeQuantity) > 0 || row.batchNotes.trim())
+        ? row.fishWeightKg.trim() || row.fishPrice.trim()
+        : Number(row.addQuantity) > 0 || Number(row.removeQuantity) > 0)
     )) {
       toast({ title: "Save or clear the current entries before changing batch mode", variant: "destructive" });
       return;
@@ -1380,7 +1359,6 @@ export default function InventoryStockAdjustment() {
       shelfLifeDays: null,
       receivedDate: null,
       expiryDate: null,
-      notes: "",
     }));
     const batchNumber = generateNextBatchNumber(
       product.name,
@@ -1395,7 +1373,6 @@ export default function InventoryStockAdjustment() {
       expiryDate: "",
       expiryTime: getCurrentTime12h(),
       batchNumber,
-      batchNotes: "",
       fishWeightKg: "",
       fishPrice: "",
       removeQuantity: "",
@@ -1466,7 +1443,7 @@ export default function InventoryStockAdjustment() {
       const productBatches: Batch[] = prod?.batches ?? [];
       batchNumber = generateNextBatchNumber(row.productName, productBatches, prod?.shortCode);
     }
-    updateRow(i, { mode, batchNumber, batchNotes: "", selectedBatchId: "" });
+    updateRow(i, { mode, batchNumber, selectedBatchId: "" });
   }
 
   function setShelfLife(i: number, val: string) {
@@ -1575,7 +1552,6 @@ export default function InventoryStockAdjustment() {
                 ? (r.expiryTime ? `${r.expiryDate}T${to24hTime(r.expiryTime)}:00+05:30` : r.expiryDate)
                 : undefined,
               batchNumber: r.batchNumber || undefined,
-              notes: r.batchNotes || undefined,
             };
             if (r.mode === "add") return {
               productId: r.productId, mode: "add",
@@ -1585,7 +1561,6 @@ export default function InventoryStockAdjustment() {
                 ? (r.expiryTime ? `${r.expiryDate}T${to24hTime(r.expiryTime)}:00+05:30` : r.expiryDate)
                 : undefined,
               batchNumber: r.batchNumber || undefined,
-              notes: r.batchNotes || undefined,
             };
             if (r.mode === "add_existing") return {
               productId: r.productId, mode: "add_existing",
@@ -1955,15 +1930,7 @@ export default function InventoryStockAdjustment() {
                                           placeholder="Batch ID"
                                           aria-label={`Batch ID for ${row.productName}`}
                                           title="Auto-generated and editable"
-                                          className="min-w-0 w-1/2 h-8 px-2 text-[11px] font-bold text-[#364F9F] border border-[#364F9F]/30 bg-[#364F9F]/5 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] uppercase tracking-wider"
-                                        />
-                                        <input
-                                          type="text"
-                                          value={row.batchNotes}
-                                          onChange={(event) => updateRow(idx, { batchNotes: event.target.value })}
-                                          placeholder="Batch notes"
-                                          aria-label={`Batch notes for ${row.productName}`}
-                                          className="min-w-0 w-1/2 h-8 px-2 text-[11px] text-gray-700 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
+                                          className="min-w-0 w-full h-8 px-2 text-[11px] font-bold text-[#364F9F] border border-[#364F9F]/30 bg-[#364F9F]/5 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F] uppercase tracking-wider"
                                         />
                                       </div>
                                     ) : isAddExisting || row.mode === "remove" ? (
