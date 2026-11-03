@@ -3423,12 +3423,18 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
               )}
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold text-gray-600">Unit</Label>
-                <Select value={unit} onValueChange={setUnit}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["kg", "gram", "per tray", "pack", "per piece"].map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                {product?.wholeFishInventory === true ? (
+                  <div className="flex h-9 items-center rounded-md border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-600">
+                    per piece <span className="ml-2 text-xs text-gray-400">one whole fish per batch</span>
+                  </div>
+                ) : (
+                  <Select value={unit} onValueChange={setUnit}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {["kg", "gram", "per tray", "pack", "per piece"].map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               {!isEditing && (
                 <div className="grid grid-cols-2 gap-3">
@@ -3466,7 +3472,11 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
             </div>
           </section>
 
-          {isEditing && (
+          {isEditing && product?.wholeFishInventory === true ? (
+            <div className="rounded-lg border border-[#364F9F]/15 bg-[#364F9F]/5 px-3 py-2.5 text-xs text-[#364F9F]">
+              This product is managed as one whole fish per inventory batch. Weight variants are disabled; enter each fish from Stock Adjustment.
+            </div>
+          ) : isEditing && (
             <ProductVariantsManager
               ref={variantsManagerRef}
               subHubId={subHubId}

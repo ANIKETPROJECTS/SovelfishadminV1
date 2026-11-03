@@ -85,6 +85,8 @@ type Batch = {
   _id?: any;
   batchNumber?: string;
   quantity: number;
+  fishWeightKg?: number | null;
+  fishPrice?: number | null;
   shelfLifeDays?: number | null;
   receivedDate?: Date | null;
   expiryDate?: Date | null;
@@ -101,6 +103,10 @@ function toDate(v: any): Date | null {
 function normalizeBatch(b: any): Batch {
   const received = toDate(b?.receivedDate) ?? new Date();
   const shelf = b?.shelfLifeDays != null && b.shelfLifeDays !== "" ? Number(b.shelfLifeDays) : null;
+  const fishWeightInput = b?.fishWeightKg != null && b.fishWeightKg !== "" ? Number(b.fishWeightKg) : NaN;
+  const fishPriceInput = b?.fishPrice != null && b.fishPrice !== "" ? Number(b.fishPrice) : NaN;
+  const fishWeightValue = Number.isFinite(fishWeightInput) ? Math.round(fishWeightInput * 1000) / 1000 : NaN;
+  const fishPriceValue = Number.isFinite(fishPriceInput) ? Math.round(fishPriceInput * 100) / 100 : NaN;
   let expiry = toDate(b?.expiryDate);
   if (!expiry && shelf != null && Number.isFinite(shelf)) {
     expiry = new Date(received.getTime() + shelf * 24 * 60 * 60 * 1000);
@@ -109,6 +115,8 @@ function normalizeBatch(b: any): Batch {
     _id: b?._id ?? new mongoose.Types.ObjectId(),
     batchNumber: b?.batchNumber ? String(b.batchNumber).trim() : "",
     quantity: Math.max(0, Number(b?.quantity) || 0),
+    ...(Number.isFinite(fishWeightValue) && fishWeightValue > 0 ? { fishWeightKg: fishWeightValue } : {}),
+    ...(Number.isFinite(fishPriceValue) && fishPriceValue >= 0 ? { fishPrice: fishPriceValue } : {}),
     shelfLifeDays: shelf != null && Number.isFinite(shelf) ? shelf : null,
     receivedDate: received,
     expiryDate: expiry,
@@ -125,6 +133,8 @@ function batchesTotal(batches: Batch[] | undefined | null): number {
 function batchSnapshot(batch: Batch) {
   return {
     batchNumber: batch.batchNumber || "",
+    fishWeightKg: batch.fishWeightKg ?? null,
+    fishPrice: batch.fishPrice ?? null,
     shelfLifeDays: batch.shelfLifeDays ?? null,
     receivedDate: batch.receivedDate ?? null,
     expiryDate: batch.expiryDate ?? null,
@@ -425,6 +435,7 @@ router.get("/analytics/summary", async (req: ScopedRequest, res) => {
 
 function inventoryProductDisplayName(product: any): string {
   const name = String(product?.name ?? "");
+  if (product?.wholeFishInventory === true) return name;
   const label = product?.variantGroupId || product?.variantLabel ? inventoryVariantLabel(product) : "";
   return label ? `${name} (${label})` : name;
 }
@@ -432,185 +443,6 @@ function inventoryProductDisplayName(product: any): string {
 function inventoryVariantLabel(product: any): string {
   return String(product?.netWeight || product?.variantLabel || product?.weight || product?.grossWeight || "").trim();
 }
-
-function getTodayISTDate(): string {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function isValidDateOnly(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
-}
-
-function serializeDailyFishEntry(product: any) {
-  const quantity = Math.max(0, Number(product.quantity) || 0);
-  return {
-    id: String(product._id),
-    sourceProductId: String(product.dailyFishSourceProductId ?? ""),
-    sourceProductName: String(product.dailyFishSourceProductName ?? product.name ?? ""),
-    name: String(product.name ?? ""),
-    category: String(product.category ?? ""),
-    weightKg: Number(product.dailyFishWeightKg) || 0,
-    netWeight: String(product.netWeight ?? ""),
-    variantLabel: String(product.variantLabel ?? product.netWeight ?? ""),
-    price: Number(product.price) || 0,
-    quantity,
-    unit: String(product.unit ?? "per piece"),
-    dailyFishDate: String(product.dailyFishDate ?? ""),
-    createdAt: product.createdAt ? new Date(product.createdAt).toISOString() : null,
-    imageUrl: String(product.imageUrl ?? ""),
-    status: quantity > 0 ? "available" : "sold",
-  };
-}
-
-// ─── DAILY WHOLE-FISH STOCK ───────────────────────────────────────────────────
-router.get("/daily-fish", async (req, res) => {
-  try {
-    const subHubId = String(req.query.subHubId || "");
-    if (!subHubId) { res.status(400).json({ error: "ValidationError", message: "subHubId is required" }); return; }
-    const date = String(req.query.date || getTodayISTDate());
-    if (!isValidDateOnly(date)) { res.status(400).json({ error: "ValidationError", message: "date must use YYYY-MM-DD format" }); return; }
-    const ctx = await getCtx(subHubId, res, req as ScopedRequest);
-    if (!ctx) return;
-
-    const products = ctx.conn.db!.collection("products");
-    const [sourceDocs, entryDocs] = await Promise.all([
-      products.find({ isDailyWholeFish: { $ne: true }, isArchived: { $ne: true } })
-        .project({ name: 1, category: 1, imageUrl: 1, unit: 1, variantGroupId: 1 })
-        .sort({ category: 1, name: 1 })
-        .toArray(),
-      products.find({ isDailyWholeFish: true, dailyFishDate: date })
-        .sort({ createdAt: -1, _id: -1 })
-        .toArray(),
-    ]);
-
-    const sourceProducts = sourceDocs
-      .filter((product: any) => !product.variantGroupId || String(product.variantGroupId) === String(product._id))
-      .map((product: any) => ({
-        id: String(product._id),
-        name: String(product.name ?? ""),
-        category: String(product.category ?? ""),
-        imageUrl: String(product.imageUrl ?? ""),
-        unit: String(product.unit ?? ""),
-      }));
-
-    res.json({
-      subHub: { id: String(ctx.sub._id), name: String(ctx.sub.name ?? "") },
-      sourceProducts,
-      entries: entryDocs.map(serializeDailyFishEntry),
-    });
-  } catch (err) {
-    req.log.error({ err }, "Failed to fetch daily whole-fish inventory");
-    res.status(500).json({ error: "InternalError", message: "Failed to fetch daily fish inventory" });
-  }
-});
-
-router.post("/daily-fish", async (req, res) => {
-  try {
-    const subHubId = String(req.body?.subHubId || "");
-    if (!subHubId) { res.status(400).json({ error: "ValidationError", message: "subHubId is required" }); return; }
-    const sourceProductId = toId(String(req.body?.sourceProductId ?? ""));
-    if (!sourceProductId) { res.status(400).json({ error: "ValidationError", message: "Select a fish product" }); return; }
-    const date = String(req.body?.date || getTodayISTDate());
-    if (!isValidDateOnly(date)) { res.status(400).json({ error: "ValidationError", message: "date must use YYYY-MM-DD format" }); return; }
-    const adjustmentReason = String(req.body?.reason ?? "Daily whole-fish intake").trim();
-    const adjustmentNotes = String(req.body?.notes ?? "").trim();
-    if (!Array.isArray(req.body?.entries) || req.body.entries.length < 1 || req.body.entries.length > 200) {
-      res.status(400).json({ error: "ValidationError", message: "Add between 1 and 200 fish entries" });
-      return;
-    }
-
-    const normalizedEntries = req.body.entries.map((entry: any) => {
-      const weightInput = Number(entry?.weightKg);
-      const priceInput = Number(entry?.totalPrice);
-      if (!Number.isFinite(weightInput) || weightInput <= 0 || !Number.isFinite(priceInput) || priceInput <= 0) return null;
-      const weightKg = Math.round(weightInput * 1000) / 1000;
-      const totalPrice = Math.round(priceInput * 100) / 100;
-      if (weightKg <= 0 || totalPrice <= 0) return null;
-      return { weightKg, totalPrice, weightLabel: `${weightKg} kg` };
-    });
-    if (normalizedEntries.some((entry: any) => !entry)) {
-      res.status(400).json({ error: "ValidationError", message: "Every fish needs a positive weight and total price" });
-      return;
-    }
-
-    const ctx = await getCtx(subHubId, res, req as ScopedRequest);
-    if (!ctx) return;
-    const products = ctx.conn.db!.collection("products");
-    const source = await products.findOne({
-      _id: sourceProductId,
-      isDailyWholeFish: { $ne: true },
-      isArchived: { $ne: true },
-    });
-    if (!source) { res.status(404).json({ error: "NotFound", message: "The selected fish product was not found" }); return; }
-
-    let sourceProduct = source;
-    if (source.variantGroupId && String(source.variantGroupId) !== String(source._id)) {
-      const rootId = toId(String(source.variantGroupId));
-      const root = rootId ? await products.findOne({ _id: rootId, isDailyWholeFish: { $ne: true } }) : null;
-      if (!root) { res.status(404).json({ error: "NotFound", message: "The selected fish product group was not found" }); return; }
-      sourceProduct = root;
-    }
-
-    const now = new Date();
-    const fishDocs = normalizedEntries.map((entry: any) => ({
-      _id: new mongoose.Types.ObjectId(),
-      name: String(sourceProduct.name ?? ""),
-      description: String(sourceProduct.description ?? ""),
-      category: String(sourceProduct.category ?? ""),
-      subCategory: String(sourceProduct.subCategory ?? ""),
-      shortCode: String(sourceProduct.shortCode ?? ""),
-      price: entry.totalPrice,
-      originalPrice: entry.totalPrice,
-      discountPct: 0,
-      unit: "per piece",
-      weight: entry.weightLabel,
-      netWeight: entry.weightLabel,
-      variantLabel: entry.weightLabel,
-      grossWeight: "",
-      pieces: "",
-      serves: "",
-      quantity: 1,
-      batches: [],
-      status: "available",
-      isArchived: false,
-      imageUrl: String(sourceProduct.imageUrl ?? ""),
-      limitedStockNote: "",
-      lowStockThreshold: 0,
-      preorderMode: "normal",
-      preorderAvailability: { type: "all", weekdays: [0, 1, 2, 3, 4, 5, 6], startDate: "", endDate: "" },
-      recipes: [],
-      sectionId: Array.isArray(sourceProduct.sectionId) ? sourceProduct.sectionId : [],
-      couponIds: [],
-      isDailyWholeFish: true,
-      dailyFishSourceProductId: String(sourceProduct._id),
-      dailyFishSourceProductName: String(sourceProduct.name ?? ""),
-      dailyFishWeightKg: entry.weightKg,
-      dailyFishPriceBasis: "total_per_fish",
-      dailyFishDate: date,
-      dailyFishReason: adjustmentReason || "Daily whole-fish intake",
-      dailyFishNotes: adjustmentNotes,
-      createdAt: now,
-      updatedAt: now,
-    }));
-
-    await products.insertMany(fishDocs, { ordered: true });
-    const entries = fishDocs.map(serializeDailyFishEntry);
-    res.status(201).json({ created: entries.length, entries });
-  } catch (err) {
-    req.log.error({ err }, "Failed to add daily whole-fish stock");
-    res.status(500).json({ error: "InternalError", message: "Failed to add daily fish stock" });
-  }
-});
 
 // ─── PRODUCT LIST (for selected sub-hub) ──────────────────────────────────────
 router.get("/products", async (req, res) => {
@@ -622,7 +454,7 @@ router.get("/products", async (req, res) => {
     const search = String(req.query.search || "");
     const query: any = search ? { name: { $regex: search, $options: "i" } } : {};
     const productsCollection = ctx.conn.db!.collection("products");
-    const products = await productsCollection.find(query).sort({ category: 1, name: 1 }).toArray();
+    const products = await productsCollection.find({ ...query, isDailyWholeFish: { $ne: true } }).sort({ category: 1, name: 1 }).toArray();
     const groupIds = [...new Set(products.map((product: any) => String(product.variantGroupId ?? "")).filter(Boolean))];
     const rootIds = groupIds.map((groupId) => toId(groupId)).filter((id) => id !== null) as any[];
     const roots = rootIds.length
@@ -646,6 +478,7 @@ router.get("/products", async (req, res) => {
           unit: p.variantGroupId ? groupUnits.get(String(p.variantGroupId)) ?? p.unit ?? "" : p.unit ?? "",
           price: Number(p.price) || 0,
           quantity: qty,
+          wholeFishInventory: p.wholeFishInventory === true,
           status: p.status ?? "available",
           imageUrl: p.imageUrl ?? "",
           isDailyWholeFish: p.isDailyWholeFish === true,
@@ -655,6 +488,8 @@ router.get("/products", async (req, res) => {
             id: String(b._id ?? ""),
             batchNumber: b.batchNumber ?? "",
             quantity: Number(b.quantity) || 0,
+            fishWeightKg: b.fishWeightKg != null ? Number(b.fishWeightKg) : null,
+            fishPrice: b.fishPrice != null ? Number(b.fishPrice) : null,
             shelfLifeDays: b.shelfLifeDays ?? null,
             receivedDate: b.receivedDate ? new Date(b.receivedDate).toISOString() : null,
             expiryDate: b.expiryDate ? new Date(b.expiryDate).toISOString() : null,
@@ -862,6 +697,60 @@ router.post("/adjustments", async (req, res) => {
     const adjustmentItems: any[] = [];
     const movementDocs: any[] = [];
     const now = new Date();
+    const productIds = [...new Set(items.map((it: any) => toId(String(it?.productId || ""))).filter(Boolean))];
+    const productDocs = productIds.length ? await products.find({ _id: { $in: productIds } }).toArray() : [];
+    const productsById = new Map(productDocs.map((product: any) => [String(product._id), product]));
+
+    // Validate every fish batch before writing any product so a malformed row
+    // cannot leave a partially applied stock adjustment.
+    for (const it of items) {
+      const productId = toId(String(it?.productId || ""));
+      if (!productId) continue;
+      const existing = productsById.get(String(productId));
+      const mode = String(it.mode || (it.addQuantity != null ? "add" : it.removeQuantity != null ? "remove" : "set"));
+      const hasFishDetails = it.fishWeightKg !== undefined || it.fishPrice !== undefined;
+      if (hasFishDetails) {
+        if (existing?.variantGroupId && String(existing.variantGroupId) !== String(existing._id)) {
+          res.status(400).json({
+            error: "ValidationError",
+            message: "Whole-fish stock must be added to the main product, not a weight sub-product",
+          });
+          return;
+        }
+        const weightKg = Math.round(Number(it.fishWeightKg) * 1000) / 1000;
+        const fishPrice = Math.round(Number(it.fishPrice) * 100) / 100;
+        if (mode !== "add" || Number(it.addQuantity) !== 1 ||
+          !Number.isFinite(weightKg) || weightKg <= 0 ||
+          !Number.isFinite(fishPrice) || fishPrice <= 0) {
+          res.status(400).json({
+            error: "ValidationError",
+            message: "Each whole-fish batch must be one fish with a positive weight and total price",
+          });
+          return;
+        }
+      }
+      if (existing?.wholeFishInventory === true && mode === "add" && !hasFishDetails) {
+        res.status(400).json({
+          error: "ValidationError",
+          message: `${String(existing.name ?? "This fish")} needs a weight and total price for each new fish batch`,
+        });
+        return;
+      }
+      if (existing?.wholeFishInventory === true && mode === "add_existing") {
+        res.status(400).json({
+          error: "ValidationError",
+          message: "Add each incoming fish as a new batch instead of increasing an existing fish batch",
+        });
+        return;
+      }
+      if (existing?.wholeFishInventory === true && mode === "set") {
+        res.status(400).json({
+          error: "ValidationError",
+          message: "Whole-fish stock must be adjusted one fish batch at a time",
+        });
+        return;
+      }
+    }
 
     for (const it of items) {
       const pid = toId(String(it.productId || ""));
@@ -888,6 +777,8 @@ router.post("/adjustments", async (req, res) => {
           expiryDate: it.expiryDate,
           receivedDate: it.receivedDate ?? now,
           notes: it.notes,
+          fishWeightKg: it.fishWeightKg,
+          fishPrice: it.fishPrice,
           createdAt: now,
         });
         newBatches.push(batch);
@@ -975,7 +866,16 @@ router.post("/adjustments", async (req, res) => {
         }
       }
 
-      const persisted = await persistBatches(products, pid, newBatches, {}, ctx.conn.db.collection("combos"));
+      const fishBatchAdded = it.fishWeightKg !== undefined || it.fishPrice !== undefined;
+      const persisted = await persistBatches(
+        products,
+        pid,
+        newBatches,
+        fishBatchAdded || existing.wholeFishInventory === true
+          ? { wholeFishInventory: true, unit: "per piece" }
+          : {},
+        ctx.conn.db.collection("combos"),
+      );
 
       adjustmentItems.push({
         productId: String(pid),
@@ -988,6 +888,8 @@ router.post("/adjustments", async (req, res) => {
         batch: appliedBatch ? {
           batchNumber: appliedBatch.batchNumber,
           quantity: appliedBatch.quantity,
+          fishWeightKg: appliedBatch.fishWeightKg ?? null,
+          fishPrice: appliedBatch.fishPrice ?? null,
           shelfLifeDays: appliedBatch.shelfLifeDays,
           expiryDate: appliedBatch.expiryDate,
         } : undefined,
@@ -1003,6 +905,8 @@ router.post("/adjustments", async (req, res) => {
         notes: notes ? String(notes).trim() : "",
         batchNumber: appliedBatch?.batchNumber || undefined,
         batchObjectId: appliedBatch?._id ? String(appliedBatch._id) : undefined,
+        fishWeightKg: appliedBatch?.fishWeightKg ?? undefined,
+        fishPrice: appliedBatch?.fishPrice ?? undefined,
         expiryDate: appliedBatch?.expiryDate || undefined,
         receivedDate: appliedBatch?.receivedDate || undefined,
         createdAt: now,
@@ -1091,6 +995,17 @@ router.put("/products/:productId/batches", async (req, res) => {
     const product = await ctx.conn.db.collection("products").findOne({ _id: pid });
     if (!product) { res.status(404).json({ error: "NotFound", message: "Product not found" }); return; }
     const batches: Batch[] = Array.isArray(req.body.batches) ? req.body.batches : [];
+    if (product.wholeFishInventory === true && batches.some((batch: any) =>
+      ![0, 1].includes(Number(batch?.quantity)) ||
+      !Number.isFinite(Number(batch?.fishWeightKg)) || Number(batch?.fishWeightKg) <= 0 ||
+      !Number.isFinite(Number(batch?.fishPrice)) || Number(batch?.fishPrice) <= 0
+    )) {
+      res.status(400).json({
+        error: "ValidationError",
+        message: "Each fish batch must keep one fish maximum with a positive weight and total price",
+      });
+      return;
+    }
     const persisted = await persistBatches(ctx.conn.db.collection("products"), pid, batches, {}, ctx.conn.db.collection("combos"));
     res.json({ productId: String(pid), quantity: persisted.quantity, batches: persisted.batches });
   } catch (err) {

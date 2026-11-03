@@ -9,10 +9,8 @@ Represent each sellable weight or package size as its own product record, linked
 
 **How to apply:** Resolve sales and stock changes to the selected variant's product ID. Use net weight for POS and inventory labels; do not add a per-variant unit or manual label control. Convert loaded weight values to strings before editing or validating them. Keep archived variants out of new POS sales, but preserve their records for history and restoration. Permit permanent deletion only while another variant remains.
 
-For whole fish sold individually, staff enter each day's fish weight and a fixed total price for that fish, not a per-kilogram rate, from inventory. Each fish is sold whole, and the same weight/price availability must appear in POS and on the storefront.
+Whole fish such as Surmai or Bangda remain one catalog product. Each arriving fish is one stock batch with its own weight and total per-fish price; do not create daily product records or weight sub-products. Enter fish batches in the regular Stock Adjustment workflow.
 
-**Why:** Whole fish arrive in variable sizes and prices each day, so fixed reusable weight variants do not fit this stock workflow.
+**Why:** The user clarified that fish inventory is managed as a singular product with individual fish recorded as batches, not as sub-products.
 
-**How to apply:** Keep daily whole-fish stock entries distinct from standard reusable weight variants, and ensure a sale removes the exact fish entry. The intake workflow belongs inside the existing Stock Management module, not a separate page or sidebar section; reuse its selected hub and adjustment details.
-
-**Why:** The user corrected the separate-page approach and asked for the daily fish procedure to be completed in Stock Management.
+**How to apply:** Keep regular reusable weight variants for non-fish products. For whole-fish products, use the root product, one quantity per fish batch, and retain weight and total price on that batch.

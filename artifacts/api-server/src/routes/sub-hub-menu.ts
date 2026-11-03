@@ -142,7 +142,16 @@ router.get("/products", async (req, res) => {
     const search = String(req.query.search || "");
     const query: any = search ? { name: { $regex: search, $options: "i" } } : {};
     const productsCollection = ctx.conn.db!.collection("products");
-    const products = await productsCollection.find(query).sort({ sortOrder: 1, name: 1 }).toArray();
+    const [productDocs, fishRoots] = await Promise.all([
+      productsCollection.find({ ...query, isDailyWholeFish: { $ne: true } }).sort({ sortOrder: 1, name: 1 }).toArray(),
+      productsCollection.find({ wholeFishInventory: true }).project({ _id: 1 }).toArray(),
+    ]);
+    const fishRootIds = new Set(fishRoots.map((product: any) => String(product._id)));
+    const products = productDocs.filter((product: any) =>
+      !product.variantGroupId ||
+      !fishRootIds.has(String(product.variantGroupId)) ||
+      String(product._id) === String(product.variantGroupId)
+    );
     const groupIds = [...new Set(products.map((product: any) => String(product.variantGroupId ?? "")).filter(Boolean))];
     const rootIds = groupIds.map((groupId) => toId(groupId)).filter((id) => id !== null) as any[];
     const roots = rootIds.length
@@ -157,12 +166,31 @@ router.get("/products", async (req, res) => {
         .filter((b: any) => !b?.expiryDate || new Date(b.expiryDate).getTime() >= nowMs)
         .reduce((s: number, b: any) => s + (Math.max(0, Number(b?.quantity) || 0)), 0);
       const total = batches.length > 0 ? availableBatchTotal : Math.max(0, Number(p.quantity) || 0);
-      const hasVariantLabel = Boolean(p.variantGroupId || p.netWeight || p.variantLabel || p.weight || p.grossWeight);
+      const hasVariantLabel = p.wholeFishInventory !== true &&
+        Boolean(p.variantGroupId || p.netWeight || p.variantLabel || p.weight || p.grossWeight);
       return {
         ...p,
         unit: p.variantGroupId ? groupUnits.get(String(p.variantGroupId)) ?? p.unit : p.unit,
         ...(hasVariantLabel ? { variantLabel: getVariantLabel(p) } : {}),
         quantity: total,
+        wholeFishInventory: p.wholeFishInventory === true,
+        ...(p.wholeFishInventory === true ? {
+          fishBatches: batches
+            .filter((batch: any) =>
+              Number(batch?.quantity) > 0 &&
+              Number(batch?.fishWeightKg) > 0 &&
+              Number.isFinite(Number(batch?.fishPrice)) &&
+              (!batch?.expiryDate || new Date(batch.expiryDate).getTime() >= nowMs)
+            )
+            .map((batch: any) => ({
+              batchId: String(batch._id ?? ""),
+              batchNumber: String(batch.batchNumber ?? ""),
+              weightKg: Number(batch.fishWeightKg),
+              price: Number(batch.fishPrice),
+              quantity: Number(batch.quantity) || 0,
+              expiryDate: batch.expiryDate ?? null,
+            })),
+        } : {}),
       };
     });
     res.json({ products: productsWithQty, total: productsWithQty.length });
@@ -195,9 +223,13 @@ router.get("/products/:productId/variants", async (req, res) => {
 
     const groupId = String(product.variantGroupId || product._id);
     const rootId = product.variantGroupId ? toId(groupId) : product._id;
-    const root = rootId ? await products.findOne({ _id: rootId }, { projection: { unit: 1 } }) : null;
+    const root = rootId
+      ? await products.findOne({ _id: rootId }, { projection: { unit: 1, wholeFishInventory: 1 } })
+      : null;
     const globalUnit = root?.unit || product.unit || "per pack";
-    const variants = product.variantGroupId
+    const variants = root?.wholeFishInventory
+      ? [root]
+      : product.variantGroupId
       ? await products.find({ variantGroupId: groupId }).sort({ createdAt: 1, _id: 1 }).toArray()
       : [product];
     const withQuantity = variants.map((variant: any) => {
@@ -205,7 +237,7 @@ router.get("/products/:productId/variants", async (req, res) => {
       const quantity = batches.length > 0
         ? batches.reduce((total: number, batch: any) => total + Math.max(0, Number(batch?.quantity) || 0), 0)
         : Math.max(0, Number(variant.quantity) || 0);
-      const hasVariantLabel = Boolean(
+      const hasVariantLabel = variant.wholeFishInventory !== true && Boolean(
         variant.variantGroupId || variant.netWeight || variant.variantLabel || variant.weight || variant.grossWeight,
       );
       return {
@@ -234,6 +266,17 @@ router.post("/products/:productId/variants", async (req, res) => {
     const products = db.collection("products");
     const base = await products.findOne({ _id: productId });
     if (!base) { res.status(404).json({ error: "NotFound", message: "Product not found" }); return; }
+    const rootId = toId(String(base.variantGroupId || base._id));
+    const groupRoot = rootId
+      ? await products.findOne({ _id: rootId }, { projection: { wholeFishInventory: 1 } })
+      : null;
+    if (base.wholeFishInventory === true || groupRoot?.wholeFishInventory === true) {
+      res.status(409).json({
+        error: "WholeFishBatchInventory",
+        message: "This fish is managed as one batch per fish. Do not create weight sub-products.",
+      });
+      return;
+    }
 
     const netWeight = String(req.body.netWeight ?? "").trim();
     const variantLabel = netWeight;

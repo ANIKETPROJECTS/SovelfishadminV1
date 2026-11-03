@@ -12,7 +12,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useToast } from "@/hooks/use-toast";
 import { getCurrentAdminScope } from "@/lib/api";
 import { formatVariantLabelWithUnit, getProductUnitSuffix, normalizeProductUnit } from "@/lib/product-units";
-import { DailyFishIntakePanel } from "@/pages/daily-fish-inventory";
 
 function getToken() { return localStorage.getItem("fishtokri_token") ?? ""; }
 
@@ -50,6 +49,8 @@ type Batch = {
   expiryDate: string | null;
   expiryTime?: string;
   notes: string;
+  fishWeightKg?: number | null;
+  fishPrice?: number | null;
 };
 type Product = {
   id: string;
@@ -62,7 +63,7 @@ type Product = {
   price: number;
   quantity: number;
   batches?: Batch[];
-  isDailyWholeFish?: boolean;
+  wholeFishInventory?: boolean;
 };
 
 type ProductGroup = {
@@ -72,6 +73,7 @@ type ProductGroup = {
   unit: string;
   products: Product[];
   quantity: number;
+  wholeFishInventory: boolean;
 };
 
 type AdjustmentCard = {
@@ -94,19 +96,25 @@ function groupProducts(products: Product[]): ProductGroup[] {
   }
 
   return [...grouped.entries()].map(([id, members]) => {
-    members.sort((a, b) => {
+    const wholeFishInventory = members.some((member) => member.wholeFishInventory === true);
+    const visibleMembers = wholeFishInventory
+      ? members.filter((member) => member.id === id).slice(0, 1)
+      : members;
+    const productMembers = visibleMembers.length > 0 ? visibleMembers : members.slice(0, 1);
+    productMembers.sort((a, b) => {
       if (a.id === id) return -1;
       if (b.id === id) return 1;
       return (a.variantLabel || "").localeCompare(b.variantLabel || "", undefined, { numeric: true });
     });
-    const product = members[0];
+    const product = productMembers[0];
     return {
       id,
       name: product.name,
       category: product.category || "Uncategorized",
       unit: normalizeProductUnit(product.unit),
-      products: members,
-      quantity: members.reduce((total, member) => total + (Number(member.quantity) || 0), 0),
+      products: productMembers,
+      quantity: productMembers.reduce((total, member) => total + (Number(member.quantity) || 0), 0),
+      wholeFishInventory,
     };
   }).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
 }
@@ -130,6 +138,9 @@ type FormRow = {
   removeQuantity: string;
   selectedBatchId: string;
   search: string;
+  isWholeFishBatch: boolean;
+  fishWeightKg: string;
+  fishPrice: string;
 };
 
 type Adjustment = {
@@ -186,7 +197,7 @@ function getTodayYYYYMMDD(): string {
  * @param productBatches  Only the batches belonging to THIS product.
  * @param shortCode       Optional short code — used as prefix when provided.
  */
-function generateNextBatchNumber(productName: string, productBatches: Batch[], shortCode?: string): string {
+function generateNextBatchNumber(productName: string, productBatches: Array<Pick<Batch, "batchNumber">>, shortCode?: string): string {
   const prefix = shortCode && shortCode.trim() ? shortCode.trim().toUpperCase() : generateBatchPrefix(productName);
   const today = getTodayYYYYMMDD();
   let maxNum = 0;
@@ -214,6 +225,7 @@ function emptyRow(): FormRow {
     mode: "add", addQuantity: "", shelfLifeDays: "", expiryDate: "", expiryTime: getCurrentTime12h(), batchNumber: "",
     batchNotes: "",
     removeQuantity: "", selectedBatchId: "", search: "",
+    isWholeFishBatch: false, fishWeightKg: "", fishPrice: "",
   };
 }
 
@@ -507,6 +519,7 @@ function ProductSelector({
     : [];
 
   function groupDescription(group: ProductGroup) {
+    if (group.wholeFishInventory) return "Fish tracked by individual weight and price batches";
     const hasVariants = group.products.some((product) => Boolean(product.variantGroupId || product.variantLabel));
     if (!hasVariants) return group.category;
     const labels = group.products
@@ -757,6 +770,9 @@ function BatchSelector({
                 <div>
                   <p className="text-sm font-bold text-[#162B4D]">{b.batchNumber || "Unnamed Batch"}</p>
                   <p className="text-[11px] text-gray-400 mt-0.5">
+                    {b.fishWeightKg != null
+                      ? `${b.fishWeightKg} kg · ₹${Number(b.fishPrice ?? 0).toFixed(2)} per fish · `
+                      : ""}
                     Added {formatDate(b.receivedDate)} · Exp <span className={`font-semibold ${tone}`}>{formatExpiry(b.expiryDate)}</span>
                   </p>
                 </div>
@@ -786,7 +802,11 @@ function BatchSelector({
           focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]
           ${selected ? selectedStyle : "border-gray-200 bg-white text-gray-400"}`}
       >
-        <span className="truncate">{selected ? selected.batchNumber || "Unnamed" : placeholder}</span>
+        <span className="truncate">
+          {selected
+            ? `${selected.batchNumber || "Unnamed"}${selected.fishWeightKg != null ? ` · ${selected.fishWeightKg} kg · ₹${Number(selected.fishPrice ?? 0).toFixed(2)}` : ""}`
+            : placeholder}
+        </span>
         <ChevronDown className={`w-3.5 h-3.5 flex-shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && createPortal(dropdown, document.body)}
@@ -796,13 +816,14 @@ function BatchSelector({
 
 // ─── EXISTING BATCHES CARD (editable) ────────────────────────────────────────
 function ExistingBatchesCard({
-  batches, unit, productId, subHubId, onReload,
+  batches, unit, productId, subHubId, onReload, wholeFishProduct = false,
 }: {
   batches: Batch[];
   unit: string;
   productId: string;
   subHubId: string;
   onReload: () => void;
+  wholeFishProduct?: boolean;
 }) {
   const { toast } = useToast();
   const [edited, setEdited] = useState<Batch[]>([]);
@@ -883,9 +904,11 @@ function ExistingBatchesCard({
       <>
         {/* Column headers */}
           <div className="px-3 py-1.5 bg-[#364F9F]/5 border-y border-[#364F9F]/10">
-            <div className="grid grid-cols-6 gap-2">
+            <div className={`grid ${wholeFishProduct ? "min-w-[1120px] grid-cols-8" : "grid-cols-6"} gap-2`}>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Batch ID</span>
-              <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Qty ({unit})</span>
+              {wholeFishProduct && <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Weight (kg)</span>}
+              {wholeFishProduct && <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Price / fish</span>}
+              <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">{wholeFishProduct ? "Fish stock (0 or 1)" : `Qty (${unit})`}</span>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Shelf Life (d)</span>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Received</span>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Expiry Date &amp; Time</span>
@@ -902,16 +925,40 @@ function ExistingBatchesCard({
                 : dl <= 7 ? "border-amber-300 bg-amber-50"
                 : "border-emerald-200 bg-emerald-50";
               return (
-                <div key={b.id} className="px-3 py-2 grid grid-cols-6 gap-2 items-start bg-white/50 hover:bg-white/80 transition-colors">
+                <div key={b.id} className={`px-3 py-2 grid ${wholeFishProduct ? "min-w-[1120px] grid-cols-8" : "grid-cols-6"} gap-2 items-start bg-white/50 hover:bg-white/80 transition-colors`}>
                   <input
                     type="text"
                     value={b.batchNumber}
                     onChange={(e) => patchBatch(i, { batchNumber: e.target.value.toUpperCase() })}
                     className="h-7 px-2 text-[11px] font-bold font-mono text-[#162B4D] border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#364F9F]/30 uppercase mt-0.5"
                   />
+                  {wholeFishProduct && (
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      value={b.fishWeightKg ?? ""}
+                      onChange={(e) => patchBatch(i, { fishWeightKg: e.target.value === "" ? null : Number(e.target.value) })}
+                      aria-label="Fish weight in kilograms"
+                      className="h-7 px-2 text-[11px] text-[#162B4D] border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#364F9F]/30 mt-0.5"
+                    />
+                  )}
+                  {wholeFishProduct && (
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={b.fishPrice ?? ""}
+                      onChange={(e) => patchBatch(i, { fishPrice: e.target.value === "" ? null : Number(e.target.value) })}
+                      aria-label="Total price for this fish"
+                      className="h-7 px-2 text-[11px] text-[#162B4D] border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#364F9F]/30 mt-0.5"
+                    />
+                  )}
                   <input
                     type="number"
                     min="0"
+                    max={wholeFishProduct ? 1 : undefined}
+                    step={wholeFishProduct ? 1 : undefined}
                     value={b.quantity}
                     onChange={(e) => patchBatch(i, { quantity: Number(e.target.value) })}
                     className="h-7 px-2 text-[11px] font-bold text-[#162B4D] border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#364F9F]/30 mt-0.5"
@@ -1018,10 +1065,144 @@ function ExistingBatchesCard({
   );
 }
 
+function WholeFishAdjustmentTable({
+  rows,
+  product,
+  subHubId,
+  onUpdate,
+  onAdd,
+  onRemove,
+  onReload,
+}: {
+  rows: Array<{ row: FormRow; idx: number }>;
+  product: Product | undefined;
+  subHubId: string;
+  onUpdate: (idx: number, patch: Partial<FormRow>) => void;
+  onAdd: () => void;
+  onRemove: (idx: number) => void;
+  onReload: () => void;
+}) {
+  const batches: Batch[] = product?.batches ?? [];
+  return (
+    <div className="space-y-3 p-3">
+      <div className="overflow-x-auto rounded-lg border border-gray-200">
+        <table className="w-full min-w-[1000px] border-collapse text-left">
+          <thead className="bg-gray-50">
+            <tr>
+              {["#", "Weight (kg)", "Total price per fish", "Stock unit", "Expiry date & time", "Batch ID", "Notes", ""].map((heading, index) => (
+                <th key={`${heading}-${index}`} className="border-b border-r border-gray-200 px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 last:border-r-0">
+                  {heading}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ row, idx }, rowNumber) => (
+              <tr key={`${row.batchNumber}-${idx}`} className="bg-white hover:bg-gray-50/60">
+                <td className="w-10 border-b border-r border-gray-200 px-2 py-2 text-xs font-semibold text-gray-500">{rowNumber + 1}</td>
+                <td className="border-b border-r border-gray-200 px-2 py-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    inputMode="decimal"
+                    value={row.fishWeightKg}
+                    onChange={(event) => onUpdate(idx, { fishWeightKg: event.target.value })}
+                    placeholder="e.g. 1.2"
+                    aria-label={`Weight in kilograms for fish ${rowNumber + 1}`}
+                    className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm font-semibold text-[#162B4D] outline-none focus:border-[#364F9F] focus:ring-2 focus:ring-[#364F9F]/15"
+                  />
+                </td>
+                <td className="border-b border-r border-gray-200 px-2 py-2">
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-gray-400">₹</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={row.fishPrice}
+                      onChange={(event) => onUpdate(idx, { fishPrice: event.target.value })}
+                      placeholder="Total"
+                      aria-label={`Total price for fish ${rowNumber + 1}`}
+                      className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm font-semibold text-[#162B4D] outline-none focus:border-[#364F9F] focus:ring-2 focus:ring-[#364F9F]/15"
+                    />
+                  </div>
+                </td>
+                <td className="border-b border-r border-gray-200 px-2 py-2 text-xs font-semibold text-[#162B4D]">1 fish</td>
+                <td className="border-b border-r border-gray-200 px-2 py-2">
+                  <div className="flex min-w-[220px] items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={row.expiryDate}
+                      onChange={(event) => onUpdate(idx, { expiryDate: event.target.value, shelfLifeDays: "" })}
+                      aria-label={`Expiry date for fish ${rowNumber + 1}`}
+                      className="h-9 min-w-0 flex-1 rounded-md border border-gray-200 px-1.5 text-[11px] font-medium text-[#162B4D]"
+                    />
+                    <div className="w-[108px] shrink-0">
+                      <ClockPickerField value={row.expiryTime} onChange={(value) => onUpdate(idx, { expiryTime: value })} />
+                    </div>
+                  </div>
+                </td>
+                <td className="border-b border-r border-gray-200 px-2 py-2">
+                  <input
+                    type="text"
+                    value={row.batchNumber}
+                    onChange={(event) => onUpdate(idx, { batchNumber: event.target.value.toUpperCase() })}
+                    aria-label={`Batch ID for fish ${rowNumber + 1}`}
+                    className="h-9 w-full rounded-md border border-[#364F9F]/25 bg-[#364F9F]/5 px-2 text-[11px] font-bold tracking-wide text-[#364F9F]"
+                  />
+                </td>
+                <td className="border-b border-r border-gray-200 px-2 py-2">
+                  <input
+                    type="text"
+                    value={row.batchNotes}
+                    onChange={(event) => onUpdate(idx, { batchNotes: event.target.value })}
+                    placeholder="Optional"
+                    aria-label={`Notes for fish ${rowNumber + 1}`}
+                    className="h-9 w-full rounded-md border border-gray-200 px-2 text-xs text-gray-700"
+                  />
+                </td>
+                <td className="border-b border-gray-200 px-2 py-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => onRemove(idx)}
+                    disabled={rows.length <= 1}
+                    aria-label={`Remove fish entry ${rowNumber + 1}`}
+                    className="rounded-md p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button
+        type="button"
+        onClick={onAdd}
+        className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-[#364F9F]/35 px-3 py-2 text-xs font-semibold text-[#364F9F] hover:bg-[#364F9F]/5"
+      >
+        <Plus className="h-3.5 w-3.5" /> Add another fish
+      </button>
+      {batches.length > 0 && (
+        <ExistingBatchesCard
+          batches={batches}
+          unit="fish"
+          productId={product?.id ?? ""}
+          subHubId={subHubId}
+          onReload={onReload}
+          wholeFishProduct
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function InventoryStockAdjustment() {
   const { toast } = useToast();
-  const [activeStockView, setActiveStockView] = useState<"adjustment" | "daily_fish">("adjustment");
   const [superHubs, setSuperHubs] = useState<SuperHub[]>([]);
   const [subHubs, setSubHubs] = useState<SubHub[]>([]);
   const [selectedSuperHubId, setSelectedSuperHubId] = useState("");
@@ -1080,7 +1261,7 @@ export default function InventoryStockAdjustment() {
   const reload = useCallback(() => {
     if (!selectedSubHubId) { setProducts([]); return; }
     apiFetch(`/api/inventory/products?subHubId=${selectedSubHubId}`)
-      .then((res) => setProducts((res.products ?? []).filter((product: Product) => product.isDailyWholeFish !== true)))
+      .then((res) => setProducts(res.products ?? []))
       .catch((err) => toast({ title: "Failed to load products", description: err.message, variant: "destructive" }));
   }, [selectedSubHubId, toast]);
 
@@ -1097,9 +1278,10 @@ export default function InventoryStockAdjustment() {
     if (currentProduct && getProductGroupId(currentProduct) === group.id) return;
 
     const mode = formRows[i]?.mode ?? "add";
-    const selectedRows = group.products.map((product) => {
+    const productsToSelect = group.wholeFishInventory ? group.products.slice(0, 1) : group.products;
+    const selectedRows = productsToSelect.map((product) => {
       const displayLabel = formatVariantLabelWithUnit(product.variantLabel, product.unit);
-      const displayName = product.variantLabel ? `${product.name} (${displayLabel})` : product.name;
+      const displayName = !group.wholeFishInventory && product.variantLabel ? `${product.name} (${displayLabel})` : product.name;
       // Keep batch sequencing and inventory attached to each variant's own product record.
       const productBatches: Batch[] = product.batches ?? [];
       const autoNum = generateNextBatchNumber(displayName, productBatches, product.shortCode);
@@ -1109,10 +1291,12 @@ export default function InventoryStockAdjustment() {
         selectionGroupId: group.id,
         productName: displayName,
         category: product.category || "",
-        unit: normalizeProductUnit(product.unit),
+        unit: group.wholeFishInventory ? "per piece" : normalizeProductUnit(product.unit),
         price: String(product.price ?? 0),
         quantityBefore: product.quantity,
         mode,
+        addQuantity: group.wholeFishInventory ? "1" : "",
+        isWholeFishBatch: group.wholeFishInventory,
         search: group.name,
         batchNumber: mode === "add" ? autoNum : "",
       };
@@ -1130,6 +1314,103 @@ export default function InventoryStockAdjustment() {
         ...remaining.slice(insertionIndex),
       ];
     });
+  }
+
+  function setProductFishMode(card: AdjustmentCard, enabled: boolean) {
+    if (!card.groupId) return;
+    const group = groupProducts(products).find((candidate) => candidate.id === card.groupId);
+    if (!group) return;
+    if (!enabled && group.wholeFishInventory) return;
+
+    const currentRows = formRows.filter((row) => row.selectionGroupId === card.groupId);
+    if (currentRows.some((row) =>
+      (row.isWholeFishBatch
+        ? row.fishWeightKg.trim() || row.fishPrice.trim() || row.batchNotes.trim()
+        : Number(row.addQuantity) > 0 || Number(row.removeQuantity) > 0 || row.batchNotes.trim())
+    )) {
+      toast({ title: "Save or clear the current entries before changing batch mode", variant: "destructive" });
+      return;
+    }
+
+    const root = group.products.find((product) => product.id === group.id) ?? group.products[0];
+    if (!root) return;
+    const rootBatches = root.batches ?? [];
+    const rootDisplayName = root.name;
+    const createRow = (product: Product, isWholeFishBatch: boolean): FormRow => ({
+      ...emptyRow(),
+      productId: product.id,
+      selectionGroupId: group.id,
+      productName: isWholeFishBatch ? product.name : (
+        product.variantLabel
+          ? `${product.name} (${formatVariantLabelWithUnit(product.variantLabel, product.unit)})`
+          : product.name
+      ),
+      category: product.category || "",
+      unit: isWholeFishBatch ? "per piece" : normalizeProductUnit(product.unit),
+      price: String(product.price ?? 0),
+      quantityBefore: product.quantity,
+      mode: "add",
+      addQuantity: isWholeFishBatch ? "1" : "",
+      isWholeFishBatch,
+      search: group.name,
+      batchNumber: generateNextBatchNumber(
+        isWholeFishBatch ? rootDisplayName : product.name,
+        product.batches ?? rootBatches,
+        product.shortCode,
+      ),
+    });
+
+    const replacement = enabled
+      ? [createRow(root, true)]
+      : group.products.map((product) => createRow(product, false));
+    setFormRows((rows) => {
+      const firstIndex = rows.findIndex((row) => row.selectionGroupId === card.groupId);
+      const remaining = rows.filter((row) => row.selectionGroupId !== card.groupId);
+      return [...remaining.slice(0, firstIndex), ...replacement, ...remaining.slice(firstIndex)];
+    });
+  }
+
+  function addFishEntry(card: AdjustmentCard) {
+    const firstRow = card.rows[0]?.row;
+    if (!firstRow?.isWholeFishBatch) return;
+    const product = products.find((item) => item.id === firstRow.productId);
+    if (!product) return;
+    const draftedBatches = card.rows.map(({ row }) => ({
+      batchNumber: row.batchNumber,
+      quantity: 0,
+      shelfLifeDays: null,
+      receivedDate: null,
+      expiryDate: null,
+      notes: "",
+    }));
+    const batchNumber = generateNextBatchNumber(
+      product.name,
+      [...(product.batches ?? []), ...draftedBatches],
+      product.shortCode,
+    );
+    const newRow: FormRow = {
+      ...firstRow,
+      mode: "add",
+      addQuantity: "1",
+      shelfLifeDays: "",
+      expiryDate: "",
+      expiryTime: getCurrentTime12h(),
+      batchNumber,
+      batchNotes: "",
+      fishWeightKg: "",
+      fishPrice: "",
+      removeQuantity: "",
+      selectedBatchId: "",
+    };
+    setFormRows((rows) => {
+      const lastIndex = rows.reduce((last, row, index) => row.selectionGroupId === card.groupId ? index : last, -1);
+      return [...rows.slice(0, lastIndex + 1), newRow, ...rows.slice(lastIndex + 1)];
+    });
+  }
+
+  function removeFishEntry(card: AdjustmentCard, rowIndex: number) {
+    if (card.rows.length <= 1) return;
+    setFormRows((rows) => rows.filter((_, index) => index !== rowIndex));
   }
 
   function clearProduct(i: number) {
@@ -1246,6 +1527,8 @@ export default function InventoryStockAdjustment() {
   async function handleSave() {
     const validRows = formRows.filter((r) =>
       r.productId && (
+        (r.isWholeFishBatch && r.mode === "add" &&
+          Number(r.fishWeightKg) > 0 && Number(r.fishPrice) > 0) ||
         (r.mode === "add" && r.addQuantity !== "" && Number(r.addQuantity) > 0) ||
         (r.mode === "add_existing" && r.selectedBatchId && r.addQuantity !== "" && Number(r.addQuantity) > 0) ||
         (r.mode === "remove" && r.removeQuantity !== "" && Number(r.removeQuantity) > 0)
@@ -1253,6 +1536,15 @@ export default function InventoryStockAdjustment() {
     );
     if (validRows.length === 0) { toast({ title: "Add at least one product with a quantity", variant: "destructive" }); return; }
     if (!formReason.trim()) { toast({ title: "Reason is required", variant: "destructive" }); return; }
+    const incompleteFishEntry = formRows.find((row) =>
+      row.isWholeFishBatch && row.productId &&
+      (!Number.isFinite(Number(row.fishWeightKg)) || Number(row.fishWeightKg) <= 0 ||
+        !Number.isFinite(Number(row.fishPrice)) || Number(row.fishPrice) <= 0)
+    );
+    if (incompleteFishEntry) {
+      toast({ title: "Enter weight and total price for every fish", variant: "destructive" });
+      return;
+    }
     const missingExpiry = validRows.find((r) => r.mode === "add" && !r.shelfLifeDays && !r.expiryDate);
     if (missingExpiry) {
       toast({ title: "Set shelf life or expiry", description: `Add shelf life (days) or an expiry date for ${missingExpiry.productName}.`, variant: "destructive" });
@@ -1274,6 +1566,20 @@ export default function InventoryStockAdjustment() {
           reason: formReason,
           notes: formNotes,
           items: validRows.map((r) => {
+            if (r.isWholeFishBatch) return {
+              productId: r.productId,
+              mode: "add",
+              addQuantity: 1,
+              fishWeightKg: Number(r.fishWeightKg),
+              fishPrice: Number(r.fishPrice),
+              receivedDate: formDate,
+              shelfLifeDays: r.shelfLifeDays !== "" ? Number(r.shelfLifeDays) : undefined,
+              expiryDate: r.expiryDate
+                ? (r.expiryTime ? `${r.expiryDate}T${to24hTime(r.expiryTime)}:00+05:30` : r.expiryDate)
+                : undefined,
+              batchNumber: r.batchNumber || undefined,
+              notes: r.batchNotes || undefined,
+            };
             if (r.mode === "add") return {
               productId: r.productId, mode: "add",
               addQuantity: Number(r.addQuantity),
@@ -1341,7 +1647,7 @@ export default function InventoryStockAdjustment() {
     <div className="flex items-center justify-between w-full gap-4 min-w-0">
       <div className="min-w-0 flex-shrink-0">
         <p className="text-sm font-bold text-[#162B4D] leading-tight">Inventory Stock Management</p>
-         <p className="text-[11px] text-gray-400 leading-tight hidden sm:block">Adjust stock, or enter individual whole fish and prices for the selected hub.</p>
+        <p className="text-[11px] text-gray-400 leading-tight hidden sm:block">Adjust product stock and manage each incoming fish as a batch.</p>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         {selectedSuperHub && <LockedHubBadge label="Super Hub" name={selectedSuperHub.name} location={selectedSuperHub.location} />}
@@ -1395,42 +1701,7 @@ export default function InventoryStockAdjustment() {
             </div>
           </div>
 
-          <div role="tablist" aria-label="Stock management workflow" className="flex w-fit gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeStockView === "adjustment"}
-              onClick={() => setActiveStockView("adjustment")}
-              className={`rounded-md px-4 py-2 text-sm font-semibold transition-colors ${activeStockView === "adjustment" ? "bg-white text-[#162B4D] shadow-sm" : "text-gray-500 hover:text-[#162B4D]"}`}
-            >
-              Stock adjustment
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeStockView === "daily_fish"}
-              onClick={() => setActiveStockView("daily_fish")}
-              className={`rounded-md px-4 py-2 text-sm font-semibold transition-colors ${activeStockView === "daily_fish" ? "bg-white text-[#162B4D] shadow-sm" : "text-gray-500 hover:text-[#162B4D]"}`}
-            >
-              Daily whole fish
-            </button>
-          </div>
-
-          <div className={activeStockView === "daily_fish" ? "" : "hidden"}>
-            <DailyFishIntakePanel
-              subHubId={selectedSubHubId}
-              date={formDate}
-              reason={formReason}
-              notes={formNotes}
-              onSaved={() => {
-                setFormReason("");
-                setFormNotes("");
-                reload();
-              }}
-            />
-          </div>
-
-          <div className={activeStockView === "adjustment" ? "" : "hidden"}>
+          <div>
           {/* Products section */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -1470,12 +1741,15 @@ export default function InventoryStockAdjustment() {
                           </button>
                         )}
                       </div>
-                      <p className="mt-2 text-xs text-gray-400">Choose a product to load all of its weight variants together.</p>
+                      <p className="mt-2 text-xs text-gray-400">Choose one main product. For whole fish, track each fish as its own batch.</p>
                     </div>
                   );
                 }
 
-                const totalQuantity = card.rows.reduce((total, entry) => total + entry.row.quantityBefore, 0);
+                const totalQuantity = firstRow.isWholeFishBatch
+                  ? firstRow.quantityBefore
+                  : card.rows.reduce((total, entry) => total + entry.row.quantityBefore, 0);
+                const cardProduct = products.find((product) => product.id === firstRow.productId);
                 return (
                   <div key={card.key} className="overflow-hidden rounded-xl border border-gray-300 bg-white">
                     <div className="flex flex-wrap items-end justify-between gap-3 border-b border-gray-200 bg-gray-50/70 p-3">
@@ -1487,12 +1761,37 @@ export default function InventoryStockAdjustment() {
                         />
                       </div>
                       <div className="flex items-center gap-3">
+                        {group && !group.wholeFishInventory && !firstRow.isWholeFishBatch && (
+                          <button
+                            type="button"
+                            onClick={() => setProductFishMode(card, true)}
+                            className="rounded-md border border-[#364F9F]/20 bg-white px-3 py-2 text-xs font-semibold text-[#364F9F] hover:bg-[#364F9F]/5"
+                          >
+                            Track as whole fish
+                          </button>
+                        )}
+                        {group && !group.wholeFishInventory && firstRow.isWholeFishBatch && (
+                          <button
+                            type="button"
+                            onClick={() => setProductFishMode(card, false)}
+                            className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                          >
+                            Use product variants
+                          </button>
+                        )}
+                        {group?.wholeFishInventory && firstRow.isWholeFishBatch && (
+                          <span className="rounded-md bg-[#364F9F]/5 px-3 py-2 text-xs font-semibold text-[#364F9F]">
+                            One fish per batch
+                          </span>
+                        )}
                         <div className="text-right">
                           <p className="text-xs font-bold text-[#162B4D]">
-                            {card.rows.length} {card.rows.length === 1 ? "variant" : "variants"}
+                            {firstRow.isWholeFishBatch
+                              ? `${card.rows.length} ${card.rows.length === 1 ? "fish entry" : "fish entries"}`
+                              : `${card.rows.length} ${card.rows.length === 1 ? "variant" : "variants"}`}
                           </p>
                           <p className="text-[10px] text-gray-500">
-                            {totalQuantity} {firstRow.unit} available across variants
+                            {totalQuantity} {firstRow.isWholeFishBatch ? "fish" : `${firstRow.unit} available across variants`}
                           </p>
                         </div>
                         <button
@@ -1507,6 +1806,17 @@ export default function InventoryStockAdjustment() {
                       </div>
                     </div>
 
+                    {firstRow.isWholeFishBatch ? (
+                      <WholeFishAdjustmentTable
+                        rows={card.rows}
+                        product={cardProduct}
+                        subHubId={selectedSubHubId}
+                        onUpdate={updateRow}
+                        onAdd={() => addFishEntry(card)}
+                        onRemove={(idx) => removeFishEntry(card, idx)}
+                        onReload={reload}
+                      />
+                    ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[1430px] table-fixed border-collapse text-left">
                         <colgroup>
@@ -1715,6 +2025,7 @@ export default function InventoryStockAdjustment() {
                         </tbody>
                       </table>
                     </div>
+                    )}
                   </div>
                 );
               })}
