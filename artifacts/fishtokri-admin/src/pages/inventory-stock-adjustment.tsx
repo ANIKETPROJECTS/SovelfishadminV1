@@ -37,6 +37,16 @@ function formatDate(iso: string | null) {
   if (isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
+function calculateShelfLifeDays(receivedDate?: string | null, expiryDate?: string | null): number | null {
+  const receivedDay = String(receivedDate ?? "").slice(0, 10);
+  const expiryDay = String(expiryDate ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(receivedDay) || !/^\d{4}-\d{2}-\d{2}$/.test(expiryDay)) return null;
+  const received = Date.parse(`${receivedDay}T00:00:00Z`);
+  const expiry = Date.parse(`${expiryDay}T00:00:00Z`);
+  if (!Number.isFinite(received) || !Number.isFinite(expiry)) return null;
+  const days = Math.round((expiry - received) / 86400000);
+  return days >= 0 ? days : null;
+}
 
 type SuperHub = { id: string; name: string; location?: string };
 type SubHub = { id: string; name: string; location?: string };
@@ -226,9 +236,10 @@ function emptyRow(): FormRow {
   };
 }
 
-function addDaysISO(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
+function addDaysISO(days: number, baseDate = toInputDate(new Date())): string {
+  const safeBaseDate = /^\d{4}-\d{2}-\d{2}$/.test(baseDate) ? baseDate : toInputDate(new Date());
+  const [year, month, day] = safeBaseDate.split("-").map(Number);
+  const d = new Date(Date.UTC(year, month - 1, day + Math.trunc(days)));
   return d.toISOString().split("T")[0];
 }
 
@@ -839,7 +850,11 @@ function ExistingBatchesCard({
 
   // Sync local edit state when the batch list changes or the visible range changes.
   useEffect(() => {
-    setEdited(visibleBatches.map((b) => ({ ...b, expiryTime: extractTime12hFromISO(b.expiryDate) })));
+    setEdited(visibleBatches.map((b) => ({
+      ...b,
+      shelfLifeDays: b.shelfLifeDays ?? calculateShelfLifeDays(b.receivedDate, b.expiryDate),
+      expiryTime: extractTime12hFromISO(b.expiryDate),
+    })));
     setDirty(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batches, showAllBatches]);
@@ -876,7 +891,11 @@ function ExistingBatchesCard({
   }
 
   function handleCancel() {
-    setEdited(batches.map((b) => ({ ...b, expiryTime: extractTime12hFromISO(b.expiryDate) })));
+    setEdited(batches.map((b) => ({
+      ...b,
+      shelfLifeDays: b.shelfLifeDays ?? calculateShelfLifeDays(b.receivedDate, b.expiryDate),
+      expiryTime: extractTime12hFromISO(b.expiryDate),
+    })));
     setDirty(false);
   }
 
@@ -967,9 +986,7 @@ function ExistingBatchesCard({
                       const days = e.target.value === "" ? null : Number(e.target.value);
                       let expiryDate = b.expiryDate;
                       if (days !== null && b.receivedDate) {
-                        const d = new Date(b.receivedDate);
-                        d.setDate(d.getDate() + days);
-                        const dateISO = d.toISOString().slice(0, 10);
+                        const dateISO = addDaysISO(days, b.receivedDate.slice(0, 10));
                         expiryDate = `${dateISO}T${to24hTime(b.expiryTime || "06:00 PM")}:00+05:30`;
                       }
                       patchBatch(i, { shelfLifeDays: days, expiryDate });
@@ -982,11 +999,10 @@ function ExistingBatchesCard({
                     value={b.receivedDate?.slice(0, 10) ?? ""}
                     onChange={(e) => {
                       const received = e.target.value || null;
-                      const patch: Partial<Batch> = { receivedDate: received };
-                      if (received && b.expiryDate) {
-                        const days = Math.round((new Date(b.expiryDate).getTime() - new Date(received).getTime()) / 86400000);
-                        patch.shelfLifeDays = days >= 0 ? days : null;
-                      }
+                      const patch: Partial<Batch> = {
+                        receivedDate: received,
+                        shelfLifeDays: calculateShelfLifeDays(received, b.expiryDate),
+                      };
                       patchBatch(i, patch);
                     }}
                     className="h-7 px-2 text-[11px] text-[#162B4D] border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#364F9F]/30 mt-0.5"
@@ -1001,10 +1017,7 @@ function ExistingBatchesCard({
                         const patch: Partial<Batch> = {};
                         if (dateVal) {
                           patch.expiryDate = `${dateVal}T${to24hTime(b.expiryTime || "06:00 PM")}:00+05:30`;
-                          if (b.receivedDate) {
-                            const days = Math.round((new Date(patch.expiryDate).getTime() - new Date(b.receivedDate).getTime()) / 86400000);
-                            patch.shelfLifeDays = days >= 0 ? days : null;
-                          }
+                          patch.shelfLifeDays = calculateShelfLifeDays(b.receivedDate, dateVal);
                         } else {
                           patch.expiryDate = null;
                           patch.shelfLifeDays = null;
@@ -1448,16 +1461,13 @@ export default function InventoryStockAdjustment() {
 
   function setShelfLife(i: number, val: string) {
     const days = Number(val);
-    const expiry = val !== "" && Number.isFinite(days) ? addDaysISO(days) : "";
+    const expiry = val !== "" && Number.isFinite(days) ? addDaysISO(days, formDate) : "";
     updateRow(i, { shelfLifeDays: val, expiryDate: expiry });
   }
 
   function setExpiryDate(i: number, val: string) {
-    let shelfLifeDays = "";
-    if (val) {
-      const days = Math.round((new Date(val).getTime() - Date.now()) / 86400000);
-      if (days >= 0) shelfLifeDays = String(days);
-    }
+    const days = calculateShelfLifeDays(formDate, val);
+    const shelfLifeDays = days == null ? "" : String(days);
     updateRow(i, { expiryDate: val, shelfLifeDays });
   }
 
@@ -1547,7 +1557,9 @@ export default function InventoryStockAdjustment() {
               fishWeightKg: Number(r.fishWeightKg),
               fishPrice: Number(r.fishPrice),
               receivedDate: formDate,
-              shelfLifeDays: r.shelfLifeDays !== "" ? Number(r.shelfLifeDays) : undefined,
+              shelfLifeDays: r.shelfLifeDays !== ""
+                ? Number(r.shelfLifeDays)
+                : (calculateShelfLifeDays(formDate, r.expiryDate) ?? undefined),
               expiryDate: r.expiryDate
                 ? (r.expiryTime ? `${r.expiryDate}T${to24hTime(r.expiryTime)}:00+05:30` : r.expiryDate)
                 : undefined,
@@ -1651,7 +1663,20 @@ export default function InventoryStockAdjustment() {
             <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Date</Label>
-                <Input type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} className="h-9 text-sm font-medium text-[#162B4D]" />
+                <Input
+                  type="date"
+                  value={formDate}
+                  onChange={(e) => {
+                    const date = e.target.value;
+                    setFormDate(date);
+                    setFormRows((rows) => rows.map((row) => {
+                      if (row.mode !== "add" || !row.expiryDate) return row;
+                      const days = calculateShelfLifeDays(date, row.expiryDate);
+                      return { ...row, shelfLifeDays: days == null ? "" : String(days) };
+                    }));
+                  }}
+                  className="h-9 text-sm font-medium text-[#162B4D]"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
