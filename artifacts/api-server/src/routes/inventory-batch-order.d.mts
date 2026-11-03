@@ -38,6 +38,11 @@ export declare function planBatchConsumption<
   preferredBatchId?: unknown,
 ): { allocations: BatchAllocation[]; remaining: number };
 
+export declare function inventoryQuantityForOrder(
+  quantity: number,
+  bulkWeightKg?: number,
+): number;
+
 export declare function getOutstandingDeductionMovements<T extends InventoryMovement>(
   deductions: T[],
   restores: InventoryMovement[],

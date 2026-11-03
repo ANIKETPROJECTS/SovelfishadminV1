@@ -2,10 +2,38 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   getOutstandingDeductionMovements,
+  inventoryQuantityForOrder,
   planBatchConsumption,
   restoreBatchAllocations,
   sortBatchesByExpiry,
 } from "../src/routes/inventory-batch-order.mjs";
+
+test("converts bulk pack counts to the exact shared kilogram quantity", () => {
+  assert.equal(inventoryQuantityForOrder(3, 0.5), 1.5);
+  assert.equal(inventoryQuantityForOrder(2, 1.25), 2.5);
+  assert.equal(inventoryQuantityForOrder(3), 3);
+});
+
+test("deducts and restores a fractional bulk quantity to its original batches", () => {
+  const batches = [
+    { _id: "first", batchNumber: "FIRST", quantity: 1, expiryDate: "2026-11-05" },
+    { _id: "second", batchNumber: "SECOND", quantity: 2, expiryDate: "2026-11-10" },
+  ];
+  const requiredKg = inventoryQuantityForOrder(3, 0.5);
+  const plan = planBatchConsumption(batches, requiredKg);
+
+  assert.deepEqual(plan.allocations, [
+    { batchId: "first", batchNumber: "FIRST", quantity: 1 },
+    { batchId: "second", batchNumber: "SECOND", quantity: 0.5 },
+  ]);
+  const result = restoreBatchAllocations([
+    { ...batches[0], quantity: 0 },
+    { ...batches[1], quantity: 1.5 },
+  ], plan.allocations);
+  assert.equal(result.batches.find((batch) => batch._id === "first").quantity, 1);
+  assert.equal(result.batches.find((batch) => batch._id === "second").quantity, 2);
+  assert.equal(result.unmatchedAllocations.length, 0);
+});
 
 test("sorts by expiry even when a later-expiring batch was created or received earlier", () => {
   const batches = [

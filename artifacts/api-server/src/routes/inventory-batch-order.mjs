@@ -40,6 +40,18 @@ export function planBatchConsumption(batches, quantity, preferredBatchId) {
 }
 
 /**
+ * Convert a number of sale packs to shared kilogram inventory.
+ * Regular items remain quantity-based when no bulk portion weight is supplied.
+ */
+export function inventoryQuantityForOrder(quantity, bulkWeightKg) {
+  const count = Math.max(0, Number(quantity) || 0);
+  const weight = Number(bulkWeightKg);
+  if (count <= 0) return 0;
+  if (!Number.isFinite(weight) || weight <= 0) return count;
+  return Math.round(count * weight * 1000) / 1000;
+}
+
+/**
  * Return deductions that have not yet been reversed. New restore movements
  * explicitly reference their deduction movement IDs. Older movements did not
  * have references, so pair those in chronological order for compatibility.

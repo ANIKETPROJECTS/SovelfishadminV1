@@ -8,7 +8,7 @@
 - [Admark media transfer contract](admark-media-sending.md) — use separate APIs for outbound attachments and inbound media-ID downloads; keep the Admark API key server-side.
 - [Product sales modes](product-sales-modes.md) — product sales mode is limited to normal or preorder-only; preorder products may have date/day or combined availability.
 - [Product weight variants](product-weight-variants.md) — keep each weight as a separate product record with its own price and batches; retain the original record and archive variants.
-- [Whole-fish inventory](whole-fish-inventory.md) — each fish is one batch with its own weight and total price; POS must sell and deduct that exact batch.
+- [Whole-fish inventory](whole-fish-inventory.md) — distinguish per-fish batches from shared kg stock sold in configured portions.
 - [Product preorder slot rules](product-preorder-slot-rules.md) — missing weekday slot rules mean all active slots; an explicit empty list means no slots for that weekday.
 - [Sub-hub Mongo debugging](sub-hub-mongo-debugging.md) — use API-scoped DB helpers; run test writes only in an inactive temporary sub-hub and remove all fixtures.
 - [Batch deduction priority](inventory-batch-expiry-priority.md) — order deductions use expiry and availability only; stock edit, receipt, and creation times never set priority.

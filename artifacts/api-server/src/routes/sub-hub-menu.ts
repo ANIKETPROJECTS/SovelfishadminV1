@@ -241,7 +241,12 @@ router.get("/products", async (req, res) => {
         category,
         unit: isBulkFish
           ? "kg"
+          : isWholeFish
+            ? "per fish"
           : p.variantGroupId ? groupUnits.get(String(p.variantGroupId)) ?? p.unit : p.unit,
+        price: fishInventoryMode !== "standard" && fishPricePerKg > 0
+          ? fishPricePerKg
+          : Number(p.price) || 0,
         ...(hasVariantLabel ? { variantLabel: getVariantLabel(p) } : {}),
         quantity: total,
         wholeFishInventory: isWholeFish,

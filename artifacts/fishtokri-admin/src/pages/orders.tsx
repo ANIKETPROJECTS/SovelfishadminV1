@@ -1533,9 +1533,12 @@ export default function Orders() {
     }
     if (q) {
       list = list.filter((p) => {
-        const fishSearchText = (Array.isArray(p.fishBatches) ? p.fishBatches : [])
-          .map((batch: any) => `${batch.weightKg ?? ""} ${batch.price ?? ""}`)
-          .join(" ");
+        const fishSearchText = [
+          ...(Array.isArray(p.fishBatches) ? p.fishBatches : [])
+            .map((batch: any) => `${batch.weightKg ?? ""} ${batch.price ?? ""}`),
+          ...(Array.isArray(p.bulkSaleOptions) ? p.bulkSaleOptions : [])
+            .map((option: any) => `${option.weightLabel ?? ""} ${option.price ?? ""}`),
+        ].join(" ");
         return [p.name, p.variantLabel, p.description, p.category, p.subCategory, p.shortCode, fishSearchText, ...(Array.isArray(p.tags) ? p.tags : [])]
           .some((v) => String(v ?? "").toLowerCase().includes(q));
       });

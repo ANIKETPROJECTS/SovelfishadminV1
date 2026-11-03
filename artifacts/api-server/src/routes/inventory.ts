@@ -9,6 +9,7 @@ import { logger } from "../lib/logger.js";
 import { getInventoryUpdateAction } from "./inventory-update-policy.mjs";
 import {
   getOutstandingDeductionMovements,
+  inventoryQuantityForOrder,
   planBatchConsumption,
   restoreBatchAllocations,
   sortBatchesByExpiry,
@@ -459,7 +460,7 @@ router.get("/analytics/summary", async (req: ScopedRequest, res) => {
 
 function inventoryProductDisplayName(product: any): string {
   const name = String(product?.name ?? "");
-  if (product?.wholeFishInventory === true) return name;
+  if (resolvedFishInventoryMode(product) !== "standard") return name;
   const label = product?.variantGroupId || product?.variantLabel ? inventoryVariantLabel(product) : "";
   return label ? `${name} (${label})` : name;
 }
@@ -489,22 +490,27 @@ router.get("/products", async (req, res) => {
       products: products.map((p: any) => {
         const batches: Batch[] = Array.isArray(p.batches) ? p.batches : [];
         const qty = batches.length > 0 ? batchesTotal(batches) : (Number(p.quantity) || 0);
+        const fishInventoryMode = resolvedFishInventoryMode(p);
         return {
           id: String(p._id),
           name: p.name,
           variantGroupId: p.variantGroupId ? String(p.variantGroupId) : undefined,
-          variantLabel: p.variantGroupId || p.netWeight || p.variantLabel || p.weight || p.grossWeight
+          variantLabel: fishInventoryMode === "standard" && (p.variantGroupId || p.netWeight || p.variantLabel || p.weight || p.grossWeight)
             ? inventoryVariantLabel(p)
             : "",
           shortCode: p.shortCode ?? "",
           category: String(p.category ?? "").trim() ||
-            (p.wholeFishInventory === true ? String(p.name ?? "").trim() : ""),
+            (fishInventoryMode !== "standard" ? String(p.name ?? "").trim() : ""),
           subCategory: p.subCategory ?? "",
-          unit: p.variantGroupId ? groupUnits.get(String(p.variantGroupId)) ?? p.unit ?? "" : p.unit ?? "",
-          price: Number(p.price) || 0,
+          unit: fishInventoryMode === "bulk_portions" ? "kg"
+            : fishInventoryMode === "whole_fish" ? "per piece"
+            : p.variantGroupId ? groupUnits.get(String(p.variantGroupId)) ?? p.unit ?? "" : p.unit ?? "",
+          price: fishInventoryMode !== "standard" && Number(p.fishPricePerKg) > 0
+            ? Number(p.fishPricePerKg)
+            : Number(p.price) || 0,
           quantity: qty,
-          wholeFishInventory: p.wholeFishInventory === true,
-          fishInventoryMode: resolvedFishInventoryMode(p),
+          wholeFishInventory: fishInventoryMode === "whole_fish",
+          fishInventoryMode,
           fishPricePerKg: Number(p.fishPricePerKg) > 0 ? Number(p.fishPricePerKg) : null,
           bulkPortionWeightsKg: normalizeBulkPortionWeights(p.bulkPortionWeightsKg),
           status: p.status ?? "available",
@@ -837,6 +843,11 @@ router.post("/adjustments", async (req, res) => {
       const fishPricePerKg = Number.isFinite(fishPricePerKgInput) && fishPricePerKgInput > 0
         ? roundMoney(fishPricePerKgInput)
         : null;
+      const inventoryUnit = fishInventoryMode === "bulk_portions"
+        ? "kg"
+        : fishInventoryMode === "whole_fish"
+          ? "per piece"
+          : existing.unit ?? "";
       const bulkPortionWeightsKg = normalizeBulkPortionWeights(
         it.bulkPortionWeightsKg ?? existing.bulkPortionWeightsKg,
       );
@@ -847,8 +858,6 @@ router.post("/adjustments", async (req, res) => {
               wholeFishInventory: true,
               bulkPortionWeightsKg: [],
               fishPricePerKg,
-              price: fishPricePerKg,
-              unit: "per piece",
             }
           : fishInventoryMode === "bulk_portions"
             ? {
@@ -856,8 +865,6 @@ router.post("/adjustments", async (req, res) => {
                 wholeFishInventory: false,
                 bulkPortionWeightsKg,
                 fishPricePerKg,
-                price: fishPricePerKg,
-                unit: "kg",
               }
             : {
                 fishInventoryMode: "standard",
@@ -892,7 +899,7 @@ router.post("/adjustments", async (req, res) => {
         adjustmentItems.push({
           productId: String(pid),
           productName: inventoryProductDisplayName({ ...existing, ...fishConfigPatch }),
-          unit: fishConfigPatch.unit ?? existing.unit ?? "",
+          unit: inventoryUnit,
           quantityBefore: before,
           newQuantity: persisted.quantity,
           quantityAdjusted: 0,
@@ -902,7 +909,7 @@ router.post("/adjustments", async (req, res) => {
           type: "adjustment",
           productId: String(pid),
           productName: inventoryProductDisplayName({ ...existing, ...fishConfigPatch }),
-          unit: fishConfigPatch.unit ?? existing.unit ?? "",
+          unit: inventoryUnit,
           change: 0,
           balance: persisted.quantity,
           reason: String(reason).trim(),
@@ -1042,7 +1049,7 @@ router.post("/adjustments", async (req, res) => {
       adjustmentItems.push({
         productId: String(pid),
         productName: inventoryProductDisplayName(existing),
-        unit: existing.unit ?? "",
+        unit: inventoryUnit,
         quantityBefore: before,
         newQuantity: persisted.quantity,
         quantityAdjusted: delta,
@@ -1060,7 +1067,7 @@ router.post("/adjustments", async (req, res) => {
         type: "adjustment",
         productId: String(pid),
         productName: inventoryProductDisplayName(existing),
-        unit: existing.unit ?? "",
+        unit: inventoryUnit,
         change: delta,
         balance: persisted.quantity,
         reason: String(reason).trim(),
@@ -1333,7 +1340,7 @@ async function expandOrderItems(
           if (validateBulkPortions && hasBulkWeight && !isBulkFish) {
             throw new Error(`Bulk portion pricing is no longer enabled for ${String(it.name ?? "this product")}`);
           }
-          const inventoryQuantity = hasBulkWeight ? qty * submittedBulkWeightKg : qty;
+          const inventoryQuantity = inventoryQuantityForOrder(qty, hasBulkWeight ? submittedBulkWeightKg : undefined);
           const inventoryUnit = hasBulkWeight ? "kg" : it.unit ?? "";
           const inventoryBatchId = String(it.inventoryBatchId ?? "").trim() || undefined;
           const key = inventoryBatchId ? `${String(pid)}::batch:${inventoryBatchId}` : String(pid);

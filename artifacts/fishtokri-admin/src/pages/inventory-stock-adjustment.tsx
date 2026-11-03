@@ -1462,9 +1462,10 @@ export default function InventoryStockAdjustment() {
     if (!card.groupId) return;
     const group = groupProducts(products).find((candidate) => candidate.id === card.groupId);
     if (!group) return;
-    if (group.fishInventoryMode === mode) return;
-
     const currentRows = formRows.filter((row) => row.selectionGroupId === card.groupId);
+    const currentFormMode = currentRows[0]?.fishInventoryMode ?? group.fishInventoryMode;
+    if (currentFormMode === mode) return;
+
     if (currentRows.some((row) =>
       (row.isWholeFishBatch
         ? row.fishWeightKg.trim() || row.fishPrice.trim()
@@ -1473,7 +1474,8 @@ export default function InventoryStockAdjustment() {
       toast({ title: "Save or clear the current entries before changing batch mode", variant: "destructive" });
       return;
     }
-    if (group.quantity > 0) {
+    const hasStoredStock = group.products.some((product) => Number(product.quantity) > 0);
+    if (hasStoredStock) {
       toast({
         title: "Current stock uses another inventory mode",
         description: "Sell or remove the current stock before switching modes.",
@@ -1719,8 +1721,7 @@ export default function InventoryStockAdjustment() {
       });
       return;
     }
-    const missingExpiry = validRows.find((r) => r.mode === "add" && r.fishInventoryMode !== "standard" &&
-      !r.isWholeFishBatch && !r.shelfLifeDays && !r.expiryDate);
+    const missingExpiry = validRows.find((r) => r.mode === "add" && !r.shelfLifeDays && !r.expiryDate);
     if (missingExpiry) {
       toast({ title: "Set shelf life or expiry", description: `Add shelf life (days) or an expiry date for ${missingExpiry.productName}.`, variant: "destructive" });
       return;
@@ -1923,6 +1924,7 @@ export default function InventoryStockAdjustment() {
                 const group = card.groupId
                   ? groupProducts(products).find((candidate) => candidate.id === card.groupId)
                   : undefined;
+                const hasStoredStock = group?.products.some((product) => Number(product.quantity) > 0) ?? false;
 
                 if (!firstRow.productId) {
                   return (
@@ -1946,7 +1948,7 @@ export default function InventoryStockAdjustment() {
                           </button>
                         )}
                       </div>
-                      <p className="mt-2 text-xs text-gray-400">Choose one main product. For whole fish, track each fish as its own batch.</p>
+                      <p className="mt-2 text-xs text-gray-400">Choose a product, then select regular stock, individual fish, or bulk-by-kg tracking.</p>
                     </div>
                   );
                 }
@@ -1974,7 +1976,7 @@ export default function InventoryStockAdjustment() {
                               ["bulk_portions", "Bulk by kg"],
                             ] as const).map(([mode, label]) => {
                               const active = firstRow.fishInventoryMode === mode;
-                              const blockedByStock = group.fishInventoryMode !== mode && group.quantity > 0;
+                              const blockedByStock = group.fishInventoryMode !== mode && hasStoredStock;
                               return (
                                 <button
                                   key={mode}
@@ -2032,7 +2034,32 @@ export default function InventoryStockAdjustment() {
                     <div className="overflow-x-auto">
                       {firstRow.isBulkFishBatch && (
                         <div className="border-b border-gray-200 bg-[#364F9F]/[0.025] p-3">
-                          <div className="flex flex-wrap items-start gap-4">
+                          <div className="space-y-3">
+                            <div className="grid gap-3 md:max-w-[460px] md:grid-cols-2">
+                            <div className="w-56 space-y-1.5">
+                              <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                                {firstRow.mode === "remove" ? "Weight to remove (kg)" : "Stock weight (kg)"}
+                              </Label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.001"
+                                inputMode="decimal"
+                                value={firstRow.mode === "remove" ? firstRow.removeQuantity : firstRow.addQuantity}
+                                onChange={(event) => updateRow(
+                                  firstEntry.idx,
+                                  firstRow.mode === "remove"
+                                    ? { removeQuantity: event.target.value }
+                                    : { addQuantity: event.target.value },
+                                )}
+                                placeholder="e.g. 20"
+                                aria-label={firstRow.mode === "remove" ? "Kilograms to remove" : "Stock weight in kilograms"}
+                                className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm font-semibold text-[#162B4D] outline-none focus:border-[#364F9F] focus:ring-2 focus:ring-[#364F9F]/15"
+                              />
+                              <p className="text-[10px] text-gray-500">
+                                Current on hand: {Number(firstRow.quantityBefore || 0).toFixed(3)} kg
+                              </p>
+                            </div>
                             <div className="w-56 space-y-1.5">
                               <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Customer selling price / kg</Label>
                               <div className="flex items-center gap-1">
@@ -2050,31 +2077,38 @@ export default function InventoryStockAdjustment() {
                                 />
                               </div>
                             </div>
-                            <div className="min-w-[280px] flex-1 space-y-1.5">
+                            </div>
+                            <div className="space-y-1.5">
                               <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">POS and website portion sizes</Label>
                               <div className="flex flex-wrap items-center gap-2">
-                                {firstRow.bulkPortionWeightsKg.map((weight, portionIndex) => (
-                                  <div key={`${portionIndex}-${weight}`} className="flex items-center gap-1 rounded-md border border-gray-200 bg-white p-1">
-                                    <input
-                                      type="number"
-                                      min="0.001"
-                                      step="0.001"
-                                      value={weight}
-                                      onChange={(event) => updateBulkPortionWeight(card, portionIndex, event.target.value)}
-                                      aria-label={`Portion weight ${portionIndex + 1} in kilograms`}
-                                      className="h-7 w-20 px-1.5 text-xs font-semibold text-[#162B4D] outline-none"
-                                    />
-                                    <span className="text-[10px] text-gray-500">{bulkPortionLabel(weight)}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => removeBulkPortionWeight(card, portionIndex)}
-                                      aria-label={`Remove portion ${portionIndex + 1}`}
-                                      className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </button>
-                                  </div>
-                                ))}
+                                {firstRow.bulkPortionWeightsKg.map((weight, portionIndex) => {
+                                  const calculatedPrice = fishTotalPrice(weight, firstRow.fishPricePerKg);
+                                  return (
+                                    <div key={`${portionIndex}-${weight}`} className="flex items-center gap-1 rounded-md border border-gray-200 bg-white p-1">
+                                      <input
+                                        type="number"
+                                        min="0.001"
+                                        step="0.001"
+                                        value={weight}
+                                        onChange={(event) => updateBulkPortionWeight(card, portionIndex, event.target.value)}
+                                        aria-label={`Portion weight ${portionIndex + 1} in kilograms`}
+                                        className="h-7 w-20 px-1.5 text-xs font-semibold text-[#162B4D] outline-none"
+                                      />
+                                      <span className="text-[10px] text-gray-500">{bulkPortionLabel(weight)}</span>
+                                      <span className="whitespace-nowrap text-[11px] font-bold text-[#162B4D]">
+                                        {calculatedPrice ? `₹${calculatedPrice}` : "Set rate"}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => removeBulkPortionWeight(card, portionIndex)}
+                                        aria-label={`Remove portion ${portionIndex + 1}`}
+                                        className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  );
+                                })}
                                 <button
                                   type="button"
                                   onClick={() => addBulkPortionWeight(card)}
@@ -2088,20 +2122,36 @@ export default function InventoryStockAdjustment() {
                           </div>
                         </div>
                       )}
-                      <table className="w-full min-w-[1430px] table-fixed border-collapse text-left">
+                      <table className={`w-full ${firstRow.isBulkFishBatch ? "min-w-[1220px]" : "min-w-[1430px]"} table-fixed border-collapse text-left`}>
                         <colgroup>
-                          <col style={{ width: 145 }} />
-                          <col style={{ width: 170 }} />
-                          <col style={{ width: 155 }} />
-                          <col style={{ width: 110 }} />
-                          <col style={{ width: 130 }} />
-                          <col style={{ width: 265 }} />
-                          <col style={{ width: 300 }} />
-                          <col style={{ width: 155 }} />
+                          {firstRow.isBulkFishBatch ? (
+                            <>
+                              <col style={{ width: 190 }} />
+                              <col style={{ width: 165 }} />
+                              <col style={{ width: 130 }} />
+                              <col style={{ width: 280 }} />
+                              <col style={{ width: 300 }} />
+                              <col style={{ width: 155 }} />
+                            </>
+                          ) : (
+                            <>
+                              <col style={{ width: 145 }} />
+                              <col style={{ width: 170 }} />
+                              <col style={{ width: 155 }} />
+                              <col style={{ width: 110 }} />
+                              <col style={{ width: 130 }} />
+                              <col style={{ width: 265 }} />
+                              <col style={{ width: 300 }} />
+                              <col style={{ width: 155 }} />
+                            </>
+                          )}
                         </colgroup>
                         <thead className="bg-white">
                           <tr>
-                            {["Weight / Variant", firstRow.isBulkFishBatch ? "Price / kg" : "Price", "Mode", firstRow.isBulkFishBatch ? "Quantity (kg)" : "Quantity", "Shelf Life (days)", "Expiry Date & Time", "Batch / Selection", "Batch Info"].map((heading) => (
+                            {(firstRow.isBulkFishBatch
+                              ? ["Product", "Mode", "Shelf Life (days)", "Expiry Date & Time", "Batch / Selection", "Batch Info"]
+                              : ["Weight / Variant", "Price", "Mode", "Quantity", "Shelf Life (days)", "Expiry Date & Time", "Batch / Selection", "Batch Info"]
+                            ).map((heading) => (
                               <th key={heading} className="border-b border-r border-gray-200 px-2.5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap last:border-r-0">
                                 {heading}
                               </th>
@@ -2144,12 +2194,8 @@ export default function InventoryStockAdjustment() {
                                     <p className="text-sm font-semibold text-[#162B4D]">{variantName}</p>
                                     <p className="mt-0.5 text-[10px] text-gray-400">{getProductUnitSuffix(row.unit)} · {row.quantityBefore} available</p>
                                   </td>
-                                  <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
-                                    {row.isBulkFishBatch ? (
-                                      <span className="text-xs font-semibold text-[#162B4D]">
-                                        ₹{Number(row.fishPricePerKg) > 0 ? Number(row.fishPricePerKg).toFixed(2) : "—"} / kg
-                                      </span>
-                                    ) : (
+                                  {!firstRow.isBulkFishBatch && (
+                                    <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                                     <div className="flex items-center gap-1">
                                       <span className="shrink-0 text-xs text-gray-400">₹</span>
                                       <input
@@ -2174,8 +2220,8 @@ export default function InventoryStockAdjustment() {
                                         {savingPriceProductId === row.productId ? "Saving…" : hasPriceChange ? "Save" : "Saved"}
                                       </button>
                                     </div>
-                                    )}
-                                  </td>
+                                    </td>
+                                  )}
                                   <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                                     <Select value={row.mode} onValueChange={(value) => changeMode(idx, value as FormMode)}>
                                       <SelectTrigger className="h-9 text-xs font-semibold"><SelectValue /></SelectTrigger>
@@ -2186,17 +2232,19 @@ export default function InventoryStockAdjustment() {
                                       </SelectContent>
                                     </Select>
                                   </td>
-                                  <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      value={isAddAny ? row.addQuantity : row.removeQuantity}
-                                      onChange={(event) => updateRow(idx, isAddAny ? { addQuantity: event.target.value } : { removeQuantity: event.target.value })}
-                                      placeholder="0"
-                                      aria-label={`Quantity for ${row.productName || "selected product"}`}
-                                      className="w-full h-9 px-2 text-sm font-bold text-[#162B4D] text-center border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
-                                    />
-                                  </td>
+                                  {!firstRow.isBulkFishBatch && (
+                                    <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={isAddAny ? row.addQuantity : row.removeQuantity}
+                                        onChange={(event) => updateRow(idx, isAddAny ? { addQuantity: event.target.value } : { removeQuantity: event.target.value })}
+                                        placeholder="0"
+                                        aria-label={`Quantity for ${row.productName || "selected product"}`}
+                                        className="w-full h-9 px-2 text-sm font-bold text-[#162B4D] text-center border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-[#364F9F]/20 focus:border-[#364F9F]"
+                                      />
+                                    </td>
+                                  )}
                                   <td className="border-b border-r border-gray-200 px-2 py-2 align-middle">
                                     {isAdd ? (
                                       <input
