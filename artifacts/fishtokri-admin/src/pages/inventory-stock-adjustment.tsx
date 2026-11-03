@@ -1772,11 +1772,6 @@ export default function InventoryStockAdjustment() {
                             Use product variants
                           </button>
                         )}
-                        {group?.wholeFishInventory && firstRow.isWholeFishBatch && (
-                          <span className="rounded-md bg-[#364F9F]/5 px-3 py-2 text-xs font-semibold text-[#364F9F]">
-                            One fish per batch
-                          </span>
-                        )}
                         <div className="text-right">
                           <p className="text-xs font-bold text-[#162B4D]">
                             {firstRow.isWholeFishBatch
