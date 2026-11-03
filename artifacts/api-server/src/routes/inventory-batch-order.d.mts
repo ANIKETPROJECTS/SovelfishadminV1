@@ -35,6 +35,7 @@ export declare function planBatchConsumption<
 >(
   batches: T[],
   quantity: number,
+  preferredBatchId?: unknown,
 ): { allocations: BatchAllocation[]; remaining: number };
 
 export declare function getOutstandingDeductionMovements<T extends InventoryMovement>(

@@ -165,7 +165,38 @@ router.get("/products", async (req, res) => {
       const availableBatchTotal = batches
         .filter((b: any) => !b?.expiryDate || new Date(b.expiryDate).getTime() >= nowMs)
         .reduce((s: number, b: any) => s + (Math.max(0, Number(b?.quantity) || 0)), 0);
-      const total = batches.length > 0 ? availableBatchTotal : Math.max(0, Number(p.quantity) || 0);
+      const fishBatches = p.wholeFishInventory === true
+        ? batches
+          .filter((batch: any) =>
+            Number(batch?.quantity) > 0 &&
+            Number(batch?.fishWeightKg) > 0 &&
+            Number.isFinite(Number(batch?.fishPrice)) &&
+            Number(batch?.fishPrice) > 0 &&
+            (!batch?.expiryDate || new Date(batch.expiryDate).getTime() >= nowMs)
+          )
+          .map((batch: any) => ({
+            batchId: String(batch._id ?? ""),
+            batchNumber: String(batch.batchNumber ?? ""),
+            weightKg: Number(batch.fishWeightKg),
+            price: Number(batch.fishPrice),
+            quantity: Number(batch.quantity) || 0,
+            expiryDate: batch.expiryDate ?? null,
+          }))
+        : undefined;
+      const unpricedFishCount = p.wholeFishInventory === true
+        ? batches
+          .filter((batch: any) =>
+            Number(batch?.quantity) > 0 &&
+            (!batch?.expiryDate || new Date(batch.expiryDate).getTime() >= nowMs) &&
+            (!(Number(batch?.fishWeightKg) > 0) ||
+              !Number.isFinite(Number(batch?.fishPrice)) ||
+              !(Number(batch?.fishPrice) > 0))
+          )
+          .reduce((sum: number, batch: any) => sum + (Number(batch?.quantity) || 0), 0)
+        : 0;
+      const total = p.wholeFishInventory === true
+        ? (fishBatches ?? []).reduce((sum: number, batch: any) => sum + batch.quantity, 0)
+        : batches.length > 0 ? availableBatchTotal : Math.max(0, Number(p.quantity) || 0);
       const hasVariantLabel = p.wholeFishInventory !== true &&
         Boolean(p.variantGroupId || p.netWeight || p.variantLabel || p.weight || p.grossWeight);
       return {
@@ -175,21 +206,8 @@ router.get("/products", async (req, res) => {
         quantity: total,
         wholeFishInventory: p.wholeFishInventory === true,
         ...(p.wholeFishInventory === true ? {
-          fishBatches: batches
-            .filter((batch: any) =>
-              Number(batch?.quantity) > 0 &&
-              Number(batch?.fishWeightKg) > 0 &&
-              Number.isFinite(Number(batch?.fishPrice)) &&
-              (!batch?.expiryDate || new Date(batch.expiryDate).getTime() >= nowMs)
-            )
-            .map((batch: any) => ({
-              batchId: String(batch._id ?? ""),
-              batchNumber: String(batch.batchNumber ?? ""),
-              weightKg: Number(batch.fishWeightKg),
-              price: Number(batch.fishPrice),
-              quantity: Number(batch.quantity) || 0,
-              expiryDate: batch.expiryDate ?? null,
-            })),
+          fishBatches: fishBatches ?? [],
+          unpricedFishCount,
         } : {}),
       };
     });

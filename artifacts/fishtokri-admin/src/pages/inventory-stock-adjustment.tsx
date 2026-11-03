@@ -1217,7 +1217,6 @@ export default function InventoryStockAdjustment() {
 
   const [formDate, setFormDate] = useState(toInputDate(new Date()));
   const [formReason, setFormReason] = useState("");
-  const [formNotes, setFormNotes] = useState("");
   const [formRows, setFormRows] = useState<FormRow[]>([emptyRow()]);
 
   useEffect(() => {
@@ -1520,7 +1519,6 @@ export default function InventoryStockAdjustment() {
   function resetForm() {
     setFormDate(toInputDate(new Date()));
     setFormReason("");
-    setFormNotes("");
     setFormRows([emptyRow()]);
   }
 
@@ -1564,7 +1562,6 @@ export default function InventoryStockAdjustment() {
           superHubId: selectedSuperHubId,
           date: formDate,
           reason: formReason,
-          notes: formNotes,
           items: validRows.map((r) => {
             if (r.isWholeFishBatch) return {
               productId: r.productId,
@@ -1676,7 +1673,7 @@ export default function InventoryStockAdjustment() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-6">
           <div>
             <h2 className="text-base font-bold text-[#162B4D] mb-4">Adjustment Details</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Date</Label>
                 <Input type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} className="h-9 text-sm font-medium text-[#162B4D]" />
@@ -1693,10 +1690,6 @@ export default function InventoryStockAdjustment() {
                   list="inv-reason-list"
                 />
                 <datalist id="inv-reason-list">{REASONS.map((r) => <option key={r} value={r} />)}</datalist>
-              </div>
-              <div className="space-y-1.5 col-span-2">
-                <Label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Notes</Label>
-                <Input value={formNotes} onChange={(e) => setFormNotes(e.target.value)} placeholder="Write notes here..." className="h-9 text-sm text-gray-600" />
               </div>
             </div>
           </div>

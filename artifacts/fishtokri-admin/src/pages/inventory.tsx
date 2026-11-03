@@ -35,6 +35,8 @@ type Batch = {
   id: string;
   batchNumber: string;
   quantity: number;
+  fishWeightKg?: number | null;
+  fishPrice?: number | null;
   shelfLifeDays: number | null;
   receivedDate: string | null;
   expiryDate: string | null;
@@ -49,6 +51,7 @@ type Product = {
   unit: string;
   price: number;
   quantity: number;
+  wholeFishInventory?: boolean;
   status: string;
   imageUrl: string;
   batches?: Batch[];
@@ -65,6 +68,24 @@ function daysUntil(iso: string | null) {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return null;
   return Math.ceil((d.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
+function activeFishBatches(product: Product) {
+  const now = Date.now();
+  return (product.batches ?? []).filter((batch) =>
+    Number(batch.quantity) > 0 &&
+    Number(batch.fishWeightKg) > 0 &&
+    Number(batch.fishPrice) > 0 &&
+    (!batch.expiryDate || new Date(batch.expiryDate).getTime() >= now)
+  );
+}
+
+function productStockValue(product: Product) {
+  if (!product.wholeFishInventory) return product.price * product.quantity;
+  return activeFishBatches(product).reduce(
+    (total, batch) => total + Number(batch.fishPrice) * Number(batch.quantity),
+    0,
+  );
 }
 
 function LockedHubBadge({ label, name, location }: { label: string; name: string; location?: string }) {
@@ -168,7 +189,7 @@ export default function InventoryPage() {
 
   const pagedProducts = usePaginated(filtered, 20, `${search}|${categoryFilter}|${inStockOnly}`);
 
-  const totalValue = filtered.reduce((s, p) => s + p.price * p.quantity, 0);
+  const totalValue = filtered.reduce((s, p) => s + productStockValue(p), 0);
   const lowStock = filtered.filter((p) => p.quantity > 0 && p.quantity < 5).length;
   const outOfStock = filtered.filter((p) => p.quantity <= 0).length;
   const expiringCount = filtered.reduce((c, p) => {
@@ -340,6 +361,16 @@ export default function InventoryPage() {
                         : p.quantity < 5 ? "bg-amber-50 text-amber-700"
                         : "bg-emerald-50 text-emerald-700";
                       const batches = p.batches ?? [];
+                      const fishBatches = p.wholeFishInventory ? activeFishBatches(p) : [];
+                      const activeBatchQuantity = batches
+                        .filter((batch) => !batch.expiryDate || new Date(batch.expiryDate).getTime() >= Date.now())
+                        .reduce((total, batch) => total + Math.max(0, Number(batch.quantity) || 0), 0);
+                      const pricedFishQuantity = fishBatches
+                        .reduce((total, batch) => total + Math.max(0, Number(batch.quantity) || 0), 0);
+                      const fishMissingDetails = Math.max(0, activeBatchQuantity - pricedFishQuantity);
+                      const fishPriceTooltip = fishBatches.map((batch) =>
+                        `₹${Number(batch.fishPrice).toLocaleString("en-IN")} · ${Number(batch.fishWeightKg).toLocaleString("en-IN", { maximumFractionDigits: 3 })} kg`,
+                      ).join("\n");
                       const nextBatch = batches.find((b) => b.quantity > 0 && b.expiryDate);
                       const dl = nextBatch ? daysUntil(nextBatch.expiryDate) : null;
                       const expTone = dl == null ? "text-gray-400"
@@ -373,7 +404,31 @@ export default function InventoryPage() {
                               {p.category || <span className="text-gray-300">—</span>}
                               {p.subCategory && <span className="text-gray-400"> / {p.subCategory}</span>}
                             </td>
-                            <td className="px-4 py-4 text-right text-sm font-medium text-gray-700">₹{p.price}</td>
+                            <td className="px-4 py-4 text-right text-sm font-medium text-gray-700">
+                              {p.wholeFishInventory ? (
+                                <div className="flex flex-col items-end gap-0.5" title={fishPriceTooltip || "No fish with saved weight and price"}>
+                                  {fishBatches.length > 0 ? (
+                                    <>
+                                      {fishBatches.slice(0, 2).map((batch) => (
+                                        <span key={batch.id} className="whitespace-nowrap">
+                                          ₹{Number(batch.fishPrice).toLocaleString("en-IN")} · {Number(batch.fishWeightKg).toLocaleString("en-IN", { maximumFractionDigits: 3 })} kg
+                                        </span>
+                                      ))}
+                                      {fishBatches.length > 2 && (
+                                        <span className="text-[10px] font-normal text-gray-400">+{fishBatches.length - 2} more fish</span>
+                                      )}
+                                      {fishMissingDetails > 0 && (
+                                        <span className="text-[10px] font-normal text-amber-600">{fishMissingDetails} need weight + price</span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className={`text-xs font-normal ${fishMissingDetails > 0 ? "text-amber-600" : "text-gray-400"}`}>
+                                      {fishMissingDetails > 0 ? "Needs weight + price" : "No fish in stock"}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : `₹${p.price}`}
+                            </td>
                             <td className="px-4 py-4 text-right">
                               <span className={`inline-flex items-center justify-end px-2.5 py-1 rounded-md font-bold text-sm ${stockTone}`}>
                                 {p.quantity}
@@ -414,7 +469,7 @@ export default function InventoryPage() {
                                 </>
                               ) : <span className="text-gray-300">—</span>}
                             </td>
-                            <td className="px-4 py-4 text-right text-sm font-medium text-gray-600">₹{(p.price * p.quantity).toFixed(0)}</td>
+                            <td className="px-4 py-4 text-right text-sm font-medium text-gray-600">₹{productStockValue(p).toFixed(0)}</td>
                             <td className="px-4 py-4 text-center">
                               <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                                 p.status === "available" ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-600"

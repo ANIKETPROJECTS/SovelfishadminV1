@@ -1152,6 +1152,11 @@ router.post("/", async (req: ScopedRequest, res) => {
       price: Number(it.price) || 0,
       quantity: Number(it.quantity) || 1,
       unit: it.unit ?? "",
+      ...(it.inventoryBatchId ? {
+        inventoryBatchId: String(it.inventoryBatchId),
+        batchNumber: String(it.batchNumber ?? ""),
+        fishWeightKg: Number(it.fishWeightKg) || undefined,
+      } : {}),
     })).filter((it: any) => it.name);
 
     if (cleanItems.length === 0) {
@@ -1826,6 +1831,11 @@ router.put("/:id", async (req: ScopedRequest, res) => {
         price: Number(it?.price) || 0,
         quantity: Number(it?.quantity) || 0,
         unit: String(it?.unit ?? "").trim(),
+        ...(it?.inventoryBatchId ? {
+          inventoryBatchId: String(it.inventoryBatchId),
+          batchNumber: String(it.batchNumber ?? ""),
+          fishWeightKg: Number(it.fishWeightKg) || undefined,
+        } : {}),
       })).filter((it: any) => it.name && it.quantity > 0);
     }
 

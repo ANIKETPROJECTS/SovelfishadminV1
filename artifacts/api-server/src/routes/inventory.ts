@@ -163,6 +163,7 @@ function consumeBatches(
   batches: Batch[],
   qty: number,
   now: Date = new Date(),
+  preferredBatchId?: unknown,
 ): { batches: Batch[]; remaining: number; allocations: BatchAllocation[] } {
   const nowMs = now.getTime();
 
@@ -170,7 +171,7 @@ function consumeBatches(
   const expired = batches.filter((b) => b.expiryDate && new Date(b.expiryDate).getTime() < nowMs);
   const active  = batches.filter((b) => !b.expiryDate || new Date(b.expiryDate).getTime() >= nowMs);
 
-  const plan = planBatchConsumption(active, qty);
+  const plan = planBatchConsumption(active, qty, preferredBatchId);
   const allocations: BatchAllocation[] = plan.allocations.map((allocation) => {
     const sourceBatch = active.find((batch) => String(batch._id) === String(allocation.batchId));
     if (!sourceBatch) throw new Error(`Batch ${String(allocation.batchId)} disappeared while planning a deduction`);
@@ -1049,7 +1050,7 @@ type OrderForSync = {
   subHubName?: string;
   status?: string;
   createdAt?: Date | string;
-  items?: Array<{ productId?: string; name?: string; quantity?: number; unit?: string }>;
+  items?: Array<{ productId?: string; name?: string; quantity?: number; unit?: string; inventoryBatchId?: string }>;
 };
 
 const ACTIVE_STATUSES = new Set(["pending", "confirmed", "out_for_delivery", "delivered", "takeaway"]);
@@ -1107,9 +1108,9 @@ function orderShouldDeduct(order: OrderForSync) {
 async function expandOrderItems(
   productsCol: any,
   combosCol: any,
-  rawItems: Array<{ productId?: string; name?: string; quantity?: number; unit?: string }>,
-): Promise<Array<{ productId: string; name: string; quantity: number; unit: string }>> {
-  const aggregated = new Map<string, { productId: string; name: string; quantity: number; unit: string }>();
+  rawItems: Array<{ productId?: string; name?: string; quantity?: number; unit?: string; inventoryBatchId?: string }>,
+): Promise<Array<{ productId: string; name: string; quantity: number; unit: string; inventoryBatchId?: string }>> {
+  const aggregated = new Map<string, { productId: string; name: string; quantity: number; unit: string; inventoryBatchId?: string }>();
 
   /** Helper: expand a resolved combo document into aggregated constituent products */
   async function expandCombo(combo: any, qty: number) {
@@ -1155,10 +1156,17 @@ async function expandOrderItems(
       if (pid) {
         const isRealProduct = await productsCol.findOne({ _id: pid }, { projection: { _id: 1 } });
         if (isRealProduct) {
-          const key = String(pid);
+          const inventoryBatchId = String(it.inventoryBatchId ?? "").trim() || undefined;
+          const key = inventoryBatchId ? `${String(pid)}::batch:${inventoryBatchId}` : String(pid);
           const entry = aggregated.get(key);
           if (entry) entry.quantity += qty;
-          else aggregated.set(key, { productId: key, name: it.name ?? "", quantity: qty, unit: it.unit ?? "" });
+          else aggregated.set(key, {
+            productId: String(pid),
+            name: it.name ?? "",
+            quantity: qty,
+            unit: it.unit ?? "",
+            ...(inventoryBatchId ? { inventoryBatchId } : {}),
+          });
           resolved = true;
         } else {
           // Not a product — try combo by _id
@@ -1507,9 +1515,19 @@ async function applyDelta(order: OrderForSync, direction: "deduct" | "restore", 
         ? product.batches.map((b: any) => normalizeBatch(b))
         : [];
       // Expired batches remain visible to admins but cannot satisfy an order.
-      const available = currentBatches.length > 0
-        ? availableBatchesTotal(currentBatches, stockCheckNow)
-        : Math.max(0, Number(product.quantity) || 0);
+      const selectedBatch = it.inventoryBatchId
+        ? currentBatches.find((batch) => String(batch._id) === String(it.inventoryBatchId))
+        : undefined;
+      const selectedBatchExpired = Boolean(
+        selectedBatch?.expiryDate && new Date(selectedBatch.expiryDate).getTime() < stockCheckNow.getTime(),
+      );
+      const available = it.inventoryBatchId
+        ? selectedBatch && !selectedBatchExpired
+          ? Math.max(0, Number(selectedBatch.quantity) || 0)
+          : 0
+        : currentBatches.length > 0
+          ? availableBatchesTotal(currentBatches, stockCheckNow)
+          : Math.max(0, Number(product.quantity) || 0);
       if (available < it.quantity) {
         logger.warn(
           { orderId, productId: String(pid), productName: inventoryProductDisplayName(product), available, requested: it.quantity },
@@ -1544,7 +1562,7 @@ async function applyDelta(order: OrderForSync, direction: "deduct" | "restore", 
       if (currentBatches.length > 0) {
         const now2 = new Date();
         const available = availableBatchesTotal(currentBatches, now2);
-        const consumed = consumeBatches(currentBatches, qty, now2);
+        const consumed = consumeBatches(currentBatches, qty, now2, it.inventoryBatchId);
         if (consumed.remaining > 0) {
           throw new InsufficientStockError(existing.name ?? it.name ?? "Unknown product", available, qty);
         }
@@ -1779,7 +1797,7 @@ export async function applyOrderInventoryOnDelete(order: OrderForSync, wasDeduct
 function itemsSignature(items: any): string {
   if (!Array.isArray(items)) return "";
   return items
-    .map((i: any) => `${i?.productId ?? ""}:${Number(i?.quantity) || 0}`)
+    .map((i: any) => `${i?.productId ?? ""}:${i?.inventoryBatchId ?? ""}:${Number(i?.quantity) || 0}`)
     .filter((s: string) => s !== ":0")
     .sort()
     .join("|");

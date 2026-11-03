@@ -67,6 +67,26 @@ test("records the exact quantities taken from each expiry-ordered batch", () => 
   assert.equal(batches[1].quantity, 2);
 });
 
+test("a POS-selected batch is consumed without falling back to another batch", () => {
+  const batches = [
+    { _id: "earlier", batchNumber: "EARLIER", quantity: 1, expiryDate: new Date("2026-11-01") },
+    { _id: "selected", batchNumber: "SELECTED", quantity: 1, expiryDate: new Date("2026-12-01") },
+  ];
+
+  const plan = planBatchConsumption(batches, 1, "selected");
+
+  assert.deepEqual(plan.allocations, [
+    { batchId: "selected", batchNumber: "SELECTED", quantity: 1 },
+  ]);
+  assert.equal(plan.remaining, 0);
+
+  const insufficientPlan = planBatchConsumption(batches, 2, "selected");
+  assert.deepEqual(insufficientPlan.allocations, [
+    { batchId: "selected", batchNumber: "SELECTED", quantity: 1 },
+  ]);
+  assert.equal(insufficientPlan.remaining, 1);
+});
+
 test("restores stock to the exact deducted batch IDs, even if another batch is newer", () => {
   const batches = [
     { _id: "deducted-batch", batchNumber: "EARLY", quantity: 0, expiryDate: new Date("2026-10-01") },

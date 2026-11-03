@@ -15,11 +15,16 @@ export function sortBatchesByExpiry(batches) {
  * Plan a deduction from an already-filtered set of eligible batches.
  * Returns exact per-batch quantities without mutating the input.
  */
-export function planBatchConsumption(batches, quantity) {
+export function planBatchConsumption(batches, quantity, preferredBatchId) {
   let remaining = Math.max(0, Number(quantity) || 0);
   const allocations = [];
+  const orderedBatches = preferredBatchId == null
+    ? sortBatchesByExpiry(batches)
+    : sortBatchesByExpiry(
+      batches.filter((batch) => batch._id != null && String(batch._id) === String(preferredBatchId)),
+    );
 
-  for (const batch of sortBatchesByExpiry(batches)) {
+  for (const batch of orderedBatches) {
     if (remaining <= 0) break;
     const take = Math.min(Math.max(0, Number(batch.quantity) || 0), remaining);
     if (take <= 0) continue;

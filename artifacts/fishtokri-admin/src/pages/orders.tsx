@@ -80,6 +80,10 @@ function getBase() {
   return import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 }
 
+function posCartLineKey(productId: string, inventoryBatchId?: string) {
+  return inventoryBatchId ? `${productId}::batch:${inventoryBatchId}` : productId;
+}
+
 // POS edit state can contain hydrated Mongo/React objects from legacy order
 // data. Keep request serialization defensive: the API only needs the plain
 // fields assembled in the payload, and a circular metadata reference must not
@@ -959,7 +963,17 @@ export default function Orders() {
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const [pickerCategory, setPickerCategory] = useState<string | null>(null);
   const [posProductMode, setPosProductMode] = useState<"normal" | "preorder">("normal");
-  const [selectedProducts, setSelectedProducts] = useState<{ productId: string; name: string; price: number; unit: string; quantity: number; isCombo?: boolean }[]>([]);
+  const [selectedProducts, setSelectedProducts] = useState<{
+    productId: string;
+    name: string;
+    price: number;
+    unit: string;
+    quantity: number;
+    isCombo?: boolean;
+    inventoryBatchId?: string;
+    batchNumber?: string;
+    fishWeightKg?: number;
+  }[]>([]);
 
   // Coupons / timeslots / scheduling
   const [coupons, setCoupons] = useState<any[]>([]);
@@ -1318,9 +1332,14 @@ export default function Orders() {
     });
   }, [coupons, chosenCustomer]);
 
-  const stockOf = useCallback((productId: string): number => {
+  const stockOf = useCallback((productId: string, inventoryBatchId?: string): number => {
     const p = subHubProducts.find((x) => String(x._id) === productId);
     if (p) {
+      if (inventoryBatchId) {
+        const batch = (Array.isArray(p.fishBatches) ? p.fishBatches : [])
+          .find((item: any) => String(item.batchId) === String(inventoryBatchId));
+        return Math.max(0, Number(batch?.quantity) || 0);
+      }
       const q = Number(p.quantity);
       return Number.isFinite(q) ? q : Infinity;
     }
@@ -1506,11 +1525,50 @@ export default function Orders() {
       });
     }
     if (q) {
-      list = list.filter((p) =>
-        [p.name, p.variantLabel, p.description, p.category, p.subCategory, p.shortCode, ...(Array.isArray(p.tags) ? p.tags : [])]
-          .some((v) => String(v ?? "").toLowerCase().includes(q))
-      );
+      list = list.filter((p) => {
+        const fishSearchText = (Array.isArray(p.fishBatches) ? p.fishBatches : [])
+          .map((batch: any) => `${batch.weightKg ?? ""} ${batch.price ?? ""}`)
+          .join(" ");
+        return [p.name, p.variantLabel, p.description, p.category, p.subCategory, p.shortCode, fishSearchText, ...(Array.isArray(p.tags) ? p.tags : [])]
+          .some((v) => String(v ?? "").toLowerCase().includes(q));
+      });
     }
+    list = list.flatMap((product) => {
+      if (product.wholeFishInventory !== true) return [product];
+      const fishBatches = Array.isArray(product.fishBatches) ? product.fishBatches : [];
+      if (fishBatches.length === 0) {
+        return [{
+          ...product,
+          _id: `${String(product._id)}::unpriced`,
+          posProductId: String(product._id),
+          posDisplayName: product.name,
+          posFishUnavailable: Number(product.unpricedFishCount) > 0,
+          posIncompleteFishCount: Math.max(0, Number(product.unpricedFishCount) || 0),
+          quantity: 0,
+          price: 0,
+        }];
+      }
+      return fishBatches.map((batch: any) => {
+        const weightKg = Number(batch.weightKg);
+        const weightLabel = Number.isFinite(weightKg)
+          ? weightKg.toLocaleString("en-IN", { maximumFractionDigits: 3 })
+          : "";
+        return {
+          ...product,
+          _id: `${String(product._id)}::${String(batch.batchId)}`,
+          posProductId: String(product._id),
+          posInventoryBatchId: String(batch.batchId),
+          posFishBatchNumber: String(batch.batchNumber ?? ""),
+          posFishWeightKg: weightKg,
+          posDisplayName: `${product.name} (${weightLabel} kg)`,
+          posFishUnavailable: false,
+          posIncompleteFishCount: Math.max(0, Number(product.unpricedFishCount) || 0),
+          price: Number(batch.price) || 0,
+          quantity: Math.max(0, Number(batch.quantity) || 0),
+          unit: "per fish",
+        };
+      });
+    });
     // In-stock products first, then out-of-stock
     return [...list].sort((a, b) => {
       const aStock = Number(a.quantity) || 0;
@@ -1798,7 +1856,18 @@ export default function Orders() {
     // Validate items (products + custom)
     const productItems = selectedProducts
       .filter((p) => p.quantity > 0)
-      .map((p) => ({ productId: p.productId, name: p.name, price: p.price, quantity: p.quantity, unit: p.unit }));
+      .map((p) => ({
+        productId: p.productId,
+        name: p.name,
+        price: p.price,
+        quantity: p.quantity,
+        unit: p.unit,
+        ...(p.inventoryBatchId ? {
+          inventoryBatchId: p.inventoryBatchId,
+          batchNumber: p.batchNumber,
+          fishWeightKg: p.fishWeightKg,
+        } : {}),
+      }));
     const customItems = orderItems
       .map((it) => ({
         name: it.name.trim(),
@@ -4290,16 +4359,18 @@ export default function Orders() {
               ) : (
                 <div className="grid grid-cols-4 gap-3">
                   {filteredProducts.map((p) => {
-                    const pid = String(p._id);
-                    const displayName = p.variantLabel ? `${p.name} (${p.variantLabel})` : p.name;
-                    const cartItem = selectedProducts.find((sp) => sp.productId === pid);
+                    const pid = String(p.posProductId ?? p._id);
+                    const inventoryBatchId = p.posInventoryBatchId ? String(p.posInventoryBatchId) : undefined;
+                    const lineKey = posCartLineKey(pid, inventoryBatchId);
+                    const displayName = p.posDisplayName ?? (p.variantLabel ? `${p.name} (${p.variantLabel})` : p.name);
+                    const cartItem = selectedProducts.find((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId) === lineKey);
                     const stock = Number(p.quantity) || 0;
                     const outOfStock = stock <= 0;
                     const lowStock = stock > 0 && stock <= 5;
                     const atMax = cartItem ? cartItem.quantity >= stock : false;
                     return (
                       <div
-                        key={pid}
+                        key={String(p._id)}
                         className={`rounded-xl border-2 transition-all select-none flex flex-col ${
                           outOfStock
                             ? "border-gray-100 bg-gray-50 opacity-40 cursor-not-allowed"
@@ -4308,11 +4379,20 @@ export default function Orders() {
                               : "border-gray-200 bg-white hover:border-[#1A56DB]/60 hover:shadow-md cursor-pointer"
                         }`}
                         onClick={() => {
-                          if (outOfStock) { toast({ title: "Out of stock", description: `${displayName} is unavailable.`, variant: "destructive" }); return; }
+                          if (outOfStock) {
+                            toast({
+                              title: p.posFishUnavailable ? "Fish details required" : "Out of stock",
+                              description: p.posFishUnavailable
+                                ? `Add a fish weight and total price for ${p.name} in Stock Adjustment.`
+                                : `${displayName} is unavailable.`,
+                              variant: "destructive",
+                            });
+                            return;
+                          }
                           if (atMax) { toast({ title: "Stock limit reached", description: `Only ${stock} available.`, variant: "destructive" }); return; }
                           setSelectedProducts((prev) => {
-                            const exists = prev.find((sp) => sp.productId === pid);
-                            if (exists) return prev.map((sp) => sp.productId === pid ? { ...sp, quantity: sp.quantity + 1 } : sp);
+                            const exists = prev.find((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId) === lineKey);
+                            if (exists) return prev.map((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId) === lineKey ? { ...sp, quantity: sp.quantity + 1 } : sp);
                             return [...prev, {
                               productId: pid,
                               name: displayName,
@@ -4320,6 +4400,11 @@ export default function Orders() {
                               unit: p.unit ?? "",
                               quantity: 1,
                               isCombo: Boolean(p.isCombo),
+                              ...(inventoryBatchId ? {
+                                inventoryBatchId,
+                                batchNumber: String(p.posFishBatchNumber ?? ""),
+                                fishWeightKg: Number(p.posFishWeightKg),
+                              } : {}),
                             }];
                           });
                         }}
@@ -4329,10 +4414,18 @@ export default function Orders() {
                         )}
                         <div className="p-2.5 flex flex-col flex-1">
                           <p className="text-sm font-medium text-[#162B4D] leading-snug line-clamp-2 min-h-[2.5rem]">{displayName}</p>
-                          <p className="text-xs text-gray-400 uppercase tracking-wide truncate h-4">{p.category || "\u00A0"}</p>
+                          <p className="text-xs text-gray-400 uppercase tracking-wide truncate h-4">
+                            {p.posFishWeightKg != null
+                              ? `${p.posFishWeightKg} kg · whole fish${p.posIncompleteFishCount > 0 ? ` · ${p.posIncompleteFishCount} need details` : ""}`
+                              : p.category || "\u00A0"}
+                          </p>
                           <div className="flex items-center justify-between mt-auto pt-1.5 gap-1">
                             <div className="min-w-0 flex-1">
-                              <p className="text-sm font-semibold text-[#1A56DB]">₹{Number(p.price).toLocaleString("en-IN")}</p>
+                              {p.posFishUnavailable
+                                ? <p className="text-[10px] font-semibold text-amber-600">Needs weight + price</p>
+                                : p.posFishWeightKg == null
+                                  ? <p className="text-[10px] font-medium text-gray-400">No fish in stock</p>
+                                  : <p className="text-sm font-semibold text-[#1A56DB]">₹{Number(p.price).toLocaleString("en-IN")}</p>}
                               {lowStock && !outOfStock && <p className="text-[10px] font-medium text-amber-500 leading-none">Only {stock} left</p>}
                               {outOfStock && <p className="text-[10px] font-bold text-red-500 leading-none">Out of stock</p>}
                             </div>
@@ -4340,13 +4433,13 @@ export default function Orders() {
                               <div className="flex items-center bg-[#1A56DB] rounded-lg overflow-hidden shadow-sm flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                                 <button
                                   className="w-6 h-6 flex items-center justify-center text-white hover:bg-[#1447B4] font-bold text-sm"
-                                  onClick={(e) => { e.stopPropagation(); setSelectedProducts((arr) => cartItem.quantity <= 1 ? arr.filter((x) => x.productId !== pid) : arr.map((x) => x.productId === pid ? { ...x, quantity: x.quantity - 1 } : x)); }}
+                                  onClick={(e) => { e.stopPropagation(); setSelectedProducts((arr) => cartItem.quantity <= 1 ? arr.filter((x) => posCartLineKey(x.productId, x.inventoryBatchId) !== lineKey) : arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId) === lineKey ? { ...x, quantity: x.quantity - 1 } : x)); }}
                                 >−</button>
                                 <span className="text-xs font-bold text-white min-w-[16px] text-center">{cartItem.quantity}</span>
                                 <button
                                   className="w-6 h-6 flex items-center justify-center text-white hover:bg-[#1447B4] font-bold text-sm disabled:opacity-40"
                                   disabled={atMax}
-                                  onClick={(e) => { e.stopPropagation(); if (!atMax) setSelectedProducts((arr) => arr.map((x) => x.productId === pid ? { ...x, quantity: x.quantity + 1 } : x)); }}
+                                  onClick={(e) => { e.stopPropagation(); if (!atMax) setSelectedProducts((arr) => arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId) === lineKey ? { ...x, quantity: x.quantity + 1 } : x)); }}
                                 >+</button>
                               </div>
                             ) : !outOfStock && (
@@ -4949,18 +5042,19 @@ export default function Orders() {
                 ) : (
                   <div className="px-3 py-2 space-y-0">
                     {selectedProducts.map((p) => {
-                      const stock = stockOf(p.productId);
+                      const lineKey = posCartLineKey(p.productId, p.inventoryBatchId);
+                      const stock = stockOf(p.productId, p.inventoryBatchId);
                       const atMax = p.quantity >= stock;
                       return (
-                        <div key={p.productId} className="flex items-center gap-2 py-2 border-b border-gray-100 last:border-0">
+                        <div key={lineKey} className="flex items-center gap-2 py-2 border-b border-gray-100 last:border-0">
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-[#162B4D] leading-tight truncate">{p.name}</p>
                             <p className="text-[11px] text-gray-400">₹{Number(p.price).toLocaleString("en-IN")}{p.unit ? ` / ${p.unit}` : ""}</p>
                           </div>
                           <div className="flex items-center bg-white rounded-md border border-gray-200 overflow-hidden flex-shrink-0">
-                            <button onClick={() => setSelectedProducts((arr) => p.quantity <= 1 ? arr.filter((x) => x.productId !== p.productId) : arr.map((x) => x.productId === p.productId ? { ...x, quantity: x.quantity - 1 } : x))} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold">−</button>
+                            <button onClick={() => setSelectedProducts((arr) => p.quantity <= 1 ? arr.filter((x) => posCartLineKey(x.productId, x.inventoryBatchId) !== lineKey) : arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId) === lineKey ? { ...x, quantity: x.quantity - 1 } : x))} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold">−</button>
                             <span className="text-xs font-bold text-gray-700 min-w-[18px] text-center">{p.quantity}</span>
-                            <button disabled={atMax} onClick={() => { if (!atMax) setSelectedProducts((arr) => arr.map((x) => x.productId === p.productId ? { ...x, quantity: x.quantity + 1 } : x)); }} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold disabled:opacity-30">+</button>
+                            <button disabled={atMax} onClick={() => { if (!atMax) setSelectedProducts((arr) => arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId) === lineKey ? { ...x, quantity: x.quantity + 1 } : x)); }} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold disabled:opacity-30">+</button>
                           </div>
                           <span className="text-xs font-bold text-[#162B4D] w-12 text-right flex-shrink-0">₹{(p.price * p.quantity).toLocaleString("en-IN")}</span>
                         </div>
