@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { getCurrentAdminScope } from "@/lib/api";
 import { formatVariantLabelWithUnit, getProductUnitSuffix, normalizeProductUnit } from "@/lib/product-units";
@@ -1207,9 +1206,6 @@ export default function InventoryStockAdjustment() {
   const [saving, setSaving] = useState(false);
   const [savingPriceProductId, setSavingPriceProductId] = useState("");
   const [expandedBatchProductId, setExpandedBatchProductId] = useState("");
-  const [kgConversionProduct, setKgConversionProduct] = useState<Product | null>(null);
-  const [kgConversionPrice, setKgConversionPrice] = useState("");
-  const [convertingProductId, setConvertingProductId] = useState("");
 
   const [formDate, setFormDate] = useState(toInputDate(new Date()));
   const [formReason, setFormReason] = useState("");
@@ -1507,60 +1503,6 @@ export default function InventoryStockAdjustment() {
     }
   }
 
-  function openKgConversion(card: AdjustmentCard, product: Product) {
-    if (card.rows.some(({ row }) => row.fishWeightKg.trim() || row.fishPrice.trim())) {
-      toast({
-        title: "Save or clear the fish entries first",
-        description: "The stock mode cannot change while this adjustment has unsaved fish details.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setKgConversionPrice(product.name.trim().toLowerCase() === "bangda" ? "500" : "");
-    setKgConversionProduct(product);
-  }
-
-  async function convertProductToKg() {
-    const product = kgConversionProduct;
-    if (!product || !selectedSubHubId) return;
-    const pricePerKg = Number(kgConversionPrice);
-    if (!Number.isFinite(pricePerKg) || pricePerKg <= 0) {
-      toast({ title: "Enter a valid sale price per kg", variant: "destructive" });
-      return;
-    }
-
-    setConvertingProductId(product.id);
-    try {
-      const result = await apiFetch(
-        `/api/inventory/products/${product.id}/convert-to-kg?subHubId=${encodeURIComponent(selectedSubHubId)}`,
-        { method: "POST", body: JSON.stringify({ pricePerKg }) },
-      );
-      setProducts((current) => current.map((item) => item.id === product.id ? {
-        ...item,
-        wholeFishInventory: false,
-        unit: "kg",
-        price: Number(result.price) || pricePerKg,
-        quantity: Number(result.quantity) || 0,
-        batches: Array.isArray(result.batches) ? result.batches : [],
-      } : item));
-      const groupId = getProductGroupId(product);
-      setFormRows((rows) => {
-        const remaining = rows.filter((row) => row.selectionGroupId !== groupId);
-        return remaining.length > 0 ? remaining : [emptyRow()];
-      });
-      setKgConversionProduct(null);
-      toast({
-        title: `${product.name} converted to kg stock`,
-        description: `${Number(result.quantity || 0).toLocaleString("en-IN")} kg available at ₹${Number(result.price || pricePerKg).toFixed(2)} per kg.`,
-      });
-      reload();
-    } catch (err: any) {
-      toast({ title: "Failed to convert stock", description: err.message, variant: "destructive" });
-    } finally {
-      setConvertingProductId("");
-    }
-  }
-
   function resetForm() {
     setFormDate(toInputDate(new Date()));
     setFormReason("");
@@ -1830,14 +1772,10 @@ export default function InventoryStockAdjustment() {
                             Use product variants
                           </button>
                         )}
-                        {group?.wholeFishInventory && firstRow.isWholeFishBatch && cardProduct && (
-                          <button
-                            type="button"
-                            onClick={() => openKgConversion(card, cardProduct)}
-                            className="rounded-md border border-[#364F9F]/20 bg-white px-3 py-2 text-xs font-semibold text-[#364F9F] hover:bg-[#364F9F]/5"
-                          >
-                            Switch to kg
-                          </button>
+                        {group?.wholeFishInventory && firstRow.isWholeFishBatch && (
+                          <span className="rounded-md bg-[#364F9F]/5 px-3 py-2 text-xs font-semibold text-[#364F9F]">
+                            One fish per batch
+                          </span>
                         )}
                         <div className="text-right">
                           <p className="text-xs font-bold text-[#162B4D]">
@@ -2100,50 +2038,6 @@ export default function InventoryStockAdjustment() {
           </div>
         </div>
       </div>
-      <Dialog
-        open={Boolean(kgConversionProduct)}
-        onOpenChange={(open) => {
-          if (!open && !convertingProductId) setKgConversionProduct(null);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Switch {kgConversionProduct?.name ?? "product"} to kilogram stock</DialogTitle>
-            <DialogDescription>
-              Each current batch will keep its ID, weight, and expiry date; its quantity will become kilograms.
-              Previous per-fish prices will no longer be used. New and converted stock will sell at the price below.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="kg-conversion-price">Sale price per kg</Label>
-            <Input
-              id="kg-conversion-price"
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={kgConversionPrice}
-              onChange={(event) => setKgConversionPrice(event.target.value)}
-              placeholder="Enter price per kg"
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setKgConversionProduct(null)}
-              disabled={Boolean(convertingProductId)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={convertProductToKg}
-              disabled={Boolean(convertingProductId) || !kgConversionProduct}
-              className="bg-[#364F9F] text-white hover:bg-[#2b407f]"
-            >
-              {convertingProductId ? "Converting..." : "Convert stock to kg"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
