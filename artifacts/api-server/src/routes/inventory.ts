@@ -743,7 +743,7 @@ router.post("/adjustments", async (req, res) => {
       if (!productId) continue;
       const existing = productsById.get(String(productId));
       const mode = String(it.mode || (it.addQuantity != null ? "add" : it.removeQuantity != null ? "remove" : "set"));
-      const hasFishDetails = it.fishWeightKg !== undefined || it.fishPrice !== undefined || it.fishPricePerKg !== undefined;
+      const hasWholeFishDetails = it.fishWeightKg !== undefined || it.fishPrice !== undefined;
       const requestedFishMode = it.fishInventoryMode != null
         ? String(it.fishInventoryMode)
         : resolvedFishInventoryMode(existing);
@@ -780,7 +780,7 @@ router.post("/adjustments", async (req, res) => {
         });
         return;
       }
-      if (hasFishDetails) {
+      if (requestedFishMode === "whole_fish" && hasWholeFishDetails) {
         if (existing?.variantGroupId && String(existing.variantGroupId) !== String(existing._id)) {
           res.status(400).json({
             error: "ValidationError",
@@ -803,7 +803,7 @@ router.post("/adjustments", async (req, res) => {
           return;
         }
       }
-      if (requestedFishMode === "whole_fish" && mode === "add" && !hasFishDetails) {
+      if (requestedFishMode === "whole_fish" && mode === "add" && !hasWholeFishDetails) {
         res.status(400).json({
           error: "ValidationError",
           message: `${String(existing?.name ?? "This fish")} needs a weight and total price for each new fish batch`,

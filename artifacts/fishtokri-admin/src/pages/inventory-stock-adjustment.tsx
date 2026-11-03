@@ -2038,7 +2038,7 @@ export default function InventoryStockAdjustment() {
                             <div className="grid gap-3 md:max-w-[460px] md:grid-cols-2">
                             <div className="w-56 space-y-1.5">
                               <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
-                                {firstRow.mode === "remove" ? "Weight to remove (kg)" : "Stock weight (kg)"}
+                                {firstRow.mode === "remove" ? "Weight to remove (kg)" : "Incoming stock (kg)"}
                               </Label>
                               <input
                                 type="number"
@@ -2061,7 +2061,7 @@ export default function InventoryStockAdjustment() {
                               </p>
                             </div>
                             <div className="w-56 space-y-1.5">
-                              <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Customer selling price / kg</Label>
+                              <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Selling price per kg</Label>
                               <div className="flex items-center gap-1">
                                 <span className="text-sm text-gray-400">₹</span>
                                 <input
@@ -2079,45 +2079,57 @@ export default function InventoryStockAdjustment() {
                             </div>
                             </div>
                             <div className="space-y-1.5">
-                              <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">POS and website portion sizes</Label>
-                              <div className="flex flex-wrap items-center gap-2">
+                              <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Sale pack options</Label>
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                                 {firstRow.bulkPortionWeightsKg.map((weight, portionIndex) => {
                                   const calculatedPrice = fishTotalPrice(weight, firstRow.fishPricePerKg);
                                   return (
-                                    <div key={`${portionIndex}-${weight}`} className="flex items-center gap-1 rounded-md border border-gray-200 bg-white p-1">
-                                      <input
-                                        type="number"
-                                        min="0.001"
-                                        step="0.001"
-                                        value={weight}
-                                        onChange={(event) => updateBulkPortionWeight(card, portionIndex, event.target.value)}
-                                        aria-label={`Portion weight ${portionIndex + 1} in kilograms`}
-                                        className="h-7 w-20 px-1.5 text-xs font-semibold text-[#162B4D] outline-none"
-                                      />
-                                      <span className="text-[10px] text-gray-500">{bulkPortionLabel(weight)}</span>
-                                      <span className="whitespace-nowrap text-[11px] font-bold text-[#162B4D]">
-                                        {calculatedPrice ? `₹${calculatedPrice}` : "Set rate"}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => removeBulkPortionWeight(card, portionIndex)}
-                                        aria-label={`Remove portion ${portionIndex + 1}`}
-                                        className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
-                                      >
-                                        <Trash2 className="h-3 w-3" />
-                                      </button>
+                                    <div key={`${portionIndex}-${weight}`} className="rounded-lg border border-gray-200 bg-white p-3">
+                                      <div className="mb-2 flex items-center justify-between">
+                                        <span className="text-[11px] font-semibold text-gray-500">Pack {portionIndex + 1}</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => removeBulkPortionWeight(card, portionIndex)}
+                                          aria-label={`Remove pack size ${portionIndex + 1}`}
+                                          title="Remove pack size"
+                                          className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      </div>
+                                      <div className="grid grid-cols-[1fr_auto] items-end gap-2">
+                                        <div>
+                                          <span className="mb-1 block text-[10px] text-gray-500">Weight (kg)</span>
+                                          <input
+                                            type="number"
+                                            min="0.001"
+                                            step="0.001"
+                                            value={weight}
+                                            onChange={(event) => updateBulkPortionWeight(card, portionIndex, event.target.value)}
+                                            aria-label={`Pack ${portionIndex + 1} weight in kilograms`}
+                                            className="h-8 w-full rounded-md border border-gray-200 px-2 text-sm font-semibold text-[#162B4D] outline-none focus:border-[#364F9F]"
+                                          />
+                                        </div>
+                                        <span className="pb-2 text-xs font-medium text-gray-500">{bulkPortionLabel(weight)}</span>
+                                      </div>
+                                      <div className="mt-2 flex items-center justify-between rounded-md bg-[#364F9F]/5 px-2.5 py-2">
+                                        <span className="text-[10px] font-medium text-gray-600">Selling price</span>
+                                        <span className="text-sm font-bold text-[#162B4D]">
+                                          {calculatedPrice ? `₹${calculatedPrice}` : "Set kg rate"}
+                                        </span>
+                                      </div>
                                     </div>
                                   );
                                 })}
                                 <button
                                   type="button"
                                   onClick={() => addBulkPortionWeight(card)}
-                                  className="inline-flex h-9 items-center gap-1 rounded-md border border-dashed border-[#364F9F]/35 px-2.5 text-xs font-semibold text-[#364F9F] hover:bg-[#364F9F]/5"
+                                  className="flex min-h-[128px] items-center justify-center gap-1 rounded-lg border border-dashed border-[#364F9F]/35 bg-white px-3 text-sm font-semibold text-[#364F9F] hover:bg-[#364F9F]/5"
                                 >
-                                  <Plus className="h-3.5 w-3.5" /> Add portion
+                                  <Plus className="h-4 w-4" /> Add sale pack
                                 </button>
                               </div>
-                              <p className="text-[10px] text-gray-500">Each portion price is calculated from its weight and selling price per kg.</p>
+                              <p className="text-[10px] text-gray-500">Each pack appears as its own POS and website option. Its price updates from the per-kg rate.</p>
                             </div>
                           </div>
                         </div>
