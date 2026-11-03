@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  formatBulkPortionRangeLabel,
+  isValidBulkPortionOptions,
   getOutstandingDeductionMovements,
   inventoryQuantityForOrder,
+  normalizeBulkPortionOptions,
   planBatchConsumption,
   restoreBatchAllocations,
   sortBatchesByExpiry,
@@ -12,6 +15,33 @@ test("converts bulk pack counts to the exact shared kilogram quantity", () => {
   assert.equal(inventoryQuantityForOrder(3, 0.5), 1.5);
   assert.equal(inventoryQuantityForOrder(2, 1.25), 2.5);
   assert.equal(inventoryQuantityForOrder(3), 3);
+});
+
+test("normalizes a ranged pack to its midpoint while preserving exact legacy weights", () => {
+  const options = normalizeBulkPortionOptions([
+    { minWeightKg: 0.5, maxWeightKg: 0.55 },
+    { weightKg: 1 },
+  ]);
+
+  assert.deepEqual(options, [
+    { weightKg: 0.525, minWeightKg: 0.5, maxWeightKg: 0.55 },
+    { weightKg: 1 },
+  ]);
+  assert.equal(formatBulkPortionRangeLabel(options[0]), "500 g–550 g");
+  assert.deepEqual(normalizeBulkPortionOptions([], [0.5, 1]), [
+    { weightKg: 0.5 },
+    { weightKg: 1 },
+  ]);
+});
+
+test("rejects invalid, incomplete, and duplicate-average bulk ranges", () => {
+  assert.equal(isValidBulkPortionOptions([{ minWeightKg: 0.5, maxWeightKg: 0.55 }]), true);
+  assert.equal(isValidBulkPortionOptions([{ minWeightKg: 0.5 }]), false);
+  assert.equal(isValidBulkPortionOptions([{ minWeightKg: 0.55, maxWeightKg: 0.5 }]), false);
+  assert.equal(isValidBulkPortionOptions([
+    { minWeightKg: 0.5, maxWeightKg: 0.55 },
+    { minWeightKg: 0.51, maxWeightKg: 0.54 },
+  ]), false);
 });
 
 test("deducts and restores a fractional bulk quantity to its original batches", () => {

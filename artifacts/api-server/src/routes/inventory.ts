@@ -8,6 +8,8 @@ import { loadScope, type ScopedRequest } from "../middlewares/scope.js";
 import { logger } from "../lib/logger.js";
 import { getInventoryUpdateAction } from "./inventory-update-policy.mjs";
 import {
+  isValidBulkPortionOptions,
+  normalizeBulkPortionOptions,
   getOutstandingDeductionMovements,
   inventoryQuantityForOrder,
   planBatchConsumption,
@@ -513,6 +515,10 @@ router.get("/products", async (req, res) => {
           fishInventoryMode,
           fishPricePerKg: Number(p.fishPricePerKg) > 0 ? Number(p.fishPricePerKg) : null,
           bulkPortionWeightsKg: normalizeBulkPortionWeights(p.bulkPortionWeightsKg),
+          bulkPortionOptions: normalizeBulkPortionOptions(
+            p.bulkPortionOptions,
+            p.bulkPortionWeightsKg,
+          ),
           status: p.status ?? "available",
           imageUrl: p.imageUrl ?? "",
           isDailyWholeFish: p.isDailyWholeFish === true,
@@ -761,11 +767,17 @@ router.post("/adjustments", async (req, res) => {
           return;
         }
         if (requestedFishMode === "bulk_portions") {
-          const weights = normalizeBulkPortionWeights(it.bulkPortionWeightsKg ?? existing?.bulkPortionWeightsKg);
-          if (weights.length === 0) {
+          const submittedOptions = it.bulkPortionOptions ?? existing?.bulkPortionOptions;
+          const legacyWeights = it.bulkPortionWeightsKg ?? existing?.bulkPortionWeightsKg;
+          const optionsValid = submittedOptions
+            ? isValidBulkPortionOptions(submittedOptions)
+            : Array.isArray(legacyWeights) && legacyWeights.some((weight: any) =>
+                Number.isFinite(Number(weight)) && Number(weight) > 0
+              );
+          if (!optionsValid) {
             res.status(400).json({
               error: "ValidationError",
-              message: "Bulk fish needs at least one positive portion weight",
+              message: "Bulk fish needs at least one valid sale weight or weight range",
             });
             return;
           }
@@ -848,15 +860,18 @@ router.post("/adjustments", async (req, res) => {
         : fishInventoryMode === "whole_fish"
           ? "per piece"
           : existing.unit ?? "";
-      const bulkPortionWeightsKg = normalizeBulkPortionWeights(
+      const bulkPortionOptions = normalizeBulkPortionOptions(
+        it.bulkPortionOptions ?? existing.bulkPortionOptions,
         it.bulkPortionWeightsKg ?? existing.bulkPortionWeightsKg,
       );
+      const bulkPortionWeightsKg = bulkPortionOptions.map((option) => option.weightKg);
       const fishConfigPatch: Record<string, any> = it.fishInventoryMode == null ? {} :
         fishInventoryMode === "whole_fish"
           ? {
               fishInventoryMode,
               wholeFishInventory: true,
               bulkPortionWeightsKg: [],
+              bulkPortionOptions: [],
               fishPricePerKg,
             }
           : fishInventoryMode === "bulk_portions"
@@ -864,12 +879,14 @@ router.post("/adjustments", async (req, res) => {
                 fishInventoryMode,
                 wholeFishInventory: false,
                 bulkPortionWeightsKg,
+                bulkPortionOptions,
                 fishPricePerKg,
               }
             : {
                 fishInventoryMode: "standard",
                 wholeFishInventory: false,
                 bulkPortionWeightsKg: [],
+                bulkPortionOptions: [],
                 fishPricePerKg: null,
               };
 
@@ -1325,14 +1342,17 @@ async function expandOrderItems(
       if (pid) {
         const productDoc = await productsCol.findOne(
           { _id: pid },
-          { projection: { _id: 1, fishInventoryMode: 1, bulkPortionWeightsKg: 1, unit: 1 } },
+          { projection: { _id: 1, fishInventoryMode: 1, bulkPortionWeightsKg: 1, bulkPortionOptions: 1, unit: 1 } },
         );
         if (productDoc) {
           const submittedBulkWeightKg = Number(it.bulkWeightKg);
           const hasBulkWeight = Number.isFinite(submittedBulkWeightKg) && submittedBulkWeightKg > 0;
           const isBulkFish = productDoc.fishInventoryMode === "bulk_portions";
           if (validateBulkPortions && isBulkFish) {
-            const allowedWeights = normalizeBulkPortionWeights(productDoc.bulkPortionWeightsKg);
+            const allowedWeights = normalizeBulkPortionOptions(
+              productDoc.bulkPortionOptions,
+              productDoc.bulkPortionWeightsKg,
+            ).map((option) => option.weightKg);
             if (!hasBulkWeight || !allowedWeights.some((weight) => Math.abs(weight - submittedBulkWeightKg) < 0.0005)) {
               throw new Error(`Select a valid portion size for ${String(it.name ?? "this bulk fish")}`);
             }

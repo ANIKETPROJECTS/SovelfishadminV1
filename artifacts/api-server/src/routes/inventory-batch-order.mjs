@@ -51,6 +51,97 @@ export function inventoryQuantityForOrder(quantity, bulkWeightKg) {
   return Math.round(count * weight * 1000) / 1000;
 }
 
+function roundKg(value) {
+  return Math.round(Number(value) * 1000) / 1000;
+}
+
+/**
+ * Bulk sale options use their midpoint as the priced and deducted weight.
+ * Older products only store exact weights, so those remain valid options.
+ */
+export function normalizeBulkPortionOptions(options, legacyWeights = []) {
+  const source = Array.isArray(options) && options.length > 0
+    ? options
+    : (Array.isArray(legacyWeights) ? legacyWeights : []).map((weightKg) => ({ weightKg }));
+  const normalized = [];
+  const seenWeights = new Set();
+
+  for (const raw of source) {
+    const hasMin = raw?.minWeightKg != null && raw.minWeightKg !== "";
+    const hasMax = raw?.maxWeightKg != null && raw.maxWeightKg !== "";
+    let weightKg;
+    let minWeightKg;
+    let maxWeightKg;
+
+    if (hasMin || hasMax) {
+      if (!hasMin || !hasMax) continue;
+      minWeightKg = roundKg(raw.minWeightKg);
+      maxWeightKg = roundKg(raw.maxWeightKg);
+      if (!Number.isFinite(minWeightKg) || minWeightKg <= 0 ||
+        !Number.isFinite(maxWeightKg) || maxWeightKg <= minWeightKg) continue;
+      weightKg = roundKg((minWeightKg + maxWeightKg) / 2);
+    } else {
+      weightKg = roundKg(raw?.weightKg);
+      if (!Number.isFinite(weightKg) || weightKg <= 0) continue;
+    }
+
+    const key = weightKg.toFixed(3);
+    if (seenWeights.has(key)) continue;
+    seenWeights.add(key);
+    normalized.push({
+      weightKg,
+      ...(minWeightKg != null && maxWeightKg != null ? { minWeightKg, maxWeightKg } : {}),
+    });
+  }
+
+  return normalized.sort((a, b) => a.weightKg - b.weightKg);
+}
+
+export function isValidBulkPortionOptions(options) {
+  if (!Array.isArray(options) || options.length === 0) return false;
+  const seenWeights = new Set();
+
+  for (const raw of options) {
+    if (!raw || typeof raw !== "object") return false;
+    const hasMin = raw.minWeightKg != null && raw.minWeightKg !== "";
+    const hasMax = raw.maxWeightKg != null && raw.maxWeightKg !== "";
+    let weightKg;
+
+    if (hasMin || hasMax) {
+      if (!hasMin || !hasMax) return false;
+      const minWeightKg = roundKg(raw.minWeightKg);
+      const maxWeightKg = roundKg(raw.maxWeightKg);
+      if (!Number.isFinite(minWeightKg) || minWeightKg <= 0 ||
+        !Number.isFinite(maxWeightKg) || maxWeightKg <= minWeightKg) return false;
+      weightKg = roundKg((minWeightKg + maxWeightKg) / 2);
+    } else {
+      weightKg = roundKg(raw.weightKg);
+      if (!Number.isFinite(weightKg) || weightKg <= 0) return false;
+    }
+
+    const key = weightKg.toFixed(3);
+    if (seenWeights.has(key)) return false;
+    seenWeights.add(key);
+  }
+
+  return true;
+}
+
+export function formatBulkPortionWeightLabel(weightKg) {
+  const weight = Number(weightKg);
+  if (!Number.isFinite(weight) || weight <= 0) return "";
+  return weight < 1
+    ? `${Math.round(weight * 1000)} g`
+    : `${weight.toLocaleString("en-IN", { maximumFractionDigits: 3 })} kg`;
+}
+
+export function formatBulkPortionRangeLabel(option) {
+  if (option?.minWeightKg == null || option?.maxWeightKg == null) {
+    return formatBulkPortionWeightLabel(option?.weightKg);
+  }
+  return `${formatBulkPortionWeightLabel(option.minWeightKg)}–${formatBulkPortionWeightLabel(option.maxWeightKg)}`;
+}
+
 /**
  * Return deductions that have not yet been reversed. New restore movements
  * explicitly reference their deduction movement IDs. Older movements did not

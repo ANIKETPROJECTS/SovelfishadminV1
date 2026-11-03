@@ -43,6 +43,25 @@ export declare function inventoryQuantityForOrder(
   bulkWeightKg?: number,
 ): number;
 
+export interface BulkPortionOption {
+  weightKg: number;
+  minWeightKg?: number;
+  maxWeightKg?: number;
+}
+
+export declare function normalizeBulkPortionOptions(
+  options?: Array<Partial<BulkPortionOption> | number> | null,
+  legacyWeights?: number[] | null,
+): BulkPortionOption[];
+
+export declare function isValidBulkPortionOptions(
+  options: Array<Partial<BulkPortionOption> | number> | null | undefined,
+): boolean;
+
+export declare function formatBulkPortionWeightLabel(weightKg: number): string;
+
+export declare function formatBulkPortionRangeLabel(option: BulkPortionOption): string;
+
 export declare function getOutstandingDeductionMovements<T extends InventoryMovement>(
   deductions: T[],
   restores: InventoryMovement[],

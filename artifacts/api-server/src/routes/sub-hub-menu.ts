@@ -4,6 +4,11 @@ import { SubHub } from "../db/models/sub-hub.js";
 import { getSubHubDbConnection } from "../db/sub-hub-connections.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { loadScope, type ScopedRequest } from "../middlewares/scope.js";
+import {
+  formatBulkPortionRangeLabel,
+  formatBulkPortionWeightLabel,
+  normalizeBulkPortionOptions,
+} from "./inventory-batch-order.mjs";
 
 const router: IRouter = Router({ mergeParams: true });
 router.use(requireAuth as any);
@@ -209,24 +214,26 @@ router.get("/products", async (req, res) => {
       const total = isWholeFish
         ? (fishBatches ?? []).reduce((sum: number, batch: any) => sum + batch.quantity, 0)
         : batches.length > 0 ? availableBatchTotal : Math.max(0, Number(p.quantity) || 0);
-      const bulkPortionWeightsKg = Array.isArray(p.bulkPortionWeightsKg)
-        ? [...new Set(p.bulkPortionWeightsKg
-          .map((weight: any) => Math.round(Number(weight) * 1000) / 1000)
-          .filter((weight: number) => Number.isFinite(weight) && weight > 0))]
-          .sort((a: number, b: number) => a - b)
-        : [];
+      const bulkPortionOptions = normalizeBulkPortionOptions(
+        p.bulkPortionOptions,
+        p.bulkPortionWeightsKg,
+      );
+      const bulkPortionWeightsKg = bulkPortionOptions.map((option) => option.weightKg);
       const fishPricePerKg = Number(p.fishPricePerKg) > 0
         ? Number(p.fishPricePerKg)
         : Number(p.price) > 0 ? Number(p.price) : 0;
       const bulkSaleOptions = isBulkFish
-        ? bulkPortionWeightsKg.map((weightKg: number) => {
+        ? bulkPortionOptions.map((option) => {
+            const weightKg = option.weightKg;
             const wholePacksAvailable = Math.floor((total + 1e-9) / weightKg);
-            const weightLabel = weightKg < 1
-              ? `${Math.round(weightKg * 1000)} g`
-              : `${weightKg.toLocaleString("en-IN", { maximumFractionDigits: 3 })} kg`;
             return {
               weightKg,
-              weightLabel,
+              ...(option.minWeightKg != null && option.maxWeightKg != null ? {
+                minWeightKg: option.minWeightKg,
+                maxWeightKg: option.maxWeightKg,
+              } : {}),
+              weightLabel: formatBulkPortionRangeLabel(option),
+              averageWeightLabel: formatBulkPortionWeightLabel(weightKg),
               price: Math.round(weightKg * fishPricePerKg * 100) / 100,
               availableQuantity: wholePacksAvailable,
             };
@@ -254,6 +261,7 @@ router.get("/products", async (req, res) => {
         fishPricePerKg: fishPricePerKg > 0 ? fishPricePerKg : null,
         ...(isBulkFish ? {
           bulkPortionWeightsKg,
+          bulkPortionOptions,
           bulkSaleOptions,
         } : {}),
         ...(isWholeFish ? {
