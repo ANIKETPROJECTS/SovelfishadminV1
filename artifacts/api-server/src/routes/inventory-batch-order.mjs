@@ -67,8 +67,8 @@ export function normalizeBulkPortionOptions(options, legacyWeights = []) {
   const seenWeights = new Set();
 
   for (const raw of source) {
-    const hasMin = raw?.minWeightKg != null && raw.minWeightKg !== "";
-    const hasMax = raw?.maxWeightKg != null && raw.maxWeightKg !== "";
+    const hasMin = typeof raw === "object" && raw?.minWeightKg != null && raw.minWeightKg !== "";
+    const hasMax = typeof raw === "object" && raw?.maxWeightKg != null && raw.maxWeightKg !== "";
     let weightKg;
     let minWeightKg;
     let maxWeightKg;
@@ -81,7 +81,7 @@ export function normalizeBulkPortionOptions(options, legacyWeights = []) {
         !Number.isFinite(maxWeightKg) || maxWeightKg <= minWeightKg) continue;
       weightKg = roundKg((minWeightKg + maxWeightKg) / 2);
     } else {
-      weightKg = roundKg(raw?.weightKg);
+      weightKg = roundKg(typeof raw === "number" ? raw : raw?.weightKg);
       if (!Number.isFinite(weightKg) || weightKg <= 0) continue;
     }
 
@@ -102,9 +102,9 @@ export function isValidBulkPortionOptions(options) {
   const seenWeights = new Set();
 
   for (const raw of options) {
-    if (!raw || typeof raw !== "object") return false;
-    const hasMin = raw.minWeightKg != null && raw.minWeightKg !== "";
-    const hasMax = raw.maxWeightKg != null && raw.maxWeightKg !== "";
+    if (typeof raw !== "number" && (!raw || typeof raw !== "object")) return false;
+    const hasMin = typeof raw === "object" && raw.minWeightKg != null && raw.minWeightKg !== "";
+    const hasMax = typeof raw === "object" && raw.maxWeightKg != null && raw.maxWeightKg !== "";
     let weightKg;
 
     if (hasMin || hasMax) {
@@ -115,7 +115,7 @@ export function isValidBulkPortionOptions(options) {
         !Number.isFinite(maxWeightKg) || maxWeightKg <= minWeightKg) return false;
       weightKg = roundKg((minWeightKg + maxWeightKg) / 2);
     } else {
-      weightKg = roundKg(raw.weightKg);
+      weightKg = roundKg(typeof raw === "number" ? raw : raw.weightKg);
       if (!Number.isFinite(weightKg) || weightKg <= 0) return false;
     }
 

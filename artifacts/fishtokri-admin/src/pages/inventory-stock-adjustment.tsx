@@ -2118,7 +2118,12 @@ export default function InventoryStockAdjustment() {
                       </div>
                     </div>
 
-                    {firstRow.isWholeFishBatch ? (
+                    {firstRow.fishInventoryMode === "standard" && !hasStoredStock ? (
+                      <div className="flex min-h-20 items-center justify-center px-4 text-center text-xs text-gray-500">
+                        Select <span className="mx-1 font-semibold text-[#162B4D]">Individual fish</span> or
+                        <span className="mx-1 font-semibold text-[#162B4D]">Bulk by kg</span> before adding stock.
+                      </div>
+                    ) : firstRow.isWholeFishBatch ? (
                       <WholeFishAdjustmentTable
                         rows={card.rows}
                         product={cardProduct}
@@ -2187,7 +2192,7 @@ export default function InventoryStockAdjustment() {
                                   const calculatedPrice = fishTotalPrice(averageWeightKg, firstRow.fishPricePerKg);
                                   return (
                                     <div
-                                      key={`${portionIndex}-${option.weightKg}-${option.minWeightG}-${option.maxWeightG}`}
+                                      key={`bulk-portion-${portionIndex}`}
                                       title={`Pack ${portionIndex + 1}`}
                                       className={`flex h-12 shrink-0 items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2 ${
                                         isRange ? "min-w-[310px]" : "min-w-[240px]"
@@ -2204,7 +2209,7 @@ export default function InventoryStockAdjustment() {
                                             value={option.minWeightG}
                                             onChange={(event) => updateBulkPortionOption(card, portionIndex, { minWeightG: event.target.value })}
                                             aria-label={`Pack ${portionIndex + 1} minimum weight in grams`}
-                                            data-testid={`input-pack-min-weight-${portionIndex + 1}`}
+                                            data-testid={`input-pack-min-weight-${firstRow.productId}-${portionIndex + 1}`}
                                             placeholder="Min g"
                                             className="h-8 w-[58px] shrink-0 rounded-md border border-gray-200 px-1.5 text-xs font-semibold text-[#162B4D] outline-none focus:border-[#364F9F]"
                                           />
@@ -2217,7 +2222,7 @@ export default function InventoryStockAdjustment() {
                                             value={option.maxWeightG}
                                             onChange={(event) => updateBulkPortionOption(card, portionIndex, { maxWeightG: event.target.value })}
                                             aria-label={`Pack ${portionIndex + 1} maximum weight in grams`}
-                                            data-testid={`input-pack-max-weight-${portionIndex + 1}`}
+                                            data-testid={`input-pack-max-weight-${firstRow.productId}-${portionIndex + 1}`}
                                             placeholder="Max g"
                                             className="h-8 w-[58px] shrink-0 rounded-md border border-gray-200 px-1.5 text-xs font-semibold text-[#162B4D] outline-none focus:border-[#364F9F]"
                                           />
@@ -2234,7 +2239,7 @@ export default function InventoryStockAdjustment() {
                                             value={option.weightKg}
                                             onChange={(event) => updateBulkPortionOption(card, portionIndex, { weightKg: event.target.value })}
                                             aria-label={`Pack ${portionIndex + 1} exact weight in kilograms`}
-                                            data-testid={`input-pack-weight-${portionIndex + 1}`}
+                                            data-testid={`input-pack-weight-${firstRow.productId}-${portionIndex + 1}`}
                                             className="h-8 w-[54px] shrink-0 rounded-md border border-gray-200 px-1.5 text-sm font-semibold text-[#162B4D] outline-none focus:border-[#364F9F]"
                                           />
                                           <span className="shrink-0 whitespace-nowrap text-[10px] text-gray-500">{bulkPortionLabel(option.weightKg)}</span>
@@ -2247,7 +2252,7 @@ export default function InventoryStockAdjustment() {
                                         type="button"
                                         onClick={() => toggleBulkPortionRange(card, portionIndex)}
                                         aria-label={`${isRange ? "Use exact weight" : "Set weight range"} for pack ${portionIndex + 1}`}
-                                        data-testid={`button-pack-range-${portionIndex + 1}`}
+                                        data-testid={`button-pack-range-${firstRow.productId}-${portionIndex + 1}`}
                                         className="shrink-0 rounded px-1 text-[9px] font-semibold text-[#364F9F] hover:bg-[#364F9F]/5"
                                       >
                                         {isRange ? "Exact" : "Range"}
@@ -2257,7 +2262,7 @@ export default function InventoryStockAdjustment() {
                                         onClick={() => removeBulkPortionOption(card, portionIndex)}
                                         aria-label={`Remove pack size ${portionIndex + 1}`}
                                         title="Remove pack size"
-                                        data-testid={`button-remove-pack-${portionIndex + 1}`}
+                                        data-testid={`button-remove-pack-${firstRow.productId}-${portionIndex + 1}`}
                                         className="shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
                                       >
                                         <Trash2 className="h-3.5 w-3.5" />
@@ -2268,7 +2273,7 @@ export default function InventoryStockAdjustment() {
                                 <button
                                   type="button"
                                   onClick={() => addBulkPortionOption(card)}
-                                  data-testid="button-add-bulk-pack"
+                                  data-testid={`button-add-bulk-pack-${firstRow.productId}`}
                                   className="flex h-12 shrink-0 items-center justify-center gap-1 rounded-md border border-dashed border-[#364F9F]/35 bg-white px-3 text-xs font-semibold text-[#364F9F] hover:bg-[#364F9F]/5"
                                 >
                                   <Plus className="h-3.5 w-3.5" /> Add pack

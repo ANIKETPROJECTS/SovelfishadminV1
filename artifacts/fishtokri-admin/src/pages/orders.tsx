@@ -1555,6 +1555,8 @@ export default function Orders() {
             posProductId: String(product._id),
             posBulkWeightKg: weightKg,
             posBulkWeightLabel: weightLabel,
+            posBulkAverageWeightLabel: String(option.averageWeightLabel || `${weightKg} kg`),
+            posBulkSharedStockKg: Math.max(0, Number(product.quantity) || 0),
             posDisplayName: `${product.name} (${weightLabel})`,
             price: Number(option.price) || 0,
             quantity: Math.max(0, Number(option.availableQuantity) || 0),
@@ -4403,7 +4405,15 @@ export default function Orders() {
                     const stock = Number(p.quantity) || 0;
                     const outOfStock = stock <= 0;
                     const lowStock = stock > 0 && stock <= 5;
-                    const atMax = cartItem ? cartItem.quantity >= stock : false;
+                    const selectedBulkKg = bulkWeightKg
+                      ? selectedProducts
+                          .filter((item) => item.productId === pid && Number(item.bulkWeightKg) > 0)
+                          .reduce((total, item) => total + item.quantity * Number(item.bulkWeightKg), 0)
+                      : 0;
+                    const sharedBulkStockKg = Number(p.posBulkSharedStockKg) || 0;
+                    const atMax = bulkWeightKg
+                      ? selectedBulkKg + bulkWeightKg > sharedBulkStockKg + 1e-9
+                      : cartItem ? cartItem.quantity >= stock : false;
                     return (
                       <div
                         key={String(p._id)}
@@ -4455,7 +4465,11 @@ export default function Orders() {
                             {p.posFishWeightKg != null
                               ? `${p.posFishWeightKg} kg · whole fish${p.posIncompleteFishCount > 0 ? ` · ${p.posIncompleteFishCount} need details` : ""}`
                               : p.posBulkWeightKg != null
-                                ? `${p.posBulkWeightLabel} portion · ${stock} available`
+                                ? `${p.posBulkWeightLabel} portion${
+                                    p.posBulkAverageWeightLabel !== p.posBulkWeightLabel
+                                      ? ` · avg ${p.posBulkAverageWeightLabel}`
+                                      : ""
+                                  } · ${stock} available`
                                 : p.category || "\u00A0"}
                           </p>
                           <div className="flex items-center justify-between mt-auto pt-1.5 gap-1">
@@ -5083,7 +5097,18 @@ export default function Orders() {
                     {selectedProducts.map((p) => {
                       const lineKey = posCartLineKey(p.productId, p.inventoryBatchId, p.bulkWeightKg);
                       const stock = stockOf(p.productId, p.inventoryBatchId, p.bulkWeightKg);
-                      const atMax = p.quantity >= stock;
+                      const bulkWeightKg = Number(p.bulkWeightKg) > 0 ? Number(p.bulkWeightKg) : 0;
+                      const selectedBulkKg = bulkWeightKg
+                        ? selectedProducts
+                            .filter((item) => item.productId === p.productId && Number(item.bulkWeightKg) > 0)
+                            .reduce((total, item) => total + item.quantity * Number(item.bulkWeightKg), 0)
+                        : 0;
+                      const sharedStockKg = Number(
+                        subHubProducts.find((product) => String(product._id) === p.productId)?.quantity,
+                      ) || 0;
+                      const atMax = bulkWeightKg
+                        ? selectedBulkKg + bulkWeightKg > sharedStockKg + 1e-9
+                        : p.quantity >= stock;
                       return (
                         <div key={lineKey} className="flex items-center gap-2 py-2 border-b border-gray-100 last:border-0">
                           <div className="flex-1 min-w-0">
