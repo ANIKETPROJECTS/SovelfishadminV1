@@ -4365,9 +4365,9 @@ export default function Orders() {
                     const displayName = p.posDisplayName ?? (p.variantLabel ? `${p.name} (${p.variantLabel})` : p.name);
                     const cartItem = selectedProducts.find((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId) === lineKey);
                     const stock = Number(p.quantity) || 0;
-                    const outOfStock = stock <= 0;
+                    const outOfStock = stock < 1 - 1e-9;
                     const lowStock = stock > 0 && stock <= 5;
-                    const atMax = cartItem ? cartItem.quantity >= stock : false;
+                    const atMax = cartItem ? cartItem.quantity + 1 > stock + 1e-9 : false;
                     return (
                       <div
                         key={String(p._id)}
@@ -5044,7 +5044,7 @@ export default function Orders() {
                     {selectedProducts.map((p) => {
                       const lineKey = posCartLineKey(p.productId, p.inventoryBatchId);
                       const stock = stockOf(p.productId, p.inventoryBatchId);
-                      const atMax = p.quantity >= stock;
+                      const atMax = p.quantity + 1 > stock + 1e-9;
                       return (
                         <div key={lineKey} className="flex items-center gap-2 py-2 border-b border-gray-100 last:border-0">
                           <div className="flex-1 min-w-0">
