@@ -474,7 +474,8 @@ router.get("/products", async (req, res) => {
             ? inventoryVariantLabel(p)
             : "",
           shortCode: p.shortCode ?? "",
-          category: p.category ?? "",
+          category: String(p.category ?? "").trim() ||
+            (p.wholeFishInventory === true ? String(p.name ?? "").trim() : ""),
           subCategory: p.subCategory ?? "",
           unit: p.variantGroupId ? groupUnits.get(String(p.variantGroupId)) ?? p.unit ?? "" : p.unit ?? "",
           price: Number(p.price) || 0,

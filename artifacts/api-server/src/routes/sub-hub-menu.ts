@@ -199,8 +199,11 @@ router.get("/products", async (req, res) => {
         : batches.length > 0 ? availableBatchTotal : Math.max(0, Number(p.quantity) || 0);
       const hasVariantLabel = p.wholeFishInventory !== true &&
         Boolean(p.variantGroupId || p.netWeight || p.variantLabel || p.weight || p.grossWeight);
+      const category = String(p.category ?? "").trim() ||
+        (p.wholeFishInventory === true ? String(p.name ?? "").trim() : "");
       return {
         ...p,
+        category,
         unit: p.variantGroupId ? groupUnits.get(String(p.variantGroupId)) ?? p.unit : p.unit,
         ...(hasVariantLabel ? { variantLabel: getVariantLabel(p) } : {}),
         quantity: total,
