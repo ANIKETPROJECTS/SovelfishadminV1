@@ -1157,6 +1157,7 @@ router.post("/", async (req: ScopedRequest, res) => {
         batchNumber: String(it.batchNumber ?? ""),
         fishWeightKg: Number(it.fishWeightKg) || undefined,
       } : {}),
+      ...(Number(it.bulkWeightKg) > 0 ? { bulkWeightKg: Number(it.bulkWeightKg) } : {}),
     })).filter((it: any) => it.name);
 
     if (cleanItems.length === 0) {
@@ -1836,6 +1837,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
           batchNumber: String(it.batchNumber ?? ""),
           fishWeightKg: Number(it.fishWeightKg) || undefined,
         } : {}),
+        ...(Number(it?.bulkWeightKg) > 0 ? { bulkWeightKg: Number(it.bulkWeightKg) } : {}),
       })).filter((it: any) => it.name && it.quantity > 0);
     }
 

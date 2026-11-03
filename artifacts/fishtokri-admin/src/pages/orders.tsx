@@ -80,8 +80,9 @@ function getBase() {
   return import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 }
 
-function posCartLineKey(productId: string, inventoryBatchId?: string) {
-  return inventoryBatchId ? `${productId}::batch:${inventoryBatchId}` : productId;
+function posCartLineKey(productId: string, inventoryBatchId?: string, bulkWeightKg?: number) {
+  if (inventoryBatchId) return `${productId}::batch:${inventoryBatchId}`;
+  return bulkWeightKg ? `${productId}::bulk:${Number(bulkWeightKg).toFixed(3)}` : productId;
 }
 
 // POS edit state can contain hydrated Mongo/React objects from legacy order
@@ -973,6 +974,7 @@ export default function Orders() {
     inventoryBatchId?: string;
     batchNumber?: string;
     fishWeightKg?: number;
+    bulkWeightKg?: number;
   }[]>([]);
 
   // Coupons / timeslots / scheduling
@@ -1332,13 +1334,18 @@ export default function Orders() {
     });
   }, [coupons, chosenCustomer]);
 
-  const stockOf = useCallback((productId: string, inventoryBatchId?: string): number => {
+  const stockOf = useCallback((productId: string, inventoryBatchId?: string, bulkWeightKg?: number): number => {
     const p = subHubProducts.find((x) => String(x._id) === productId);
     if (p) {
       if (inventoryBatchId) {
         const batch = (Array.isArray(p.fishBatches) ? p.fishBatches : [])
           .find((item: any) => String(item.batchId) === String(inventoryBatchId));
         return Math.max(0, Number(batch?.quantity) || 0);
+      }
+      if (bulkWeightKg) {
+        const option = (Array.isArray(p.bulkSaleOptions) ? p.bulkSaleOptions : [])
+          .find((item: any) => Math.abs(Number(item.weightKg) - Number(bulkWeightKg)) < 0.0005);
+        return Math.max(0, Number(option?.availableQuantity) || 0);
       }
       const q = Number(p.quantity);
       return Number.isFinite(q) ? q : Infinity;
@@ -1534,6 +1541,24 @@ export default function Orders() {
       });
     }
     list = list.flatMap((product) => {
+      if (product.fishInventoryMode === "bulk_portions") {
+        const options = Array.isArray(product.bulkSaleOptions) ? product.bulkSaleOptions : [];
+        return options.map((option: any) => {
+          const weightKg = Number(option.weightKg);
+          const weightLabel = String(option.weightLabel || `${weightKg} kg`);
+          return {
+            ...product,
+            _id: `${String(product._id)}::bulk:${weightKg}`,
+            posProductId: String(product._id),
+            posBulkWeightKg: weightKg,
+            posBulkWeightLabel: weightLabel,
+            posDisplayName: `${product.name} (${weightLabel})`,
+            price: Number(option.price) || 0,
+            quantity: Math.max(0, Number(option.availableQuantity) || 0),
+            unit: "pack",
+          };
+        });
+      }
       if (product.wholeFishInventory !== true) return [product];
       const fishBatches = Array.isArray(product.fishBatches) ? product.fishBatches : [];
       if (fishBatches.length === 0) {
@@ -1867,6 +1892,7 @@ export default function Orders() {
           batchNumber: p.batchNumber,
           fishWeightKg: p.fishWeightKg,
         } : {}),
+        ...(p.bulkWeightKg ? { bulkWeightKg: p.bulkWeightKg } : {}),
       }));
     const customItems = orderItems
       .map((it) => ({
@@ -2905,6 +2931,12 @@ export default function Orders() {
         price: Number(it.price) || 0,
         unit: it.unit ?? "",
         quantity: Number(it.quantity) || 0,
+        ...(it.inventoryBatchId ? {
+          inventoryBatchId: String(it.inventoryBatchId),
+          batchNumber: it.batchNumber,
+          fishWeightKg: it.fishWeightKg != null ? Number(it.fishWeightKg) : undefined,
+        } : {}),
+        ...(Number(it.bulkWeightKg) > 0 ? { bulkWeightKg: Number(it.bulkWeightKg) } : {}),
       }));
     const customs = (o.items ?? [])
       .filter((it: any) => it && !it.productId)
@@ -4361,9 +4393,10 @@ export default function Orders() {
                   {filteredProducts.map((p) => {
                     const pid = String(p.posProductId ?? p._id);
                     const inventoryBatchId = p.posInventoryBatchId ? String(p.posInventoryBatchId) : undefined;
-                    const lineKey = posCartLineKey(pid, inventoryBatchId);
+                    const bulkWeightKg = Number(p.posBulkWeightKg) > 0 ? Number(p.posBulkWeightKg) : undefined;
+                    const lineKey = posCartLineKey(pid, inventoryBatchId, bulkWeightKg);
                     const displayName = p.posDisplayName ?? (p.variantLabel ? `${p.name} (${p.variantLabel})` : p.name);
-                    const cartItem = selectedProducts.find((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId) === lineKey);
+                    const cartItem = selectedProducts.find((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId, sp.bulkWeightKg) === lineKey);
                     const stock = Number(p.quantity) || 0;
                     const outOfStock = stock <= 0;
                     const lowStock = stock > 0 && stock <= 5;
@@ -4391,8 +4424,8 @@ export default function Orders() {
                           }
                           if (atMax) { toast({ title: "Stock limit reached", description: `Only ${stock} available.`, variant: "destructive" }); return; }
                           setSelectedProducts((prev) => {
-                            const exists = prev.find((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId) === lineKey);
-                            if (exists) return prev.map((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId) === lineKey ? { ...sp, quantity: sp.quantity + 1 } : sp);
+                            const exists = prev.find((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId, sp.bulkWeightKg) === lineKey);
+                            if (exists) return prev.map((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId, sp.bulkWeightKg) === lineKey ? { ...sp, quantity: sp.quantity + 1 } : sp);
                             return [...prev, {
                               productId: pid,
                               name: displayName,
@@ -4400,6 +4433,7 @@ export default function Orders() {
                               unit: p.unit ?? "",
                               quantity: 1,
                               isCombo: Boolean(p.isCombo),
+                              ...(bulkWeightKg ? { bulkWeightKg } : {}),
                               ...(inventoryBatchId ? {
                                 inventoryBatchId,
                                 batchNumber: String(p.posFishBatchNumber ?? ""),
@@ -4417,13 +4451,15 @@ export default function Orders() {
                           <p className="text-xs text-gray-400 uppercase tracking-wide truncate h-4">
                             {p.posFishWeightKg != null
                               ? `${p.posFishWeightKg} kg · whole fish${p.posIncompleteFishCount > 0 ? ` · ${p.posIncompleteFishCount} need details` : ""}`
-                              : p.category || "\u00A0"}
+                              : p.posBulkWeightKg != null
+                                ? `${p.posBulkWeightLabel} portion · ${stock} available`
+                                : p.category || "\u00A0"}
                           </p>
                           <div className="flex items-center justify-between mt-auto pt-1.5 gap-1">
                             <div className="min-w-0 flex-1">
                               {p.posFishUnavailable
                                 ? <p className="text-[10px] font-semibold text-amber-600">Needs weight + price</p>
-                                : p.posFishWeightKg == null
+                                : p.posFishWeightKg == null && p.posBulkWeightKg == null
                                   ? <p className="text-[10px] font-medium text-gray-400">No fish in stock</p>
                                   : <p className="text-sm font-semibold text-[#1A56DB]">₹{Number(p.price).toLocaleString("en-IN")}</p>}
                               {lowStock && !outOfStock && <p className="text-[10px] font-medium text-amber-500 leading-none">Only {stock} left</p>}
@@ -4433,13 +4469,13 @@ export default function Orders() {
                               <div className="flex items-center bg-[#1A56DB] rounded-lg overflow-hidden shadow-sm flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                                 <button
                                   className="w-6 h-6 flex items-center justify-center text-white hover:bg-[#1447B4] font-bold text-sm"
-                                  onClick={(e) => { e.stopPropagation(); setSelectedProducts((arr) => cartItem.quantity <= 1 ? arr.filter((x) => posCartLineKey(x.productId, x.inventoryBatchId) !== lineKey) : arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId) === lineKey ? { ...x, quantity: x.quantity - 1 } : x)); }}
+                                  onClick={(e) => { e.stopPropagation(); setSelectedProducts((arr) => cartItem.quantity <= 1 ? arr.filter((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) !== lineKey) : arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) === lineKey ? { ...x, quantity: x.quantity - 1 } : x)); }}
                                 >−</button>
                                 <span className="text-xs font-bold text-white min-w-[16px] text-center">{cartItem.quantity}</span>
                                 <button
                                   className="w-6 h-6 flex items-center justify-center text-white hover:bg-[#1447B4] font-bold text-sm disabled:opacity-40"
                                   disabled={atMax}
-                                  onClick={(e) => { e.stopPropagation(); if (!atMax) setSelectedProducts((arr) => arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId) === lineKey ? { ...x, quantity: x.quantity + 1 } : x)); }}
+                                  onClick={(e) => { e.stopPropagation(); if (!atMax) setSelectedProducts((arr) => arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) === lineKey ? { ...x, quantity: x.quantity + 1 } : x)); }}
                                 >+</button>
                               </div>
                             ) : !outOfStock && (
@@ -5042,8 +5078,8 @@ export default function Orders() {
                 ) : (
                   <div className="px-3 py-2 space-y-0">
                     {selectedProducts.map((p) => {
-                      const lineKey = posCartLineKey(p.productId, p.inventoryBatchId);
-                      const stock = stockOf(p.productId, p.inventoryBatchId);
+                      const lineKey = posCartLineKey(p.productId, p.inventoryBatchId, p.bulkWeightKg);
+                      const stock = stockOf(p.productId, p.inventoryBatchId, p.bulkWeightKg);
                       const atMax = p.quantity >= stock;
                       return (
                         <div key={lineKey} className="flex items-center gap-2 py-2 border-b border-gray-100 last:border-0">
@@ -5052,9 +5088,9 @@ export default function Orders() {
                             <p className="text-[11px] text-gray-400">₹{Number(p.price).toLocaleString("en-IN")}{p.unit ? ` / ${p.unit}` : ""}</p>
                           </div>
                           <div className="flex items-center bg-white rounded-md border border-gray-200 overflow-hidden flex-shrink-0">
-                            <button onClick={() => setSelectedProducts((arr) => p.quantity <= 1 ? arr.filter((x) => posCartLineKey(x.productId, x.inventoryBatchId) !== lineKey) : arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId) === lineKey ? { ...x, quantity: x.quantity - 1 } : x))} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold">−</button>
+                            <button onClick={() => setSelectedProducts((arr) => p.quantity <= 1 ? arr.filter((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) !== lineKey) : arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) === lineKey ? { ...x, quantity: x.quantity - 1 } : x))} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold">−</button>
                             <span className="text-xs font-bold text-gray-700 min-w-[18px] text-center">{p.quantity}</span>
-                            <button disabled={atMax} onClick={() => { if (!atMax) setSelectedProducts((arr) => arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId) === lineKey ? { ...x, quantity: x.quantity + 1 } : x)); }} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold disabled:opacity-30">+</button>
+                            <button disabled={atMax} onClick={() => { if (!atMax) setSelectedProducts((arr) => arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) === lineKey ? { ...x, quantity: x.quantity + 1 } : x)); }} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold disabled:opacity-30">+</button>
                           </div>
                           <span className="text-xs font-bold text-[#162B4D] w-12 text-right flex-shrink-0">₹{(p.price * p.quantity).toLocaleString("en-IN")}</span>
                         </div>

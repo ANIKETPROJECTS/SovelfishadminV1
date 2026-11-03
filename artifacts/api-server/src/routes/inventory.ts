@@ -87,6 +87,7 @@ type Batch = {
   quantity: number;
   fishWeightKg?: number | null;
   fishPrice?: number | null;
+  fishPricePerKg?: number | null;
   shelfLifeDays?: number | null;
   receivedDate?: Date | null;
   expiryDate?: Date | null;
@@ -105,8 +106,10 @@ function normalizeBatch(b: any): Batch {
   const shelf = b?.shelfLifeDays != null && b.shelfLifeDays !== "" ? Number(b.shelfLifeDays) : null;
   const fishWeightInput = b?.fishWeightKg != null && b.fishWeightKg !== "" ? Number(b.fishWeightKg) : NaN;
   const fishPriceInput = b?.fishPrice != null && b.fishPrice !== "" ? Number(b.fishPrice) : NaN;
+  const fishPricePerKgInput = b?.fishPricePerKg != null && b.fishPricePerKg !== "" ? Number(b.fishPricePerKg) : NaN;
   const fishWeightValue = Number.isFinite(fishWeightInput) ? Math.round(fishWeightInput * 1000) / 1000 : NaN;
   const fishPriceValue = Number.isFinite(fishPriceInput) ? Math.round(fishPriceInput * 100) / 100 : NaN;
+  const fishPricePerKgValue = Number.isFinite(fishPricePerKgInput) ? Math.round(fishPricePerKgInput * 100) / 100 : NaN;
   let expiry = toDate(b?.expiryDate);
   if (!expiry && shelf != null && Number.isFinite(shelf)) {
     expiry = new Date(received.getTime() + shelf * 24 * 60 * 60 * 1000);
@@ -117,12 +120,31 @@ function normalizeBatch(b: any): Batch {
     quantity: Math.max(0, Number(b?.quantity) || 0),
     ...(Number.isFinite(fishWeightValue) && fishWeightValue > 0 ? { fishWeightKg: fishWeightValue } : {}),
     ...(Number.isFinite(fishPriceValue) && fishPriceValue >= 0 ? { fishPrice: fishPriceValue } : {}),
+    ...(Number.isFinite(fishPricePerKgValue) && fishPricePerKgValue > 0 ? { fishPricePerKg: fishPricePerKgValue } : {}),
     shelfLifeDays: shelf != null && Number.isFinite(shelf) ? shelf : null,
     receivedDate: received,
     expiryDate: expiry,
     notes: b?.notes ? String(b.notes).trim() : "",
     createdAt: b?.createdAt ? new Date(b.createdAt) : new Date(),
   };
+}
+
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function normalizeBulkPortionWeights(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .map((weight) => Math.round(Number(weight) * 1000) / 1000)
+    .filter((weight) => Number.isFinite(weight) && weight > 0))]
+    .sort((a, b) => a - b);
+}
+
+function resolvedFishInventoryMode(product: any): "standard" | "whole_fish" | "bulk_portions" {
+  if (product?.fishInventoryMode === "bulk_portions") return "bulk_portions";
+  if (product?.fishInventoryMode === "whole_fish" || product?.wholeFishInventory === true) return "whole_fish";
+  return "standard";
 }
 
 function batchesTotal(batches: Batch[] | undefined | null): number {
@@ -135,6 +157,7 @@ function batchSnapshot(batch: Batch) {
     batchNumber: batch.batchNumber || "",
     fishWeightKg: batch.fishWeightKg ?? null,
     fishPrice: batch.fishPrice ?? null,
+    fishPricePerKg: batch.fishPricePerKg ?? null,
     shelfLifeDays: batch.shelfLifeDays ?? null,
     receivedDate: batch.receivedDate ?? null,
     expiryDate: batch.expiryDate ?? null,
@@ -481,6 +504,9 @@ router.get("/products", async (req, res) => {
           price: Number(p.price) || 0,
           quantity: qty,
           wholeFishInventory: p.wholeFishInventory === true,
+          fishInventoryMode: resolvedFishInventoryMode(p),
+          fishPricePerKg: Number(p.fishPricePerKg) > 0 ? Number(p.fishPricePerKg) : null,
+          bulkPortionWeightsKg: normalizeBulkPortionWeights(p.bulkPortionWeightsKg),
           status: p.status ?? "available",
           imageUrl: p.imageUrl ?? "",
           isDailyWholeFish: p.isDailyWholeFish === true,
@@ -492,6 +518,7 @@ router.get("/products", async (req, res) => {
             quantity: Number(b.quantity) || 0,
             fishWeightKg: b.fishWeightKg != null ? Number(b.fishWeightKg) : null,
             fishPrice: b.fishPrice != null ? Number(b.fishPrice) : null,
+            fishPricePerKg: b.fishPricePerKg != null ? Number(b.fishPricePerKg) : null,
             shelfLifeDays: b.shelfLifeDays ?? null,
             receivedDate: b.receivedDate ? new Date(b.receivedDate).toISOString() : null,
             expiryDate: b.expiryDate ? new Date(b.expiryDate).toISOString() : null,
@@ -710,7 +737,43 @@ router.post("/adjustments", async (req, res) => {
       if (!productId) continue;
       const existing = productsById.get(String(productId));
       const mode = String(it.mode || (it.addQuantity != null ? "add" : it.removeQuantity != null ? "remove" : "set"));
-      const hasFishDetails = it.fishWeightKg !== undefined || it.fishPrice !== undefined;
+      const hasFishDetails = it.fishWeightKg !== undefined || it.fishPrice !== undefined || it.fishPricePerKg !== undefined;
+      const requestedFishMode = it.fishInventoryMode != null
+        ? String(it.fishInventoryMode)
+        : resolvedFishInventoryMode(existing);
+      if (it.fishInventoryMode != null && !["standard", "whole_fish", "bulk_portions"].includes(requestedFishMode)) {
+        res.status(400).json({ error: "ValidationError", message: "Invalid fish inventory mode" });
+        return;
+      }
+      if (requestedFishMode === "whole_fish" || requestedFishMode === "bulk_portions") {
+        const rate = Number(it.fishPricePerKg ?? existing?.fishPricePerKg ?? existing?.price);
+        if (!Number.isFinite(rate) || rate <= 0) {
+          res.status(400).json({
+            error: "ValidationError",
+            message: `${String(existing?.name ?? "This product")} needs a customer selling price per kilogram`,
+          });
+          return;
+        }
+        if (requestedFishMode === "bulk_portions") {
+          const weights = normalizeBulkPortionWeights(it.bulkPortionWeightsKg ?? existing?.bulkPortionWeightsKg);
+          if (weights.length === 0) {
+            res.status(400).json({
+              error: "ValidationError",
+              message: "Bulk fish needs at least one positive portion weight",
+            });
+            return;
+          }
+        }
+      }
+      if (existing && it.fishInventoryMode != null &&
+        resolvedFishInventoryMode(existing) !== requestedFishMode &&
+        batchesTotal(Array.isArray(existing.batches) ? existing.batches.map((batch: any) => normalizeBatch(batch)) : []) > 0) {
+        res.status(409).json({
+          error: "FishInventoryModeHasStock",
+          message: "Sell or remove the current stock before changing this product's inventory mode",
+        });
+        return;
+      }
       if (hasFishDetails) {
         if (existing?.variantGroupId && String(existing.variantGroupId) !== String(existing._id)) {
           res.status(400).json({
@@ -720,7 +783,10 @@ router.post("/adjustments", async (req, res) => {
           return;
         }
         const weightKg = Math.round(Number(it.fishWeightKg) * 1000) / 1000;
-        const fishPrice = Math.round(Number(it.fishPrice) * 100) / 100;
+        const rate = Number(it.fishPricePerKg);
+        const fishPrice = Number.isFinite(rate) && rate > 0
+          ? roundMoney(weightKg * rate)
+          : roundMoney(Number(it.fishPrice));
         if (mode !== "add" || Number(it.addQuantity) !== 1 ||
           !Number.isFinite(weightKg) || weightKg <= 0 ||
           !Number.isFinite(fishPrice) || fishPrice <= 0) {
@@ -731,21 +797,21 @@ router.post("/adjustments", async (req, res) => {
           return;
         }
       }
-      if (existing?.wholeFishInventory === true && mode === "add" && !hasFishDetails) {
+      if (requestedFishMode === "whole_fish" && mode === "add" && !hasFishDetails) {
         res.status(400).json({
           error: "ValidationError",
-          message: `${String(existing.name ?? "This fish")} needs a weight and total price for each new fish batch`,
+          message: `${String(existing?.name ?? "This fish")} needs a weight and total price for each new fish batch`,
         });
         return;
       }
-      if (existing?.wholeFishInventory === true && mode === "add_existing") {
+      if (requestedFishMode === "whole_fish" && mode === "add_existing") {
         res.status(400).json({
           error: "ValidationError",
           message: "Add each incoming fish as a new batch instead of increasing an existing fish batch",
         });
         return;
       }
-      if (existing?.wholeFishInventory === true && mode === "set") {
+      if (requestedFishMode === "whole_fish" && mode === "set") {
         res.status(400).json({
           error: "ValidationError",
           message: "Whole-fish stock must be adjusted one fish batch at a time",
@@ -764,14 +830,94 @@ router.post("/adjustments", async (req, res) => {
       const before = batchesTotal(currentBatches) || (Number(existing.quantity) || 0);
 
       const mode = String(it.mode || (it.addQuantity != null ? "add" : it.removeQuantity != null ? "remove" : "set"));
+      const fishInventoryMode = it.fishInventoryMode != null
+        ? String(it.fishInventoryMode)
+        : resolvedFishInventoryMode(existing);
+      const fishPricePerKgInput = Number(it.fishPricePerKg ?? existing.fishPricePerKg ?? existing.price);
+      const fishPricePerKg = Number.isFinite(fishPricePerKgInput) && fishPricePerKgInput > 0
+        ? roundMoney(fishPricePerKgInput)
+        : null;
+      const bulkPortionWeightsKg = normalizeBulkPortionWeights(
+        it.bulkPortionWeightsKg ?? existing.bulkPortionWeightsKg,
+      );
+      const fishConfigPatch: Record<string, any> = it.fishInventoryMode == null ? {} :
+        fishInventoryMode === "whole_fish"
+          ? {
+              fishInventoryMode,
+              wholeFishInventory: true,
+              bulkPortionWeightsKg: [],
+              fishPricePerKg,
+              price: fishPricePerKg,
+              unit: "per piece",
+            }
+          : fishInventoryMode === "bulk_portions"
+            ? {
+                fishInventoryMode,
+                wholeFishInventory: false,
+                bulkPortionWeightsKg,
+                fishPricePerKg,
+                price: fishPricePerKg,
+                unit: "kg",
+              }
+            : {
+                fishInventoryMode: "standard",
+                wholeFishInventory: false,
+                bulkPortionWeightsKg: [],
+                fishPricePerKg: null,
+              };
 
       let newBatches = [...currentBatches];
       let delta = 0;
       let appliedBatch: Batch | null = null;
 
-      if (mode === "add") {
+      if (mode === "configure") {
+        if (fishInventoryMode === "whole_fish" && fishPricePerKg != null && it.repriceExistingFish === true) {
+          newBatches = currentBatches.map((batch) => {
+            const weight = Number(batch.fishWeightKg);
+            if (!Number.isFinite(weight) || weight <= 0) return batch;
+            return {
+              ...batch,
+              fishPricePerKg,
+              fishPrice: roundMoney(weight * fishPricePerKg),
+            };
+          });
+        }
+        const persisted = await persistBatches(
+          products,
+          pid,
+          newBatches,
+          fishConfigPatch,
+          ctx.conn.db.collection("combos"),
+        );
+        adjustmentItems.push({
+          productId: String(pid),
+          productName: inventoryProductDisplayName({ ...existing, ...fishConfigPatch }),
+          unit: fishConfigPatch.unit ?? existing.unit ?? "",
+          quantityBefore: before,
+          newQuantity: persisted.quantity,
+          quantityAdjusted: 0,
+          mode: "configure",
+        });
+        movementDocs.push({
+          type: "adjustment",
+          productId: String(pid),
+          productName: inventoryProductDisplayName({ ...existing, ...fishConfigPatch }),
+          unit: fishConfigPatch.unit ?? existing.unit ?? "",
+          change: 0,
+          balance: persisted.quantity,
+          reason: String(reason).trim(),
+          notes: notes ? String(notes).trim() : "",
+          createdAt: now,
+        });
+        continue;
+      } else if (mode === "add") {
         const addQty = Math.max(0, Number(it.addQuantity) || 0);
         if (addQty <= 0) continue;
+        const fishWeightKg = Number(it.fishWeightKg);
+        const submittedFishPrice = Number(it.fishPrice);
+        const fishPrice = fishInventoryMode === "whole_fish" && Number.isFinite(fishWeightKg) && fishPricePerKg != null
+          ? roundMoney(fishWeightKg * fishPricePerKg)
+          : submittedFishPrice;
         const batch = normalizeBatch({
           batchNumber: it.batchNumber,
           quantity: addQty,
@@ -780,7 +926,8 @@ router.post("/adjustments", async (req, res) => {
           receivedDate: it.receivedDate ?? now,
           notes: it.notes,
           fishWeightKg: it.fishWeightKg,
-          fishPrice: it.fishPrice,
+          fishPrice: Number.isFinite(fishPrice) ? fishPrice : undefined,
+          fishPricePerKg: fishInventoryMode === "whole_fish" ? fishPricePerKg : undefined,
           createdAt: now,
         });
         newBatches.push(batch);
@@ -869,13 +1016,26 @@ router.post("/adjustments", async (req, res) => {
       }
 
       const fishBatchAdded = it.fishWeightKg !== undefined || it.fishPrice !== undefined;
+      if (fishInventoryMode === "whole_fish" && fishPricePerKg != null && it.repriceExistingFish === true) {
+        newBatches = newBatches.map((batch) => {
+          const weight = Number(batch.fishWeightKg);
+          if (!Number.isFinite(weight) || weight <= 0) return batch;
+          return {
+            ...batch,
+            fishPricePerKg,
+            fishPrice: roundMoney(weight * fishPricePerKg),
+          };
+        });
+      }
       const persisted = await persistBatches(
         products,
         pid,
         newBatches,
-        fishBatchAdded || existing.wholeFishInventory === true
-          ? { wholeFishInventory: true, unit: "per piece" }
-          : {},
+        it.fishInventoryMode != null
+          ? fishConfigPatch
+          : fishBatchAdded || existing.wholeFishInventory === true
+            ? { wholeFishInventory: true, fishInventoryMode: "whole_fish", unit: "per piece" }
+            : {},
         ctx.conn.db.collection("combos"),
       );
 
@@ -1109,7 +1269,8 @@ function orderShouldDeduct(order: OrderForSync) {
 async function expandOrderItems(
   productsCol: any,
   combosCol: any,
-  rawItems: Array<{ productId?: string; name?: string; quantity?: number; unit?: string; inventoryBatchId?: string }>,
+  rawItems: Array<{ productId?: string; name?: string; quantity?: number; unit?: string; inventoryBatchId?: string; bulkWeightKg?: number }>,
+  validateBulkPortions = false,
 ): Promise<Array<{ productId: string; name: string; quantity: number; unit: string; inventoryBatchId?: string }>> {
   const aggregated = new Map<string, { productId: string; name: string; quantity: number; unit: string; inventoryBatchId?: string }>();
 
@@ -1155,17 +1316,34 @@ async function expandOrderItems(
     if (rawId) {
       const pid = toId(String(rawId));
       if (pid) {
-        const isRealProduct = await productsCol.findOne({ _id: pid }, { projection: { _id: 1 } });
-        if (isRealProduct) {
+        const productDoc = await productsCol.findOne(
+          { _id: pid },
+          { projection: { _id: 1, fishInventoryMode: 1, bulkPortionWeightsKg: 1, unit: 1 } },
+        );
+        if (productDoc) {
+          const submittedBulkWeightKg = Number(it.bulkWeightKg);
+          const hasBulkWeight = Number.isFinite(submittedBulkWeightKg) && submittedBulkWeightKg > 0;
+          const isBulkFish = productDoc.fishInventoryMode === "bulk_portions";
+          if (validateBulkPortions && isBulkFish) {
+            const allowedWeights = normalizeBulkPortionWeights(productDoc.bulkPortionWeightsKg);
+            if (!hasBulkWeight || !allowedWeights.some((weight) => Math.abs(weight - submittedBulkWeightKg) < 0.0005)) {
+              throw new Error(`Select a valid portion size for ${String(it.name ?? "this bulk fish")}`);
+            }
+          }
+          if (validateBulkPortions && hasBulkWeight && !isBulkFish) {
+            throw new Error(`Bulk portion pricing is no longer enabled for ${String(it.name ?? "this product")}`);
+          }
+          const inventoryQuantity = hasBulkWeight ? qty * submittedBulkWeightKg : qty;
+          const inventoryUnit = hasBulkWeight ? "kg" : it.unit ?? "";
           const inventoryBatchId = String(it.inventoryBatchId ?? "").trim() || undefined;
           const key = inventoryBatchId ? `${String(pid)}::batch:${inventoryBatchId}` : String(pid);
           const entry = aggregated.get(key);
-          if (entry) entry.quantity += qty;
+          if (entry) entry.quantity += inventoryQuantity;
           else aggregated.set(key, {
             productId: String(pid),
             name: it.name ?? "",
-            quantity: qty,
-            unit: it.unit ?? "",
+            quantity: inventoryQuantity,
+            unit: inventoryUnit,
             ...(inventoryBatchId ? { inventoryBatchId } : {}),
           });
           resolved = true;
@@ -1494,7 +1672,12 @@ async function applyDelta(order: OrderForSync, direction: "deduct" | "restore", 
   }
 
   // Expand combos into their constituent products before applying stock changes
-  const items = await expandOrderItems(products, combos, Array.isArray(order.items) ? order.items : []);
+  const items = await expandOrderItems(
+    products,
+    combos,
+    Array.isArray(order.items) ? order.items : [],
+    direction === "deduct",
+  );
   if (items.length === 0) {
     logger.warn({ orderId, subHubId: order.subHubId, rawItemCount: (order.items ?? []).length }, "applyDelta: no items to process after expansion");
     return 0;
