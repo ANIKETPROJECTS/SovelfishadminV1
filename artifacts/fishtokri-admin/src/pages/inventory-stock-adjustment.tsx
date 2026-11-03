@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Building2, Plus, Search, X, Trash2, ChevronDown, ChevronRight, ChevronLeft,
@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useToast } from "@/hooks/use-toast";
 import { getCurrentAdminScope } from "@/lib/api";
 import { formatVariantLabelWithUnit, getProductUnitSuffix, normalizeProductUnit } from "@/lib/product-units";
+import { DailyFishIntakePanel } from "@/pages/daily-fish-inventory";
 
 function getToken() { return localStorage.getItem("fishtokri_token") ?? ""; }
 
@@ -61,6 +62,7 @@ type Product = {
   price: number;
   quantity: number;
   batches?: Batch[];
+  isDailyWholeFish?: boolean;
 };
 
 type ProductGroup = {
@@ -1019,6 +1021,7 @@ function ExistingBatchesCard({
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function InventoryStockAdjustment() {
   const { toast } = useToast();
+  const [activeStockView, setActiveStockView] = useState<"adjustment" | "daily_fish">("adjustment");
   const [superHubs, setSuperHubs] = useState<SuperHub[]>([]);
   const [subHubs, setSubHubs] = useState<SubHub[]>([]);
   const [selectedSuperHubId, setSelectedSuperHubId] = useState("");
@@ -1074,14 +1077,14 @@ export default function InventoryStockAdjustment() {
     if (sh) setSelectedSubHub(sh);
   }, [selectedSubHubId, subHubs]);
 
-  function reload() {
+  const reload = useCallback(() => {
     if (!selectedSubHubId) { setProducts([]); return; }
     apiFetch(`/api/inventory/products?subHubId=${selectedSubHubId}`)
-      .then((res) => setProducts(res.products ?? []))
+      .then((res) => setProducts((res.products ?? []).filter((product: Product) => product.isDailyWholeFish !== true)))
       .catch((err) => toast({ title: "Failed to load products", description: err.message, variant: "destructive" }));
-  }
+  }, [selectedSubHubId, toast]);
 
-  useEffect(reload, [selectedSubHubId]);
+  useEffect(reload, [reload]);
 
   function addRow() { setFormRows((rows) => [...rows, emptyRow()]); }
   function removeRow(i: number) { setFormRows((rows) => rows.filter((_, idx) => idx !== i)); }
@@ -1338,7 +1341,7 @@ export default function InventoryStockAdjustment() {
     <div className="flex items-center justify-between w-full gap-4 min-w-0">
       <div className="min-w-0 flex-shrink-0">
         <p className="text-sm font-bold text-[#162B4D] leading-tight">Inventory Stock Management</p>
-        <p className="text-[11px] text-gray-400 leading-tight hidden sm:block">Select a product to load its weight variants; manage each price and batch separately.</p>
+         <p className="text-[11px] text-gray-400 leading-tight hidden sm:block">Adjust stock, or enter individual whole fish and prices for the selected hub.</p>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         {selectedSuperHub && <LockedHubBadge label="Super Hub" name={selectedSuperHub.name} location={selectedSuperHub.location} />}
@@ -1392,6 +1395,42 @@ export default function InventoryStockAdjustment() {
             </div>
           </div>
 
+          <div role="tablist" aria-label="Stock management workflow" className="flex w-fit gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeStockView === "adjustment"}
+              onClick={() => setActiveStockView("adjustment")}
+              className={`rounded-md px-4 py-2 text-sm font-semibold transition-colors ${activeStockView === "adjustment" ? "bg-white text-[#162B4D] shadow-sm" : "text-gray-500 hover:text-[#162B4D]"}`}
+            >
+              Stock adjustment
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeStockView === "daily_fish"}
+              onClick={() => setActiveStockView("daily_fish")}
+              className={`rounded-md px-4 py-2 text-sm font-semibold transition-colors ${activeStockView === "daily_fish" ? "bg-white text-[#162B4D] shadow-sm" : "text-gray-500 hover:text-[#162B4D]"}`}
+            >
+              Daily whole fish
+            </button>
+          </div>
+
+          <div className={activeStockView === "daily_fish" ? "" : "hidden"}>
+            <DailyFishIntakePanel
+              subHubId={selectedSubHubId}
+              date={formDate}
+              reason={formReason}
+              notes={formNotes}
+              onSaved={() => {
+                setFormReason("");
+                setFormNotes("");
+                reload();
+              }}
+            />
+          </div>
+
+          <div className={activeStockView === "adjustment" ? "" : "hidden"}>
           {/* Products section */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -1699,6 +1738,7 @@ export default function InventoryStockAdjustment() {
                 </Button>
               </div>
             </div>
+          </div>
           </div>
         </div>
       </div>

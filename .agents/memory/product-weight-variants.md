@@ -13,4 +13,6 @@ For whole fish sold individually, staff enter each day's fish weight and a fixed
 
 **Why:** Whole fish arrive in variable sizes and prices each day, so fixed reusable weight variants do not fit this stock workflow.
 
-**How to apply:** Keep daily whole-fish stock entries distinct from standard reusable weight variants, and ensure a sale removes the exact fish entry. Confirm whether price is a per-fish total or a per-kilogram rate before implementing its calculation.
+**How to apply:** Keep daily whole-fish stock entries distinct from standard reusable weight variants, and ensure a sale removes the exact fish entry. The intake workflow belongs inside the existing Stock Management module, not a separate page or sidebar section; reuse its selected hub and adjustment details.
+
+**Why:** The user corrected the separate-page approach and asked for the daily fish procedure to be completed in Stock Management.

@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Warehouse, Users, LogOut, Store, Truck, UserCircle, ShoppingBasket, ClipboardList, Handshake, ChevronLeft, ChevronRight, Boxes, ChevronDown, FolderOpen, SlidersHorizontal, FileText, Receipt, Package, History, Menu, X, FileSpreadsheet, Trash2, MessageSquare, BookUser, Fish } from "lucide-react";
+import { LayoutDashboard, Warehouse, Users, LogOut, Store, Truck, UserCircle, ShoppingBasket, ClipboardList, Handshake, ChevronLeft, ChevronRight, Boxes, ChevronDown, FolderOpen, SlidersHorizontal, FileText, Receipt, Package, History, Menu, X, FileSpreadsheet, Trash2, MessageSquare, BookUser } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useRef } from "react";
 import { useNewOrderPopup } from "@/hooks/use-new-order-popup";
@@ -23,7 +23,6 @@ const masterAdminNavItems = [
       { href: "/inventory/products", label: "Inventory", icon: Package },
       { href: "/inventory/history", label: "History", icon: History },
       { href: "/inventory/adjustment", label: "Stock Management", icon: SlidersHorizontal },
-      { href: "/inventory/daily-fish", label: "Daily Fish Stock", icon: Fish },
       { href: "/inventory/wastage", label: "Wastage Report", icon: Trash2 },
     ],
   },

@@ -28,7 +28,6 @@ import InventoryPage from "@/pages/inventory";
 import InventoryOverview from "@/pages/inventory-overview";
 import InventoryHistoryPage from "@/pages/inventory-history";
 import InventoryStockAdjustmentPage from "@/pages/inventory-stock-adjustment";
-import DailyFishInventory from "@/pages/daily-fish-inventory";
 import InventoryProductDetail from "@/pages/inventory-product-detail";
 import InventoryProductUsage from "@/pages/inventory-product-usage";
 import DayEndReport from "@/pages/day-end-report";
@@ -202,9 +201,6 @@ function App() {
             </Route>
             <Route path="/inventory/adjustment">
               <ProtectedRoute component={InventoryStockAdjustmentPage} allowedRoles={ALL_ADMIN_ROLES} />
-            </Route>
-            <Route path="/inventory/daily-fish">
-              <ProtectedRoute component={DailyFishInventory} allowedRoles={ALL_ADMIN_ROLES} />
             </Route>
             <Route path="/inventory/products/:productId/usage">
               <ProtectedRoute component={InventoryProductUsage} allowedRoles={ALL_ADMIN_ROLES} />

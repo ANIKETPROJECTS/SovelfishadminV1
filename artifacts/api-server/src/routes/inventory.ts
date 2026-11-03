@@ -522,6 +522,8 @@ router.post("/daily-fish", async (req, res) => {
     if (!sourceProductId) { res.status(400).json({ error: "ValidationError", message: "Select a fish product" }); return; }
     const date = String(req.body?.date || getTodayISTDate());
     if (!isValidDateOnly(date)) { res.status(400).json({ error: "ValidationError", message: "date must use YYYY-MM-DD format" }); return; }
+    const adjustmentReason = String(req.body?.reason ?? "Daily whole-fish intake").trim();
+    const adjustmentNotes = String(req.body?.notes ?? "").trim();
     if (!Array.isArray(req.body?.entries) || req.body.entries.length < 1 || req.body.entries.length > 200) {
       res.status(400).json({ error: "ValidationError", message: "Add between 1 and 200 fish entries" });
       return;
@@ -595,6 +597,8 @@ router.post("/daily-fish", async (req, res) => {
       dailyFishWeightKg: entry.weightKg,
       dailyFishPriceBasis: "total_per_fish",
       dailyFishDate: date,
+      dailyFishReason: adjustmentReason || "Daily whole-fish intake",
+      dailyFishNotes: adjustmentNotes,
       createdAt: now,
       updatedAt: now,
     }));

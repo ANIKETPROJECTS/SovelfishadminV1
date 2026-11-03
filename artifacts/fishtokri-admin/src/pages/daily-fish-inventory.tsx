@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, CalendarDays, Check, ChevronRight, Fish, Plus, RefreshCw, Scale, Trash2 } from "lucide-react";
-import { apiFetch, getCurrentAdminScope } from "@/lib/api";
+import { AlertCircle, Check, ChevronRight, Fish, Plus, RefreshCw, Scale, Trash2 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
-type Hub = { id: string; name: string; location?: string };
 type SourceProduct = { id: string; name: string; category: string; imageUrl?: string; unit: string };
 type DailyFishEntry = {
   id: string;
@@ -23,11 +22,6 @@ type DailyFishEntry = {
 type DailyFishResponse = { subHub: { id: string; name: string }; sourceProducts: SourceProduct[]; entries: DailyFishEntry[] };
 type FishRow = { key: number; weightKg: string; totalPrice: string };
 
-function todayLocal() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
 function money(value: number) {
   return `₹${Number(value || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -37,20 +31,25 @@ function dateLabel(value: string) {
   return new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
 
-export default function DailyFishInventory() {
-  const scope = useMemo(() => getCurrentAdminScope(), []);
-  const [superHubs, setSuperHubs] = useState<Hub[]>([]);
-  const [subHubs, setSubHubs] = useState<Hub[]>([]);
-  const [superHubId, setSuperHubId] = useState("");
-  const [subHubId, setSubHubId] = useState("");
-  const [selectedDate, setSelectedDate] = useState(todayLocal);
+export function DailyFishIntakePanel({
+  subHubId,
+  date,
+  reason,
+  notes,
+  onSaved,
+}: {
+  subHubId: string;
+  date: string;
+  reason: string;
+  notes: string;
+  onSaved?: () => void;
+}) {
   const [sourceProducts, setSourceProducts] = useState<SourceProduct[]>([]);
   const [entries, setEntries] = useState<DailyFishEntry[]>([]);
   const [parentProductId, setParentProductId] = useState("");
   const [rows, setRows] = useState<FishRow[]>([{ key: 1, weightKg: "", totalPrice: "" }]);
   const [nextRowKey, setNextRowKey] = useState(2);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [hubLoading, setHubLoading] = useState(true);
   const [entriesLoading, setEntriesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -58,81 +57,17 @@ export default function DailyFishInventory() {
   const [successMessage, setSuccessMessage] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<number, string>>({});
 
-  const availableSuperHubs = useMemo(() => {
-    if (scope.role === "master_admin" || scope.superHubIds.length === 0) return superHubs;
-    return superHubs.filter((hub) => scope.superHubIds.includes(hub.id));
-  }, [scope.role, scope.superHubIds, superHubs]);
-  const availableSubHubs = useMemo(() => {
-    if (scope.role !== "sub_hub" || scope.subHubIds.length === 0) return subHubs;
-    return subHubs.filter((hub) => scope.subHubIds.includes(hub.id));
-  }, [scope.role, scope.subHubIds, subHubs]);
-
-  useEffect(() => {
-    let active = true;
-    setHubLoading(true);
-    apiFetch("/api/super-hubs")
-      .then((result) => {
-        if (!active) return;
-        const hubs = (result.superHubs ?? []) as Hub[];
-        setSuperHubs(hubs);
-        const scoped = scope.role === "master_admin" || !scope.superHubIds.length
-          ? hubs
-          : hubs.filter((hub) => scope.superHubIds.includes(hub.id));
-        if (scope.role === "sub_hub" && !scope.superHubIds.length) {
-          setSuperHubId(hubs[0]?.id ?? "");
-        } else {
-          setSuperHubId(scoped[0]?.id ?? "");
-        }
-      })
-      .catch((error: Error) => {
-        if (active) setLoadError(error.message || "Could not load hub locations.");
-      })
-      .finally(() => {
-        if (active) {
-          setHubLoading(false);
-          setInitialLoading(false);
-        }
-      });
-    return () => { active = false; };
-  }, [scope]);
-
-  useEffect(() => {
-    if (!superHubId) {
-      setSubHubs([]);
-      setSubHubId("");
-      return;
-    }
-    let active = true;
-    setHubLoading(true);
-    setSubHubs([]);
-    setSubHubId("");
-    apiFetch(`/api/super-hubs/${encodeURIComponent(superHubId)}/sub-hubs`)
-      .then((result) => {
-        if (!active) return;
-        const hubs = (result.subHubs ?? []) as Hub[];
-        setSubHubs(hubs);
-        const permitted = scope.role === "sub_hub" && scope.subHubIds.length
-          ? hubs.filter((hub) => scope.subHubIds.includes(hub.id))
-          : hubs;
-        setSubHubId(permitted[0]?.id ?? "");
-      })
-      .catch((error: Error) => {
-        if (active) setLoadError(error.message || "Could not load sub-hub locations.");
-      })
-      .finally(() => { if (active) setHubLoading(false); });
-    return () => { active = false; };
-  }, [superHubId, scope]);
-
   const loadDay = useCallback(async (quiet = false) => {
-    if (!subHubId || !selectedDate) {
+    if (!subHubId || !date) {
       setEntries([]);
       setSourceProducts([]);
+      setInitialLoading(false);
       return;
     }
     if (!quiet) setEntriesLoading(true);
     setLoadError("");
     try {
-      const query = new URLSearchParams({ subHubId, date: selectedDate });
+      const query = new URLSearchParams({ subHubId, date });
       const result = await apiFetch(`/api/inventory/daily-fish?${query.toString()}`) as DailyFishResponse;
       setEntries(Array.isArray(result.entries) ? result.entries : []);
       setSourceProducts(Array.isArray(result.sourceProducts) ? result.sourceProducts : []);
@@ -145,8 +80,9 @@ export default function DailyFishInventory() {
       setSourceProducts([]);
     } finally {
       setEntriesLoading(false);
+      setInitialLoading(false);
     }
-  }, [subHubId, selectedDate]);
+  }, [subHubId, date]);
 
   useEffect(() => { void loadDay(); }, [loadDay]);
 
@@ -201,8 +137,12 @@ export default function DailyFishInventory() {
       setSubmitError("Check the highlighted fields before saving.");
       return;
     }
-    if (!subHubId || !selectedDate) {
+    if (!subHubId || !date) {
       setSubmitError("Choose a sub-hub and date before saving intake.");
+      return;
+    }
+    if (!reason.trim()) {
+      setSubmitError("Enter a reason in Adjustment Details before saving intake.");
       return;
     }
     setSaving(true);
@@ -212,7 +152,9 @@ export default function DailyFishInventory() {
         body: JSON.stringify({
           subHubId,
           sourceProductId: parentProductId,
-          date: selectedDate,
+          date,
+          reason,
+          notes,
           entries: rows.map((row) => ({ weightKg: Number(row.weightKg), totalPrice: Number(row.totalPrice) })),
         }),
       });
@@ -220,8 +162,9 @@ export default function DailyFishInventory() {
       setRows([{ key: nextRowKey, weightKg: "", totalPrice: "" }]);
       setNextRowKey((key) => key + 1);
       setFieldErrors({});
-      setSuccessMessage(`${createdCount} ${createdCount === 1 ? "fish" : "fish"} added to ${dateLabel(selectedDate)} intake.`);
+      setSuccessMessage(`${createdCount} ${createdCount === 1 ? "fish" : "fish"} added to ${dateLabel(date)} intake.`);
       await loadDay(true);
+      onSaved?.();
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Unable to save fish intake. Please try again.");
     } finally {
@@ -229,66 +172,23 @@ export default function DailyFishInventory() {
     }
   }
 
-  const noSubHub = !hubLoading && availableSubHubs.length === 0 && !subHubId;
+  const noSubHub = !subHubId;
   const noProducts = !entriesLoading && sourceProducts.length === 0 && !!subHubId;
 
   return (
-    <main className="min-h-[100dvh] space-y-5 bg-[#f4f6f3] text-[#172e36]">
-      <header className="relative overflow-hidden rounded-2xl bg-[#183943] px-5 py-6 text-[#f5f4eb] shadow-sm sm:px-7">
-        <div className="absolute -right-12 -top-16 h-56 w-56 rounded-full border border-white/10" aria-hidden="true" />
-        <div className="absolute -right-2 -top-9 h-40 w-40 rounded-full border border-white/10" aria-hidden="true" />
-        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-          <div className="max-w-2xl">
-            <p className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-[#a8c9c5]">
-              <span className="h-px w-6 bg-[#d8a85d]" /> Receiving desk · Daily intake
-            </p>
-            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Whole fish, counted one by one.</h1>
-            <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/70">
-              Log each fish by weight and fixed whole-fish price. Every saved entry becomes one sellable item.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-white/75">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2">
-              <span className="h-2 w-2 rounded-full bg-[#9ec9a9]" /> {availableCount} in stock
-            </span>
-            <span className="rounded-full border border-white/15 bg-white/5 px-3 py-2">{soldCount} sold today</span>
-          </div>
-        </div>
-      </header>
-
-      {(availableSuperHubs.length > 1 || availableSubHubs.length > 1) && (
-        <section className="grid gap-3 rounded-xl border border-[#dce5df] bg-[#fbfcf8] p-4 sm:grid-cols-2" aria-label="Inventory location">
-          {availableSuperHubs.length > 1 && (
-            <label className="space-y-1.5 text-xs font-semibold text-[#567078]">
-              Super hub
-              <select value={superHubId} onChange={(event) => setSuperHubId(event.target.value)} className="h-10 w-full rounded-lg border border-[#d7e1dc] bg-white px-3 text-sm text-[#183943] outline-none focus:border-[#4b8177] focus:ring-2 focus:ring-[#4b8177]/15" data-testid="select-super-hub">
-                {availableSuperHubs.map((hub) => <option key={hub.id} value={hub.id}>{hub.name}</option>)}
-              </select>
-            </label>
-          )}
-          {availableSubHubs.length > 1 && (
-            <label className="space-y-1.5 text-xs font-semibold text-[#567078]">
-              Sub-hub
-              <select value={subHubId} onChange={(event) => setSubHubId(event.target.value)} className="h-10 w-full rounded-lg border border-[#d7e1dc] bg-white px-3 text-sm text-[#183943] outline-none focus:border-[#4b8177] focus:ring-2 focus:ring-[#4b8177]/15" data-testid="select-sub-hub">
-                {availableSubHubs.map((hub) => <option key={hub.id} value={hub.id}>{hub.name}</option>)}
-              </select>
-            </label>
-          )}
-        </section>
-      )}
-
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
         <form onSubmit={submitIntake} className="overflow-hidden rounded-2xl border border-[#dce5df] bg-[#fbfcf8] shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e5ebe6] px-5 py-4 sm:px-6">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8b9a93]">New delivery</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8b9a93]">Daily stock</p>
               <h2 className="mt-1 text-lg font-bold text-[#183943]">Record individual fish</h2>
+              <p className="mt-1 text-xs text-[#84938c]">Enter each fish’s weight and total price. Date, reason, and notes come from Adjustment Details above.</p>
             </div>
-            <label className="flex items-center gap-2 rounded-lg border border-[#dce5df] bg-white px-3 py-2 text-xs font-semibold text-[#667b7a]">
-              <CalendarDays className="h-4 w-4 text-[#4b8177]" />
-              <span className="sr-only">Intake date</span>
-              <input type="date" aria-label="Intake date" value={selectedDate} onChange={(event) => { setSelectedDate(event.target.value); setSuccessMessage(""); }} className="w-[132px] bg-transparent text-sm font-semibold text-[#183943] outline-none" data-testid="input-intake-date" />
-            </label>
+            <div className="flex items-center gap-2 text-xs font-medium text-[#607a78]">
+              <span className="rounded-full bg-[#e5f2e7] px-3 py-2 text-[#467754]">{availableCount} in stock</span>
+              <span className="rounded-full bg-[#f2e9e5] px-3 py-2 text-[#9b6755]">{soldCount} sold</span>
+              <span className="rounded-lg border border-[#dce5df] bg-white px-3 py-2">{dateLabel(date)}</span>
+            </div>
           </div>
 
           <div className="space-y-5 px-5 py-5 sm:px-6">
@@ -408,7 +308,7 @@ export default function DailyFishInventory() {
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8b9a93]">Shift ledger</p>
               <h2 id="today-entries-title" className="mt-1 text-lg font-bold text-[#183943]">Day’s fish entries</h2>
-              <p className="mt-1 text-xs text-[#84938c]">{dateLabel(selectedDate)}</p>
+              <p className="mt-1 text-xs text-[#84938c]">{dateLabel(date)}</p>
             </div>
             <button type="button" onClick={() => void loadDay()} disabled={entriesLoading || !subHubId} aria-label="Refresh fish entries" title="Refresh entries" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dce5df] bg-white text-[#5f7c7c] transition hover:bg-[#f1f5f1] disabled:opacity-50" data-testid="button-refresh-fish-entries">
               <RefreshCw className={`h-4 w-4 ${entriesLoading ? "animate-spin" : ""}`} />
@@ -483,6 +383,5 @@ export default function DailyFishInventory() {
           )}
         </section>
       </section>
-    </main>
   );
 }
