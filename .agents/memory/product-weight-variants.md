@@ -9,7 +9,7 @@ Represent each sellable weight or package size as its own product record, linked
 
 **How to apply:** Resolve sales and stock changes to the selected variant's product ID. Use net weight for POS and inventory labels; do not add a per-variant unit or manual label control. Convert loaded weight values to strings before editing or validating them. Keep archived variants out of new POS sales, but preserve their records for history and restoration. Permit permanent deletion only while another variant remains.
 
-For whole fish sold individually, staff need to enter each day's fish weight and its own price from inventory. Each fish is sold whole, and the same weight/price availability must appear in POS and on the storefront.
+For whole fish sold individually, staff enter each day's fish weight and a fixed total price for that fish, not a per-kilogram rate, from inventory. Each fish is sold whole, and the same weight/price availability must appear in POS and on the storefront.
 
 **Why:** Whole fish arrive in variable sizes and prices each day, so fixed reusable weight variants do not fit this stock workflow.
 

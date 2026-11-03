@@ -1099,7 +1099,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
         apiFetch(`/api/sub-hubs/${subHubId}/menu/products`),
         apiFetch(`/api/sub-hubs/${subHubId}/menu/categories`),
       ]);
-      setProducts(pd.products ?? []);
+      setProducts((pd.products ?? []).filter((product: any) => product.isDailyWholeFish !== true));
       setCategories(cd.categories ?? []);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });

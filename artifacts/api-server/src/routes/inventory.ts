@@ -433,6 +433,181 @@ function inventoryVariantLabel(product: any): string {
   return String(product?.netWeight || product?.variantLabel || product?.weight || product?.grossWeight || "").trim();
 }
 
+function getTodayISTDate(): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function isValidDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function serializeDailyFishEntry(product: any) {
+  const quantity = Math.max(0, Number(product.quantity) || 0);
+  return {
+    id: String(product._id),
+    sourceProductId: String(product.dailyFishSourceProductId ?? ""),
+    sourceProductName: String(product.dailyFishSourceProductName ?? product.name ?? ""),
+    name: String(product.name ?? ""),
+    category: String(product.category ?? ""),
+    weightKg: Number(product.dailyFishWeightKg) || 0,
+    netWeight: String(product.netWeight ?? ""),
+    variantLabel: String(product.variantLabel ?? product.netWeight ?? ""),
+    price: Number(product.price) || 0,
+    quantity,
+    unit: String(product.unit ?? "per piece"),
+    dailyFishDate: String(product.dailyFishDate ?? ""),
+    createdAt: product.createdAt ? new Date(product.createdAt).toISOString() : null,
+    imageUrl: String(product.imageUrl ?? ""),
+    status: quantity > 0 ? "available" : "sold",
+  };
+}
+
+// ─── DAILY WHOLE-FISH STOCK ───────────────────────────────────────────────────
+router.get("/daily-fish", async (req, res) => {
+  try {
+    const subHubId = String(req.query.subHubId || "");
+    if (!subHubId) { res.status(400).json({ error: "ValidationError", message: "subHubId is required" }); return; }
+    const date = String(req.query.date || getTodayISTDate());
+    if (!isValidDateOnly(date)) { res.status(400).json({ error: "ValidationError", message: "date must use YYYY-MM-DD format" }); return; }
+    const ctx = await getCtx(subHubId, res, req as ScopedRequest);
+    if (!ctx) return;
+
+    const products = ctx.conn.db!.collection("products");
+    const [sourceDocs, entryDocs] = await Promise.all([
+      products.find({ isDailyWholeFish: { $ne: true }, isArchived: { $ne: true } })
+        .project({ name: 1, category: 1, imageUrl: 1, unit: 1, variantGroupId: 1 })
+        .sort({ category: 1, name: 1 })
+        .toArray(),
+      products.find({ isDailyWholeFish: true, dailyFishDate: date })
+        .sort({ createdAt: -1, _id: -1 })
+        .toArray(),
+    ]);
+
+    const sourceProducts = sourceDocs
+      .filter((product: any) => !product.variantGroupId || String(product.variantGroupId) === String(product._id))
+      .map((product: any) => ({
+        id: String(product._id),
+        name: String(product.name ?? ""),
+        category: String(product.category ?? ""),
+        imageUrl: String(product.imageUrl ?? ""),
+        unit: String(product.unit ?? ""),
+      }));
+
+    res.json({
+      subHub: { id: String(ctx.sub._id), name: String(ctx.sub.name ?? "") },
+      sourceProducts,
+      entries: entryDocs.map(serializeDailyFishEntry),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch daily whole-fish inventory");
+    res.status(500).json({ error: "InternalError", message: "Failed to fetch daily fish inventory" });
+  }
+});
+
+router.post("/daily-fish", async (req, res) => {
+  try {
+    const subHubId = String(req.body?.subHubId || "");
+    if (!subHubId) { res.status(400).json({ error: "ValidationError", message: "subHubId is required" }); return; }
+    const sourceProductId = toId(String(req.body?.sourceProductId ?? ""));
+    if (!sourceProductId) { res.status(400).json({ error: "ValidationError", message: "Select a fish product" }); return; }
+    const date = String(req.body?.date || getTodayISTDate());
+    if (!isValidDateOnly(date)) { res.status(400).json({ error: "ValidationError", message: "date must use YYYY-MM-DD format" }); return; }
+    if (!Array.isArray(req.body?.entries) || req.body.entries.length < 1 || req.body.entries.length > 200) {
+      res.status(400).json({ error: "ValidationError", message: "Add between 1 and 200 fish entries" });
+      return;
+    }
+
+    const normalizedEntries = req.body.entries.map((entry: any) => {
+      const weightInput = Number(entry?.weightKg);
+      const priceInput = Number(entry?.totalPrice);
+      if (!Number.isFinite(weightInput) || weightInput <= 0 || !Number.isFinite(priceInput) || priceInput <= 0) return null;
+      const weightKg = Math.round(weightInput * 1000) / 1000;
+      const totalPrice = Math.round(priceInput * 100) / 100;
+      if (weightKg <= 0 || totalPrice <= 0) return null;
+      return { weightKg, totalPrice, weightLabel: `${weightKg} kg` };
+    });
+    if (normalizedEntries.some((entry: any) => !entry)) {
+      res.status(400).json({ error: "ValidationError", message: "Every fish needs a positive weight and total price" });
+      return;
+    }
+
+    const ctx = await getCtx(subHubId, res, req as ScopedRequest);
+    if (!ctx) return;
+    const products = ctx.conn.db!.collection("products");
+    const source = await products.findOne({
+      _id: sourceProductId,
+      isDailyWholeFish: { $ne: true },
+      isArchived: { $ne: true },
+    });
+    if (!source) { res.status(404).json({ error: "NotFound", message: "The selected fish product was not found" }); return; }
+
+    let sourceProduct = source;
+    if (source.variantGroupId && String(source.variantGroupId) !== String(source._id)) {
+      const rootId = toId(String(source.variantGroupId));
+      const root = rootId ? await products.findOne({ _id: rootId, isDailyWholeFish: { $ne: true } }) : null;
+      if (!root) { res.status(404).json({ error: "NotFound", message: "The selected fish product group was not found" }); return; }
+      sourceProduct = root;
+    }
+
+    const now = new Date();
+    const fishDocs = normalizedEntries.map((entry: any) => ({
+      _id: new mongoose.Types.ObjectId(),
+      name: String(sourceProduct.name ?? ""),
+      description: String(sourceProduct.description ?? ""),
+      category: String(sourceProduct.category ?? ""),
+      subCategory: String(sourceProduct.subCategory ?? ""),
+      shortCode: String(sourceProduct.shortCode ?? ""),
+      price: entry.totalPrice,
+      originalPrice: entry.totalPrice,
+      discountPct: 0,
+      unit: "per piece",
+      weight: entry.weightLabel,
+      netWeight: entry.weightLabel,
+      variantLabel: entry.weightLabel,
+      grossWeight: "",
+      pieces: "",
+      serves: "",
+      quantity: 1,
+      batches: [],
+      status: "available",
+      isArchived: false,
+      imageUrl: String(sourceProduct.imageUrl ?? ""),
+      limitedStockNote: "",
+      lowStockThreshold: 0,
+      preorderMode: "normal",
+      preorderAvailability: { type: "all", weekdays: [0, 1, 2, 3, 4, 5, 6], startDate: "", endDate: "" },
+      recipes: [],
+      sectionId: Array.isArray(sourceProduct.sectionId) ? sourceProduct.sectionId : [],
+      couponIds: [],
+      isDailyWholeFish: true,
+      dailyFishSourceProductId: String(sourceProduct._id),
+      dailyFishSourceProductName: String(sourceProduct.name ?? ""),
+      dailyFishWeightKg: entry.weightKg,
+      dailyFishPriceBasis: "total_per_fish",
+      dailyFishDate: date,
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    await products.insertMany(fishDocs, { ordered: true });
+    const entries = fishDocs.map(serializeDailyFishEntry);
+    res.status(201).json({ created: entries.length, entries });
+  } catch (err) {
+    req.log.error({ err }, "Failed to add daily whole-fish stock");
+    res.status(500).json({ error: "InternalError", message: "Failed to add daily fish stock" });
+  }
+});
+
 // ─── PRODUCT LIST (for selected sub-hub) ──────────────────────────────────────
 router.get("/products", async (req, res) => {
   try {
@@ -469,6 +644,9 @@ router.get("/products", async (req, res) => {
           quantity: qty,
           status: p.status ?? "available",
           imageUrl: p.imageUrl ?? "",
+          isDailyWholeFish: p.isDailyWholeFish === true,
+          dailyFishSourceProductId: p.dailyFishSourceProductId ? String(p.dailyFishSourceProductId) : undefined,
+          dailyFishDate: p.dailyFishDate ?? undefined,
           batches: sortBatchesByExpiry(batches).map((b) => ({
             id: String(b._id ?? ""),
             batchNumber: b.batchNumber ?? "",

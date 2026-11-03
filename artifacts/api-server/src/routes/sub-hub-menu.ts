@@ -118,7 +118,7 @@ router.get("/stats", async (req, res) => {
     if (!ctx) return;
     const db = ctx.conn.db;
     const [products, categories, coupons, combos, carousels, pincodes, sections, timeslots] = await Promise.all([
-      db.collection("products").countDocuments(),
+      db.collection("products").countDocuments({ isDailyWholeFish: { $ne: true } }),
       db.collection("categories").countDocuments(),
       db.collection("coupons").countDocuments(),
       db.collection("combos").countDocuments(),
@@ -153,9 +153,10 @@ router.get("/products", async (req, res) => {
     const nowMs = Date.now();
     const productsWithQty = products.map((p: any) => {
       const batches: any[] = Array.isArray(p.batches) ? p.batches : [];
-      const total = batches
+      const availableBatchTotal = batches
         .filter((b: any) => !b?.expiryDate || new Date(b.expiryDate).getTime() >= nowMs)
         .reduce((s: number, b: any) => s + (Math.max(0, Number(b?.quantity) || 0)), 0);
+      const total = batches.length > 0 ? availableBatchTotal : Math.max(0, Number(p.quantity) || 0);
       const hasVariantLabel = Boolean(p.variantGroupId || p.netWeight || p.variantLabel || p.weight || p.grossWeight);
       return {
         ...p,
