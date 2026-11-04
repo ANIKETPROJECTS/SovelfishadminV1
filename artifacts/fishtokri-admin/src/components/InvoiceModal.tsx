@@ -2,14 +2,12 @@
  * Shared invoice modal — used by both Orders and Day End Report.
  * Renders a Customer Invoice + KOT tab view with print support.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Printer } from "lucide-react";
-import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { printHtmlWithQZ } from "@/lib/qz-print";
-import { apiFetch } from "@/lib/api";
 import { getInvoicePaymentAmounts, isInvoicePaid } from "@/lib/invoice-payment-status.mjs";
 import { TIMESLOT_FEATURE_ENABLED } from "@/lib/feature-flags";
 
@@ -80,7 +78,6 @@ function combinedPaymentLabel(order: any): string {
 
 export function InvoiceModal({ order, onClose }: { order: any; onClose: () => void }) {
   const { toast } = useToast();
-  const [qrDataUrl, setQrDataUrl] = useState("");
   const items: any[] = order.items ?? [];
   const subtotal =
     Number(order.subtotal) > 0 ? Number(order.subtotal) : orderItemsTotal(items);
@@ -107,18 +104,6 @@ export function InvoiceModal({ order, onClose }: { order: any; onClose: () => vo
   const invoiceNo =
     order.orderId || order.invoiceNo || "INV-" + String(order._id || order.id || "").slice(-6).toUpperCase();
 
-  useEffect(() => {
-    const orderId = String(order?._id || order?.id || "");
-    if (!orderId) return;
-    let active = true;
-    apiFetch(`/api/orders/${orderId}/qr-token`)
-      .then((data) => QRCode.toDataURL(String(data.url || data.token), { width: 180, margin: 1, errorCorrectionLevel: "M" }))
-      .then((url) => { if (active) setQrDataUrl(url); })
-      .catch(() => {
-        if (active) toast({ title: "QR unavailable", description: "The invoice loaded, but its delivery QR could not be generated.", variant: "destructive" });
-      });
-    return () => { active = false; };
-  }, [order?._id, order?.id, toast]);
   const d = new Date(order.createdAt ?? Date.now());
   const orderDateStr = [
     String(d.getDate()).padStart(2, "0"),
@@ -222,9 +207,6 @@ export function InvoiceModal({ order, onClose }: { order: any; onClose: () => vo
       `<div style="border-top:2px solid #444;margin:8px 0;"></div>` +
       `<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;margin:4px 0;"><span>Grand Total:</span><span>${grandTotal.toFixed(2)}</span></div>` +
       walletRow + paidDueRow + upiTxnRow +
-      (qrDataUrl
-        ? `<div style="text-align:center;margin-top:14px;"><div style="font-size:13px;font-weight:700;margin-bottom:4px;">Delivery partner QR</div><img src="${qrDataUrl}" alt="Delivery partner order QR" width="180" height="180" style="display:block;margin:0 auto;" /><div style="font-size:11px;font-weight:700;color:#555;margin-top:5px;">This QR is only for delivery person to scan.</div></div>`
-        : "") +
       `<div style="text-align:center;font-size:15px;color:#555;line-height:1.8;margin-top:14px;">Thank you for your business!<br/>For any query - 9220200100</div></div>`;
 
     const kotBody =
@@ -416,17 +398,6 @@ export function InvoiceModal({ order, onClose }: { order: any; onClose: () => vo
                   <span className="font-mono">{order.upiTransactionId}</span>
                 </div>
               )}
-              <div className="text-center mt-4">
-                <div className="text-[13px] font-bold mb-1">Delivery partner QR</div>
-                {qrDataUrl ? (
-                  <img src={qrDataUrl} alt="Order dispatch QR" width={180} height={180} className="mx-auto" />
-                ) : (
-                  <div className="h-[180px] flex items-center justify-center text-xs text-gray-400">Generating QR…</div>
-                )}
-                <div className="text-[11px] font-semibold text-gray-500 mt-1">
-                  This QR is only for delivery person to scan.
-                </div>
-              </div>
               <div className="text-center text-[15px] text-gray-600 mt-3">
                 Thank you for your business!<br />
                 For any query - 9220200100
