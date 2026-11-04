@@ -6,7 +6,7 @@ const customers = [
   {
     id: "newer-match",
     email: "match@example.com",
-    addresses: [{ city: "Thane" }],
+    addresses: [{ city: "Airoli" }],
     walletBalance: 40,
     createdAt: "2026-10-05T12:00:00.000Z",
     currentOrders: [{ status: "confirmed" }],

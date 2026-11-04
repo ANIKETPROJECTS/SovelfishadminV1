@@ -293,7 +293,7 @@ export default function InventoryHistory() {
               <History className="w-5 h-5 text-[#1A56DB]" />
             </div>
             <p className="text-sm font-semibold text-[#162B4D]">Loading hub data...</p>
-            <p className="text-xs text-gray-400 mt-1">Connecting to Mumbai · Thane inventory history.</p>
+            <p className="text-xs text-gray-400 mt-1">Connecting to Mumbai · Airoli inventory history.</p>
           </div>
         ) : (
           <>

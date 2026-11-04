@@ -594,11 +594,11 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-gray-600">Sub Hub Name *</Label>
-              <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Thane" className="h-9 text-black" />
+              <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Airoli" className="h-9 text-black" />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-gray-600">Location</Label>
-              <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Thane, Mumbai" className="h-9 text-black" />
+              <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Airoli, Mumbai" className="h-9 text-black" />
             </div>
           </div>
 
@@ -625,7 +625,7 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
               <Input
                 value={dbName}
                 onChange={(e) => setDbName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
-                placeholder="e.g. thane_hub"
+                placeholder="e.g. airoli_hub"
                 className="h-9 font-mono text-sm text-black"
               />
               <p className="text-xs text-gray-400">Only letters, numbers and underscores allowed.</p>
