@@ -395,7 +395,7 @@ function SubHubCard({ sub, onEdit, onDelete }: { sub: any; onEdit: () => void; o
 
         <div className="mt-auto pt-3 border-t border-gray-100 space-y-2">
           <Button
-            onClick={() => setLocation(`/sub-hub-menu/${sub.id}`)}
+            onClick={() => setLocation("/dashboard")}
             className="w-full h-8 text-xs font-semibold bg-[#162B4D] hover:bg-[#1E3A5F] text-white gap-2"
             size="sm"
           >
@@ -482,7 +482,7 @@ function SubHubTableRow({ sub, onEdit, onDelete }: { sub: any; onEdit: () => voi
       <td className="px-3 py-4 text-right">
         <div className="flex items-center justify-end gap-1">
           <button
-            onClick={() => setLocation(`/sub-hub-menu/${sub.id}`)}
+            onClick={() => setLocation("/dashboard")}
             className="h-7 px-2 flex items-center gap-1 rounded border border-[#162B4D] bg-[#162B4D] text-white text-xs font-semibold hover:bg-[#1E3A5F] transition-colors mr-1"
             title="Open Dashboard"
           >
