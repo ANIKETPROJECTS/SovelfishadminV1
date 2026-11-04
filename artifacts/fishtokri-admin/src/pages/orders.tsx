@@ -50,6 +50,10 @@ import { DayPicker, type Matcher } from "react-day-picker";
 import { format } from "date-fns";
 import "react-day-picker/style.css";
 
+// Manual delivery-partner assignment is disabled in the order admin.
+// Keep legacy assignment data and processing available for historical records.
+const DELIVERY_PARTNER_ASSIGNMENT_ENABLED = false;
+
 /**
  * Tinted PNG icon — uses CSS mask-image so the provided black PNG silhouettes
  * can be re-coloured with the brand palette (e.g. #F05B4E).
@@ -3698,17 +3702,10 @@ export default function Orders() {
                           </div>
                         ) : o.deliveryType === "takeaway" ? (
                           <span className="text-sm text-gray-400 italic">Not required</span>
-                        ) : deliveryPersons.length > 0 ? (
-                          <InlineDeliverySelect
-                            order={o}
-                            persons={deliveryPersons}
-                            saving={inlineAssigningId === String(o._id)}
-                            onAssign={inlineAssign}
-                          />
+                        ) : o.assignedDeliveryPersonName ? (
+                          <span className="text-sm font-medium text-orange-700">{o.assignedDeliveryPersonName}</span>
                         ) : (
-                          o.assignedDeliveryPersonName
-                            ? <span className="text-sm font-medium text-orange-700">{o.assignedDeliveryPersonName}</span>
-                            : <span className="text-sm text-gray-300 italic">Unassigned</span>
+                          <span className="text-sm text-gray-300 italic">—</span>
                         )}
                       </td>
                       <td className="px-4 py-4 text-center">
@@ -5791,7 +5788,7 @@ export default function Orders() {
                   <div className="px-6 py-6">
                     <div className="flex items-center gap-2.5 mb-5">
                       <MaskIcon src={iconGroup} color="#364F9F" className="w-[20px] h-[20px]" />
-                      <span className="text-xs font-bold text-[#364F9F] uppercase tracking-widest">Delivery Partner</span>
+                      <span className="text-xs font-bold text-[#364F9F] uppercase tracking-widest">Pickup</span>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center flex-shrink-0">
@@ -5803,7 +5800,7 @@ export default function Orders() {
                       </div>
                     </div>
                   </div>
-                ) : selectedOrder.isExpress ? (
+                ) : DELIVERY_PARTNER_ASSIGNMENT_ENABLED && selectedOrder.isExpress ? (
                   <div className="px-6 py-6">
                     <div className="flex items-center gap-2.5 mb-5">
                       <MaskIcon src={iconGroup} color="#364F9F" className="w-[20px] h-[20px]" />
@@ -5961,7 +5958,7 @@ export default function Orders() {
                       )}
                     </div>
                   </div>
-                ) : (
+                ) : DELIVERY_PARTNER_ASSIGNMENT_ENABLED ? (
                   <div className="px-6 py-6">
                     <div className="flex items-center justify-between mb-5">
                       <div className="flex items-center gap-2.5">
@@ -6045,7 +6042,7 @@ export default function Orders() {
                       )}
                     </div>
                   </div>
-                )}
+                ) : null}
 
                 {/* ── 6. UPDATE STATUS ── */}
                 <div className="px-6 py-6">
@@ -6072,8 +6069,6 @@ export default function Orders() {
                     {(() => {
                       const isTakeaway = selectedOrder.deliveryType === "takeaway";
                       const isPreorder = String(selectedOrder.orderType ?? "").toLowerCase() === "preorder";
-                      const hasAssignee = !!selectedOrder.assignedDeliveryPersonId || !!selectedOrder.isExpress;
-                      const requiresAssignee = (s: string) => !isTakeaway && !hasAssignee && (s === "out_for_delivery" || s === "delivered");
                       // Normal next-day orders cannot be dispatched or marked delivered
                       // until the delivery day arrives. Preorders are intentionally
                       // exempt because they may be fulfilled on any actual date.
@@ -6087,7 +6082,7 @@ export default function Orders() {
                       const statusOptions = isTakeaway
                         ? ["takeaway", "cancelled"]
                         : ALL_STATUSES.filter((s) => s !== "takeaway" && !(isOtherDay && otherDayBlocked.has(s)));
-                      const blocked = requiresAssignee(editStatus) || (isOtherDay && otherDayBlocked.has(editStatus));
+                      const blocked = isOtherDay && otherDayBlocked.has(editStatus);
                       return (
                         <>
                           <div className="flex gap-2">
@@ -6095,12 +6090,10 @@ export default function Orders() {
                               <SelectTrigger disabled={isFtwPaymentOnHold(selectedOrder)} className="h-11 flex-1 text-sm rounded-xl font-semibold"><SelectValue /></SelectTrigger>
                               <SelectContent>
                                 {statusOptions.map((s) => {
-                                  const disabled = requiresAssignee(s);
                                   return (
-                                    <SelectItem key={s} value={s} disabled={disabled}>
+                                    <SelectItem key={s} value={s}>
                                       <span className="flex items-center gap-2 font-semibold">
                                         {STATUS_CONFIG[s].label}
-                                        {disabled && <span className="text-xs text-black font-medium">(assign partner first)</span>}
                                       </span>
                                     </SelectItem>
                                   );
@@ -6118,11 +6111,6 @@ export default function Orders() {
                           {isOtherDay && (
                             <p className="text-sm font-semibold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2.5">
                               This order is scheduled for <strong>{selectedOrder.deliveryDate}</strong>. Out for Delivery and Delivered are only available on the delivery day.
-                            </p>
-                          )}
-                          {!isOtherDay && blocked && (
-                            <p className="text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
-                              Assign a delivery partner above before marking as Out for Delivery or Delivered.
                             </p>
                           )}
                         </>
