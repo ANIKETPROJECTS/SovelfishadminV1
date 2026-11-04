@@ -881,7 +881,7 @@ export default function Orders() {
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [statsData, setStatsData] = useState<Record<string, number>>({});
-  const [statsTotals, setStatsTotals] = useState<{ total?: number; currentTotal?: number; historyTotal?: number; todayTotal?: number; otherDayTotal?: number; preorderTotal?: number; deletedTotal?: number }>({});
+  const [statsTotals, setStatsTotals] = useState<{ total?: number; currentTotal?: number; historyTotal?: number; todayTotal?: number; deletedTotal?: number }>({});
 
   // Order alert is now handled globally in Layout (useGlobalOrderAlert)
 
@@ -2563,8 +2563,6 @@ export default function Orders() {
         currentTotal: data.currentTotal,
         historyTotal: data.historyTotal,
         todayTotal: data.todayTotal,
-        otherDayTotal: data.otherDayTotal,
-        preorderTotal: data.preorderTotal ?? 0,
         deletedTotal: data.deletedTotal ?? 0,
       });
     } catch { }
@@ -3204,16 +3202,12 @@ export default function Orders() {
 
   const invoiceCount = (statsData["delivered"] ?? 0) + (statsData["takeaway"] ?? 0);
   const totalToday = statsTotals.todayTotal ?? totalActive;
-  const totalOtherDay = statsTotals.otherDayTotal ?? 0;
-  const totalPreorder = statsTotals.preorderTotal ?? 0;
   const totalDeleted = statsTotals.deletedTotal ?? 0;
   const TABS = [
     { key: "current" as const, label: "Current Orders", count: totalToday, icon: Clock, color: "text-blue-600" },
-    { key: "otherday" as const, label: "Next Day Orders", count: totalOtherDay, icon: Calendar, color: "text-orange-600" },
     { key: "history" as const, label: "History", count: totalHistory, icon: CheckCircle2, color: "text-green-600" },
     { key: "all" as const, label: "All Orders", count: totalAll, icon: ClipboardList, color: "text-gray-600" },
     { key: "invoices" as const, label: "Order Invoices", count: invoiceCount, icon: FileText, color: "text-violet-600" },
-    { key: "preorder" as const, label: "Preorders", count: totalPreorder, icon: Calendar, color: "text-orange-600" },
     { key: "deleted" as const, label: "Deleted", count: totalDeleted, icon: Trash2, color: "text-red-600" },
   ];
 

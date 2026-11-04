@@ -26,3 +26,9 @@ The direct-order flag must disable scheduling only; it must not skip delivery-ad
 **Why:** A saved-address delivery order was rejected because address assembly was incorrectly guarded by the direct-order flag.
 
 **How to apply:** Keep delivery address resolution independent of scheduling mode, and validate that both saved and new delivery addresses reach the order API.
+
+Orders Management should not show dedicated Preorders or Next Day Orders tabs. Keep existing orders available through All Orders and preserve their stored records.
+
+**Why:** The user no longer needs those sections, but existing order history should remain accessible.
+
+**How to apply:** Remove those entries from the Orders Management navigation without deleting orders or removing legacy filtering and scheduling code unless explicitly requested.
