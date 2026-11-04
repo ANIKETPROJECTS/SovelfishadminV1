@@ -33,6 +33,7 @@ import iconMotorbike from "@/assets/icon-motorbike.png";
 import iconGroup from "@/assets/icon-group.png";
 import iconClipboardCheck from "@/assets/icon-clipboard-check.png";
 import { BRAND_COLORS } from "@/lib/brand";
+import { DIRECT_ORDER_ONLY, TIMESLOT_FEATURE_ENABLED } from "@/lib/feature-flags";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -986,7 +987,7 @@ export default function Orders() {
   const [timeslots, setTimeslots] = useState<any[]>([]);
   const [loadingTimeslots, setLoadingTimeslots] = useState(false);
   const [selectedTimeslotId, setSelectedTimeslotId] = useState<string>("");
-  const [orderScheduleType, setOrderScheduleType] = useState<"instant" | "slot">("slot");
+  const [orderScheduleType, setOrderScheduleType] = useState<"instant" | "slot">("instant");
   const [orderDate, setOrderDate] = useState<string>(() => getTodayIST());
   const [showPreorderDatePicker, setShowPreorderDatePicker] = useState(false);
   const [isOutstationDelivery, setIsOutstationDelivery] = useState(false);
@@ -1049,7 +1050,7 @@ export default function Orders() {
     setPosProductMode("normal");
     setAppliedCouponIds([]); setCouponCode(""); setCouponError("");
     setSelectedTimeslotId("");
-    setOrderScheduleType("slot");
+    setOrderScheduleType("instant");
     setOrderDate(getTodayIST());
     setIsOutstationDelivery(false);
     setIsExpressOrder(false);
@@ -1069,6 +1070,13 @@ export default function Orders() {
 
   useEffect(() => {
     if (!isCreatePage) return;
+    if (DIRECT_ORDER_ONLY) {
+      setPosProductMode("normal");
+      setOrderScheduleType("instant");
+      setSelectedTimeslotId("");
+      setIsExpressOrder(false);
+      return;
+    }
     if (posProductMode === "preorder") {
       setOrderDeliveryType("delivery");
       setIsExpressOrder(false);
@@ -1194,7 +1202,7 @@ export default function Orders() {
     setSelectedProducts([]);
   }, [selectedSuperHubId]);
 
-  // Load products, coupons, timeslots when sub-hub changes
+  // Load products and coupons when the selected sub-hub changes.
   useEffect(() => {
     if (!selectedSubHubId) {
       setSubHubProducts([]); setSubHubCombos([]); setCoupons([]); setTimeslots([]);
@@ -1242,6 +1250,11 @@ export default function Orders() {
   // returns capacity for this exact date, while activeDays is also evaluated
   // locally so future preorder dates behave like normal delivery dates.
   useEffect(() => {
+    if (!TIMESLOT_FEATURE_ENABLED) {
+      setTimeslots([]);
+      setLoadingTimeslots(false);
+      return;
+    }
     if (!selectedSubHubId) {
       setTimeslots([]);
       return;
@@ -1280,7 +1293,7 @@ export default function Orders() {
   // Poll timeslot counts every 1 s while the create-order panel is open so
   // changes in the DB appear without a page refresh.
   useEffect(() => {
-    if (!isCreatePage || !selectedSubHubId) return;
+    if (!TIMESLOT_FEATURE_ENABLED || !isCreatePage || !selectedSubHubId) return;
     const id = setInterval(() => {
       const dateParam = orderDate ? `?deliveryDate=${encodeURIComponent(orderDate)}` : "";
       apiFetch(`/api/sub-hubs/${selectedSubHubId}/menu/timeslots${dateParam}`)
@@ -1440,11 +1453,13 @@ export default function Orders() {
   const productsForMode = useMemo(() => {
     const products = subHubProducts.filter((p) =>
       p.isArchived !== true &&
-      (posProductMode === "preorder"
+      (DIRECT_ORDER_ONLY
+        ? true
+        : posProductMode === "preorder"
         ? isPreorderOnlyProduct(p) && isProductAvailableForPreorder(p, orderDate)
         : !isPreorderOnlyProduct(p))
     );
-    if (posProductMode === "preorder") return products;
+    if (!DIRECT_ORDER_ONLY && posProductMode === "preorder") return products;
     const combos = subHubCombos
       .filter((combo) => combo.isActive !== false)
       .map((combo) => ({
@@ -1672,7 +1687,10 @@ export default function Orders() {
     [activeTimeslots, selectedTimeslotId]
   );
 
-  const slotExtraCharge = useMemo(() => Number(selectedTimeslot?.extraCharge) || 0, [selectedTimeslot]);
+  const slotExtraCharge = useMemo(
+    () => DIRECT_ORDER_ONLY ? 0 : Number(selectedTimeslot?.extraCharge) || 0,
+    [selectedTimeslot],
+  );
 
   const deliveryPincode = useMemo(() => {
     if (orderDeliveryType !== "delivery") return "";
@@ -1917,7 +1935,7 @@ export default function Orders() {
     let address = "";
     let deliveryArea = "";
     let deliveryAddressDetail: any = undefined;
-    if (orderDeliveryType === "delivery") {
+    if (!DIRECT_ORDER_ONLY && orderDeliveryType === "delivery") {
       if (chosenCustomer && orderAddressMode === "saved" && selectedAddressIdx !== null) {
         const f = editedSavedAddress;
         if (!f.building.trim()) {
@@ -2039,7 +2057,7 @@ export default function Orders() {
         customerId,
         customerName, phone, email,
         items: cleanItems,
-        orderType: posProductMode === "preorder" ? "preorder" : "normal",
+        orderType: DIRECT_ORDER_ONLY ? "normal" : posProductMode === "preorder" ? "preorder" : "normal",
         deliveryType: orderDeliveryType,
         address,
         deliveryArea,
@@ -2116,15 +2134,17 @@ export default function Orders() {
                 reference: p.reference?.trim() || "",
               })),
         // Schedule (takeaway is forced to instant fulfillment for today)
-        isExpress: isExpressOrder,
-        scheduleType: orderDeliveryType === "takeaway" ? "instant" : isExpressOrder ? "express" : orderScheduleType,
-        deliveryDate: orderDeliveryType === "takeaway"
+        isExpress: DIRECT_ORDER_ONLY ? false : isExpressOrder,
+        scheduleType: DIRECT_ORDER_ONLY ? "instant" : orderDeliveryType === "takeaway" ? "instant" : isExpressOrder ? "express" : orderScheduleType,
+        deliveryDate: DIRECT_ORDER_ONLY
+          ? (editingOrderId ? orderDate || getTodayIST() : getTodayIST())
+          : orderDeliveryType === "takeaway"
           ? getTodayIST()
           : orderDate,
-        timeslotId: (orderDeliveryType === "takeaway" || isExpressOrder) ? undefined : (selectedTimeslot ? String(selectedTimeslot._id) : undefined),
-        timeslotLabel: orderDeliveryType === "takeaway" ? undefined : isExpressOrder ? "Express order by Porter" : selectedTimeslot?.label,
-        timeslotStart: (orderDeliveryType === "takeaway" || isExpressOrder) ? undefined : selectedTimeslot?.startTime,
-        timeslotEnd: (orderDeliveryType === "takeaway" || isExpressOrder) ? undefined : selectedTimeslot?.endTime,
+        timeslotId: DIRECT_ORDER_ONLY ? null : (orderDeliveryType === "takeaway" || isExpressOrder) ? undefined : (selectedTimeslot ? String(selectedTimeslot._id) : undefined),
+        timeslotLabel: DIRECT_ORDER_ONLY ? null : orderDeliveryType === "takeaway" ? undefined : isExpressOrder ? "Express order by Porter" : selectedTimeslot?.label,
+        timeslotStart: DIRECT_ORDER_ONLY ? null : (orderDeliveryType === "takeaway" || isExpressOrder) ? undefined : selectedTimeslot?.startTime,
+        timeslotEnd: DIRECT_ORDER_ONLY ? null : (orderDeliveryType === "takeaway" || isExpressOrder) ? undefined : selectedTimeslot?.endTime,
       };
       // The edit route is authoritative while the order/customer data is
       // loading. Fall back to its URL id so an edit can never become a new
@@ -2887,7 +2907,7 @@ export default function Orders() {
     // Restore the order mode before populating the shared POS form. The
     // default is "normal", which previously caused preorder edits to be saved
     // back as normal orders.
-    setPosProductMode(String(o.orderType ?? "").toLowerCase() === "preorder" ? "preorder" : "normal");
+    setPosProductMode(!DIRECT_ORDER_ONLY && String(o.orderType ?? "").toLowerCase() === "preorder" ? "preorder" : "normal");
     // Customer — if the order has a customerId, treat it as existing even if the
     // full customer list hasn't loaded yet (we'll re-resolve when it does).
     if (o.customerId) {
@@ -3009,11 +3029,11 @@ export default function Orders() {
     skipPaymentRecomputeRef.current = true;
     setUseWallet(hadWallet);
     setTakeawayUnpaid(dt === "takeaway" && ps === "unpaid");
-    // Schedule
-    setOrderScheduleType("slot");
-    setIsExpressOrder(!!o.isExpress || o.scheduleType === "express");
+    // Restore legacy scheduling only when that feature is explicitly enabled.
+    setOrderScheduleType(DIRECT_ORDER_ONLY ? "instant" : "slot");
+    setIsExpressOrder(!DIRECT_ORDER_ONLY && (!!o.isExpress || o.scheduleType === "express"));
     if (o.deliveryDate) setOrderDate(String(o.deliveryDate).slice(0, 10));
-    if (o.timeslotId) setSelectedTimeslotId(String(o.timeslotId));
+    setSelectedTimeslotId(!DIRECT_ORDER_ONLY && o.timeslotId ? String(o.timeslotId) : "");
     // Restore delivery charge override + extra discount from saved order.
     // Set the skip ref so the pincodeDeliveryCharge sync effect doesn't overwrite it.
     skipDeliveryChargeSyncRef.current = true;
@@ -3509,7 +3529,7 @@ export default function Orders() {
                   <th className="px-3 py-4 text-center">Total</th>
                   <th className="px-3 py-4 text-center">Payment</th>
                   <th className="px-3 py-4 text-center">Sub Hub</th>
-                  <th className="px-3 py-4 text-center">Time Slot</th>
+                  {TIMESLOT_FEATURE_ENABLED && <th className="px-3 py-4 text-center">Time Slot</th>}
                   <th className="px-3 py-4 text-center">Location</th>
                   <th className="px-3 py-4 text-center">Status</th>
                   <th className="px-3 py-4 text-center">Operations</th>
@@ -3520,7 +3540,7 @@ export default function Orders() {
                 {displayedOrders.map((o) => {
                   const total = effectiveOrderTotal(o);
                   const items: any[] = Array.isArray(o.items) ? o.items : [];
-                  const slot = formatTimeSlot(o);
+                  const slot = TIMESLOT_FEATURE_ENABLED ? formatTimeSlot(o) : null;
                   return (
                     <tr key={String(o._id)} className="hover:bg-gray-50 transition-colors">
                       <td className="px-3 py-4">
@@ -3607,7 +3627,7 @@ export default function Orders() {
                           ? <span className="text-sm font-medium text-black">{o.subHubName}</span>
                           : <span className="text-sm text-black">—</span>}
                       </td>
-                      <td className="px-3 py-4">
+                      {TIMESLOT_FEATURE_ENABLED && <td className="px-3 py-4">
                         {isFtwPaymentOnHold(o) ? (
                           <span className="text-sm text-gray-400 italic">On hold</span>
                         ) : isFtwPaymentOnHold(o) ? (
@@ -3619,7 +3639,7 @@ export default function Orders() {
                         ) : (
                           <span className="text-sm text-black">—</span>
                         )}
-                      </td>
+                      </td>}
                       <td className="px-3 py-4">
                         {o.deliveryArea
                           ? <span className="text-sm text-black">{o.deliveryArea}</span>
@@ -4250,7 +4270,7 @@ export default function Orders() {
             </Select>
           </div>
           {/* Delivery / Takeaway pill toggle */}
-          <div className="flex items-center gap-1 flex-shrink-0 bg-white/10 rounded-full p-0.5">
+          {!DIRECT_ORDER_ONLY && <div className="flex items-center gap-1 flex-shrink-0 bg-white/10 rounded-full p-0.5">
             <button
               type="button"
               onClick={() => {
@@ -4279,7 +4299,7 @@ export default function Orders() {
             >
               Preorder
             </button>
-          </div>
+          </div>}
           <div className="w-px h-6 bg-white/20 flex-shrink-0" />
           <div className="flex items-center gap-1 flex-shrink-0 bg-white/10 rounded-full p-0.5">
             <button
@@ -4957,8 +4977,8 @@ export default function Orders() {
                 </div>
               )}
 
-              {/* Delivery Schedule */}
-              {orderDeliveryType === "delivery" && (
+              {/* Legacy schedule controls remain available behind the scheduling feature flag. */}
+              {!DIRECT_ORDER_ONLY && orderDeliveryType === "delivery" && (
                 <div className="px-4 pt-3 pb-3">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-sm font-normal text-gray-900 flex items-center gap-1.5"><img src="/icon-schedule.png" className="w-4 h-4 object-contain" alt="" />Schedule</p>
@@ -5707,7 +5727,7 @@ export default function Orders() {
                       <p className="text-xs font-bold tracking-wider text-black mb-1">DELIVERY DATE</p>
                       <p className="font-bold text-black">{formatDeliveryDate(selectedOrder.deliveryDate) || formatDate(selectedOrder.createdAt)}</p>
                     </div>
-                    {selectedOrder.timeslotLabel && (
+                    {TIMESLOT_FEATURE_ENABLED && selectedOrder.timeslotLabel && (
                       <div className="col-span-2">
                         <p className="text-xs font-bold tracking-wider text-black mb-1">TIME SLOT</p>
                         <p className="font-bold text-black">{selectedOrder.timeslotLabel}</p>

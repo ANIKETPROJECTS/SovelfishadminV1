@@ -6,6 +6,7 @@
  *   WABA_API_KEY   — API key
  *   WABA_PHONE_ID  — WhatsApp Business phone number ID
  */
+import { DIRECT_ORDER_ONLY } from "../lib/feature-flags.js";
 
 const WABA_API_BASE = "https://verifiedwhatsapp.admarksolution.com";
 const SEND_TIMEOUT_MS = 15_000; // 15 s per attempt
@@ -178,6 +179,7 @@ function formatDeliveryDateLabel(d: string): string {
  * missing those specific fields) silently showed no timing at all.
  */
 function buildDeliveryTimingLabel(order: any): string {
+  if (DIRECT_ORDER_ONLY) return "As soon as possible";
   const scheduleType = String(order?.scheduleType ?? "").trim().toLowerCase();
   const slotLabel =
     String(order?.timeslotLabel ?? "").trim() ||
@@ -537,7 +539,9 @@ export async function sendOutForDelivery(
       ? `${order.timeslotStart} – ${order.timeslotEnd}`
       : "");
   let deliverySlot: string;
-  if (order?.isExpress || scheduleType === "express") {
+  if (DIRECT_ORDER_ONLY) {
+    deliverySlot = "As soon as possible";
+  } else if (order?.isExpress || scheduleType === "express") {
     deliverySlot = "Express Delivery (via Porter)";
   } else if (scheduleType === "instant") {
     deliverySlot = "As soon as possible";

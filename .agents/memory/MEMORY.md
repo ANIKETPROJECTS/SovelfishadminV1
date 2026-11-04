@@ -9,7 +9,7 @@
 - [Product sales modes](product-sales-modes.md) — product sales mode is limited to normal or preorder-only; preorder products may have date/day or combined availability.
 - [Product weight variants](product-weight-variants.md) — keep each weight as a separate product record with its own price and batches; retain the original record and archive variants.
 - [Whole-fish inventory](whole-fish-inventory.md) — exact portions use their weight; ranged portions use the midpoint for price and stock deduction.
-- [Product preorder slot rules](product-preorder-slot-rules.md) — missing weekday slot rules mean all active slots; an explicit empty list means no slots for that weekday.
+- [Product preorder slot rules](product-preorder-slot-rules.md) — preserve weekday allow-list semantics; scheduling is disabled behind feature flags while legacy code stays available.
 - [Sub-hub Mongo debugging](sub-hub-mongo-debugging.md) — use API-scoped DB helpers; run test writes only in an inactive temporary sub-hub and remove all fixtures.
 - [Batch deduction priority](inventory-batch-expiry-priority.md) — order deductions use expiry and availability only; stock edit, receipt, and creation times never set priority.
 - [Batch restoration provenance](inventory-batch-restoration.md) — every order restore must return each deducted quantity to its original batch across cancellation, rejection, deletion, and other restore paths.

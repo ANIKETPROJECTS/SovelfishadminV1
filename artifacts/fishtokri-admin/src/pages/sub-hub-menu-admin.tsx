@@ -25,6 +25,7 @@ import iconView from "@/assets/icon-view.png";
 import iconEdit from "@/assets/icon-edit.png";
 import iconDelete from "@/assets/icon-delete.png";
 import { BRAND_COLORS } from "@/lib/brand";
+import { DIRECT_ORDER_ONLY, TIMESLOT_FEATURE_ENABLED } from "@/lib/feature-flags";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
@@ -202,6 +203,8 @@ function generateNextBatchNumber(productName: string, existingBatches: { batchNu
   return `${prefix}${String(maxNum + 1).padStart(2, "0")}`;
 }
 
+// The timeslot manager is retained for future reactivation; keep it out of the
+// current sub-hub interface while scheduling is disabled.
 const TABS: { key: Tab; label: string; icon: any }[] = [
   { key: "products", label: "Products", icon: Package },
   { key: "categories", label: "Categories", icon: Tag },
@@ -211,7 +214,7 @@ const TABS: { key: Tab; label: string; icon: any }[] = [
   { key: "sections", label: "Sections", icon: LayoutList },
   { key: "timeslots", label: "Time Slots", icon: Clock },
   { key: "pincodes", label: "Pincodes", icon: Database },
-];
+].filter((tab) => tab.key !== "timeslots" || TIMESLOT_FEATURE_ENABLED);
 
 // ─── SHARED TOOLBAR ───────────────────────────────────────────────────────────
 interface SortOption { value: string; label: string }
@@ -603,7 +606,7 @@ export default function SubHubMenuAdmin() {
     { label: "Coupons", value: stats?.coupons ?? 0, img: iconMenuCoupons },
     { label: "Banners", value: stats?.carousels ?? 0, img: iconMenuBanners },
     { label: "Sections", value: stats?.sections ?? 0, img: iconMenuSections },
-    { label: "Time Slots", value: stats?.timeslots ?? 0, img: iconMenuTimeslots },
+    ...(TIMESLOT_FEATURE_ENABLED ? [{ label: "Time Slots", value: stats?.timeslots ?? 0, img: iconMenuTimeslots }] : []),
     { label: "Pincodes", value: pincodesCount, img: iconPin },
   ];
 
@@ -657,9 +660,9 @@ export default function SubHubMenuAdmin() {
         </div>
       )}
 
-      <div className="grid grid-cols-4 md:grid-cols-8 gap-3">
+      <div className={`grid grid-cols-4 ${TIMESLOT_FEATURE_ENABLED ? "md:grid-cols-8" : "md:grid-cols-7"} gap-3`}>
         {loadingStats
-          ? [1, 2, 3, 4, 5, 6, 7, 8].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+          ? Array.from({ length: TIMESLOT_FEATURE_ENABLED ? 8 : 7 }, (_, i) => i + 1).map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)
           : statCards.map(({ label, value, img }) => (
             <button
               key={label}
@@ -682,7 +685,7 @@ export default function SubHubMenuAdmin() {
           {!statsError && tab === "coupons" && <CouponsTab subHubId={subHubId} onSetExcel={setExcelBar} />}
           {!statsError && tab === "carousels" && <CarouselsTab subHubId={subHubId} />}
           {!statsError && tab === "sections" && <SectionsTab subHubId={subHubId} onSetExcel={setExcelBar} />}
-          {!statsError && tab === "timeslots" && <TimeSlotsTab subHubId={subHubId} onSetExcel={setExcelBar} />}
+          {TIMESLOT_FEATURE_ENABLED && !statsError && tab === "timeslots" && <TimeSlotsTab subHubId={subHubId} onSetExcel={setExcelBar} />}
           {tab === "pincodes" && <PincodesTab subHubId={subHubId} onCountChange={setPincodesCount} />}
           {statsError && tab !== "pincodes" && <div className="py-12 text-center text-gray-400 text-sm">Fix the database connection to manage this sub hub's menu.</div>}
         </div>
@@ -840,7 +843,7 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Service Areas</p>
-          <p className="text-xs text-gray-400 mt-1">Each pincode can have an extra delivery charge and a time delay added to all time slots for orders from that area.</p>
+          <p className="text-xs text-gray-400 mt-1">Each pincode can have an extra delivery charge and delivery delay.</p>
         </div>
         {dirty && (
           <Button
@@ -2983,9 +2986,15 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
     apiFetch(`/api/sub-hubs/${subHubId}/menu/coupons`).then((d) => {
       setAvailableCoupons(d.coupons ?? []);
     }).catch(() => {});
-    apiFetch(`/api/sub-hubs/${subHubId}/menu/timeslots`)
-      .then((d) => setPreorderTimeslots(Array.isArray(d.timeslots) ? d.timeslots : []))
-      .catch(() => setPreorderTimeslots([]));
+    // Legacy product-to-timeslot restrictions remain available if scheduling
+    // is explicitly re-enabled; do not fetch them while the feature is off.
+    if (TIMESLOT_FEATURE_ENABLED) {
+      apiFetch(`/api/sub-hubs/${subHubId}/menu/timeslots`)
+        .then((d) => setPreorderTimeslots(Array.isArray(d.timeslots) ? d.timeslots : []))
+        .catch(() => setPreorderTimeslots([]));
+    } else {
+      setPreorderTimeslots([]);
+    }
     if (product) {
       setName(product.name ?? "");
       setShortCode(product.shortCode ?? "");
@@ -3218,7 +3227,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
                   </PopoverContent>
                 </Popover>
               </div>
-              <div className="space-y-1.5">
+              {!DIRECT_ORDER_ONLY && <div className="space-y-1.5">
                 <Label className="text-xs font-semibold text-gray-600">Sales Mode</Label>
                 <Select value={preorderMode} onValueChange={(v) => setPreorderMode(v as typeof preorderMode)}>
                   <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
@@ -3228,8 +3237,8 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
                   </SelectContent>
                 </Select>
                 <p className="text-[11px] text-gray-400">Controls whether this product appears in the normal POS or preorder POS.</p>
-              </div>
-              {preorderMode === "preorder_only" && (
+              </div>}
+              {!DIRECT_ORDER_ONLY && preorderMode === "preorder_only" && (
                 <div className="rounded-lg border border-orange-200 bg-orange-50/60 p-3 space-y-3">
                   <div className="flex items-start gap-2">
                     <CalendarDays className="w-4 h-4 text-orange-600 mt-0.5 shrink-0" />
@@ -3301,6 +3310,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
                         )}
                       </>
                     )}
+                    {TIMESLOT_FEATURE_ENABLED && <>
                     <div className="mb-2">
                       <div>
                         <p className="text-[11px] font-semibold text-orange-800">
@@ -3363,6 +3373,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
                         );
                       })}
                     </div>
+                    </>}
                   </div>
 
                   {(preorderAvailability.type === "date_range" || preorderAvailability.type === "date_range_and_weekdays") && (

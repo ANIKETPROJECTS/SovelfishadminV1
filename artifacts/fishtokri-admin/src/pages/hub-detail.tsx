@@ -637,7 +637,7 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
           <div>
             <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Service Areas</p>
-            <p className="text-xs text-gray-400 mt-1">Each pincode can have an extra delivery charge and a time delay added to all time slots for orders from that area.</p>
+            <p className="text-xs text-gray-400 mt-1">Each pincode can have an extra delivery charge and delivery delay.</p>
           </div>
 
           <div className="space-y-3">

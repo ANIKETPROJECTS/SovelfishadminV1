@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { OrderQrScanner } from "@/components/OrderQrScanner";
 import { isPaymentStatusPaid, paymentStatusDisplayLabel } from "@/lib/invoice-payment-status.mjs";
+import { TIMESLOT_FEATURE_ENABLED } from "@/lib/feature-flags";
 
 function getAdminData() {
   try { return JSON.parse(localStorage.getItem("fishtokri_admin") || "null"); } catch { return null; }
@@ -274,15 +275,15 @@ function OrderDetailDialog({
             </div>
           )}
 
-          {/* ── Schedule ── */}
-          {(order.timeslotLabel || order.scheduledDate || order.deliveryDate) && (
+          {/* ── Delivery date ── */}
+          {(order.scheduledDate || order.deliveryDate || (TIMESLOT_FEATURE_ENABLED && order.timeslotLabel)) && (
             <div className="bg-white rounded-2xl p-4 flex items-center gap-3 shadow-sm">
-              <img src="/icon-clock.png" alt="Time" className="w-5 h-5 flex-shrink-0" />
+              <img src="/icon-calendar.png" alt="Delivery date" className="w-5 h-5 flex-shrink-0" />
               <div>
                 {(order.scheduledDate || order.deliveryDate) && (
                   <p className="text-sm font-bold text-black">{formatDay(order.scheduledDate || order.deliveryDate)}</p>
                 )}
-                {order.timeslotLabel && (
+                {TIMESLOT_FEATURE_ENABLED && order.timeslotLabel && (
                   <p className="text-sm font-semibold text-black">{order.timeslotLabel}</p>
                 )}
               </div>
@@ -771,7 +772,7 @@ function OrdersList({ mode, refreshKey, silentRefreshKey, onCountChange }: { mod
                         <span className="text-sm font-medium text-black leading-snug">{addressText}</span>
                       </div>
                     )}
-                    {o.timeslotLabel && (
+                    {TIMESLOT_FEATURE_ENABLED && o.timeslotLabel && (
                       <div className="flex items-center gap-2.5">
                         <img src="/icon-clock.png" alt="Time" className="w-4 h-4 flex-shrink-0" />
                         <span className="text-sm font-semibold text-black">{o.timeslotLabel}</span>
@@ -871,7 +872,7 @@ function OrdersList({ mode, refreshKey, silentRefreshKey, onCountChange }: { mod
                     </span>
                   </div>
                 )}
-                {selectedOrder.timeslotLabel && (
+                {TIMESLOT_FEATURE_ENABLED && selectedOrder.timeslotLabel && (
                   <div className="flex items-center gap-2.5">
                     <img src="/icon-clock.png" alt="Time" className="w-4 h-4 flex-shrink-0" />
                     <span className="text-sm font-semibold text-black">{selectedOrder.timeslotLabel}</span>

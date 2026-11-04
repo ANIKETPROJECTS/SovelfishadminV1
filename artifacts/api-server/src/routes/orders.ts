@@ -20,6 +20,7 @@ import {
   isFtwOrder,
   isFtwPaymentOnHold,
 } from "../services/ftw-order-lifecycle.js";
+import { DIRECT_ORDER_ONLY, TIMESLOT_FEATURE_ENABLED } from "../lib/feature-flags.js";
 
 const router = Router();
 router.use(requireAuth as any);
@@ -159,6 +160,7 @@ function addMinutesToTimeString(timeString: string, minutes: number): string {
  * under-report the delivery window.
  */
 async function enrichOrderTimeslots(orders: any[], log: any): Promise<any[]> {
+  if (!TIMESLOT_FEATURE_ENABLED) return orders;
   const dbPromises = new Map<string, Promise<any>>();
   const getDb = (name: string) => {
     if (!dbPromises.has(name)) dbPromises.set(name, getSubHubDbConnection(name));
@@ -1133,8 +1135,10 @@ router.post("/", async (req: ScopedRequest, res) => {
       res.status(400).json({ error: "ValidationError", message: "Delivery address is required" });
       return;
     }
-    const normalizedOrderType = orderType === "preorder" ? "preorder" : "normal";
-    if (normalizedOrderType === "preorder") {
+    const normalizedOrderType = DIRECT_ORDER_ONLY
+      ? "normal"
+      : orderType === "preorder" ? "preorder" : "normal";
+    if (!DIRECT_ORDER_ONLY && normalizedOrderType === "preorder") {
       const preorderDate = String(deliveryDate ?? "").trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(preorderDate) || preorderDate <= getTodayISODate()) {
         res.status(400).json({ error: "ValidationError", message: "Preorder delivery date must be a future date" });
@@ -1222,13 +1226,15 @@ router.post("/", async (req: ScopedRequest, res) => {
     const sub = Number(subtotal);
     const subTotalNum = Number.isFinite(sub) && sub > 0 ? sub : computedSubtotal;
     const discountNum = Math.max(0, Number(discount) || 0);
-    const slotChargeNum = Math.max(0, Number(slotCharge) || 0);
+    const slotChargeNum = DIRECT_ORDER_ONLY ? 0 : Math.max(0, Number(slotCharge) || 0);
     const deliveryChargeNum = Math.max(0, Number(deliveryCharge) || 0);
     const extraDiscountNum = Math.max(0, Number(extraDiscount) || 0);
     const hasIncomingTotal = totalIn !== undefined && totalIn !== null && totalIn !== "";
-    const totalNum = hasIncomingTotal && Number.isFinite(Number(totalIn))
-      ? Math.max(0, Number(totalIn))
-      : Math.max(0, subTotalNum - discountNum + slotChargeNum + deliveryChargeNum);
+    const totalNum = DIRECT_ORDER_ONLY
+      ? Math.max(0, subTotalNum - discountNum + deliveryChargeNum)
+      : hasIncomingTotal && Number.isFinite(Number(totalIn))
+        ? Math.max(0, Number(totalIn))
+        : Math.max(0, subTotalNum - discountNum + slotChargeNum + deliveryChargeNum);
 
     const orderDoc: any = {
       customerId: resolvedCustomerId ?? undefined,
@@ -1284,13 +1290,15 @@ router.post("/", async (req: ScopedRequest, res) => {
       dueAmount: (totalNum === 0 || String(paymentStatus) === "paid") ? 0 : Math.max(0, totalNum - (Number(paidAmount) || 0)),
       paymentMode: paymentMode ? String(paymentMode) : undefined,
       // Schedule
-      scheduleType: scheduleType === "instant" ? "instant" : scheduleType === "express" ? "express" : "slot",
-      isExpress: !!isExpress,
-      deliveryDate: deliveryDate ? String(deliveryDate) : undefined,
-      timeslotId: timeslotId ? String(timeslotId) : undefined,
-      timeslotLabel: timeslotLabel ?? undefined,
-      timeslotStart: timeslotStart ?? undefined,
-      timeslotEnd: timeslotEnd ?? undefined,
+      scheduleType: DIRECT_ORDER_ONLY ? "instant" : scheduleType === "instant" ? "instant" : scheduleType === "express" ? "express" : "slot",
+      isExpress: DIRECT_ORDER_ONLY ? false : !!isExpress,
+      deliveryDate: DIRECT_ORDER_ONLY
+        ? getTodayISODate()
+        : deliveryDate ? String(deliveryDate) : undefined,
+      timeslotId: TIMESLOT_FEATURE_ENABLED && timeslotId ? String(timeslotId) : undefined,
+      timeslotLabel: TIMESLOT_FEATURE_ENABLED ? timeslotLabel ?? undefined : undefined,
+      timeslotStart: TIMESLOT_FEATURE_ENABLED ? timeslotStart ?? undefined : undefined,
+      timeslotEnd: TIMESLOT_FEATURE_ENABLED ? timeslotEnd ?? undefined : undefined,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -1562,7 +1570,7 @@ router.post("/", async (req: ScopedRequest, res) => {
     res.status(201).json({ order: { ...orderDoc, _id: result.insertedId } });
 
     // Sync timeslot order counts to MongoDB immediately after creating an order.
-    if (scheduleType === "slot" && timeslotId && orderDoc.subHubName) {
+    if (TIMESLOT_FEATURE_ENABLED && scheduleType === "slot" && timeslotId && orderDoc.subHubName) {
       syncTimeslotOrderCounts(String(timeslotId), String(orderDoc.subHubName), req.log);
     }
   } catch (err) {
@@ -1796,19 +1804,28 @@ router.put("/:id", async (req: ScopedRequest, res) => {
         res.status(400).json({ error: "ValidationError", message: "Invalid order type" });
         return;
       }
-      update.orderType = String(orderType);
+      update.orderType = DIRECT_ORDER_ONLY ? "normal" : String(orderType);
     }
     if (superHubId !== undefined) update.superHubId = superHubId;
     if (superHubName !== undefined) update.superHubName = superHubName;
     if (subHubId !== undefined) update.subHubId = subHubId;
     if (subHubName !== undefined) update.subHubName = subHubName;
-    if (scheduleType !== undefined) update.scheduleType = scheduleType;
-    if (isExpress !== undefined) update.isExpress = !!isExpress;
-    if (deliveryDate !== undefined) update.deliveryDate = deliveryDate;
-    if (timeslotId !== undefined) update.timeslotId = timeslotId;
-    if (timeslotLabel !== undefined) update.timeslotLabel = timeslotLabel;
-    if (timeslotStart !== undefined) update.timeslotStart = timeslotStart;
-    if (timeslotEnd !== undefined) update.timeslotEnd = timeslotEnd;
+    if (scheduleType !== undefined) {
+      update.scheduleType = DIRECT_ORDER_ONLY ? "instant" : scheduleType;
+      if (DIRECT_ORDER_ONLY) {
+        update.deliveryDate = getTodayISODate();
+        update.timeslotId = null;
+        update.timeslotLabel = null;
+        update.timeslotStart = null;
+        update.timeslotEnd = null;
+      }
+    }
+    if (isExpress !== undefined) update.isExpress = DIRECT_ORDER_ONLY ? false : !!isExpress;
+    if (deliveryDate !== undefined) update.deliveryDate = DIRECT_ORDER_ONLY ? getTodayISODate() : deliveryDate;
+    if (timeslotId !== undefined) update.timeslotId = DIRECT_ORDER_ONLY ? null : timeslotId;
+    if (timeslotLabel !== undefined) update.timeslotLabel = DIRECT_ORDER_ONLY ? null : timeslotLabel;
+    if (timeslotStart !== undefined) update.timeslotStart = DIRECT_ORDER_ONLY ? null : timeslotStart;
+    if (timeslotEnd !== undefined) update.timeslotEnd = DIRECT_ORDER_ONLY ? null : timeslotEnd;
     if (couponId !== undefined) update.couponId = couponId;
     if (couponCode !== undefined) update.couponCode = couponCode;
     if (couponTitle !== undefined) update.couponTitle = couponTitle;
@@ -1817,7 +1834,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
     if (Array.isArray(coupons)) update.coupons = coupons;
     if (subtotal !== undefined) update.subtotal = Number(subtotal) || 0;
     if (discount !== undefined) update.discount = Number(discount) || 0;
-    if (slotCharge !== undefined) update.slotCharge = Number(slotCharge) || 0;
+    if (slotCharge !== undefined) update.slotCharge = DIRECT_ORDER_ONLY ? 0 : Number(slotCharge) || 0;
     if (deliveryCharge !== undefined) update.deliveryCharge = Number(deliveryCharge) || 0;
     if (extraDiscount !== undefined) update.extraDiscount = Number(extraDiscount) || 0;
     if (extraDiscountType !== undefined) update.extraDiscountType = String(extraDiscountType);
@@ -2295,7 +2312,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
     }
 
     // Sync timeslot order counts to MongoDB after any status change on a slot order.
-    if ((result as any).scheduleType === "slot" && (result as any).timeslotId && (result as any).subHubName) {
+    if (TIMESLOT_FEATURE_ENABLED && (result as any).scheduleType === "slot" && (result as any).timeslotId && (result as any).subHubName) {
       syncTimeslotOrderCounts(String((result as any).timeslotId), String((result as any).subHubName), req.log);
     }
   } catch (err) {
@@ -2405,7 +2422,7 @@ router.delete("/:id", async (req: ScopedRequest, res) => {
     res.json({ success: true });
 
     // Sync timeslot order counts to MongoDB after deleting a slot order.
-    if ((existing as any).scheduleType === "slot" && (existing as any).timeslotId && (existing as any).subHubName) {
+    if (TIMESLOT_FEATURE_ENABLED && (existing as any).scheduleType === "slot" && (existing as any).timeslotId && (existing as any).subHubName) {
       syncTimeslotOrderCounts(String((existing as any).timeslotId), String((existing as any).subHubName), req.log);
     }
   } catch (err) {

@@ -4,6 +4,7 @@ import { SubHub } from "../db/models/sub-hub.js";
 import { getSubHubDbConnection } from "../db/sub-hub-connections.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { loadScope, type ScopedRequest } from "../middlewares/scope.js";
+import { TIMESLOT_FEATURE_ENABLED } from "../lib/feature-flags.js";
 import {
   formatBulkPortionRangeLabel,
   formatBulkPortionWeightLabel,
@@ -13,6 +14,16 @@ import {
 const router: IRouter = Router({ mergeParams: true });
 router.use(requireAuth as any);
 router.use(loadScope as any);
+
+// Keep legacy timeslot handlers in place, but make the API unavailable until
+// scheduling is explicitly re-enabled in the feature flags.
+const requireTimeslotsEnabled = (_req: any, res: any, next: any) => {
+  if (!TIMESLOT_FEATURE_ENABLED) {
+    res.status(404).json({ error: "NotFound", message: "Time-slot scheduling is currently disabled" });
+    return;
+  }
+  next();
+};
 
 async function getSubHubDb(subHubId: string, res: any, req?: ScopedRequest) {
   const sub = await SubHub.findById(subHubId);
@@ -1622,7 +1633,7 @@ function getTimeslotTomorrowISO(): string {
   return `${y}-${m}-${d}`;
 }
 
-router.get("/timeslots", async (req, res) => {
+router.get("/timeslots", requireTimeslotsEnabled, async (req, res) => {
   try {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);
     if (!ctx) return;
@@ -1727,7 +1738,7 @@ router.get("/timeslots", async (req, res) => {
   }
 });
 
-router.post("/timeslots", async (req, res) => {
+router.post("/timeslots", requireTimeslotsEnabled, async (req, res) => {
   try {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);
     if (!ctx) return;
@@ -1756,7 +1767,7 @@ router.post("/timeslots", async (req, res) => {
   }
 });
 
-router.put("/timeslots/reorder", async (req, res) => {
+router.put("/timeslots/reorder", requireTimeslotsEnabled, async (req, res) => {
   try {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);
     if (!ctx) return;
@@ -1775,7 +1786,7 @@ router.put("/timeslots/reorder", async (req, res) => {
   }
 });
 
-router.put("/timeslots/:timeslotId", async (req, res) => {
+router.put("/timeslots/:timeslotId", requireTimeslotsEnabled, async (req, res) => {
   try {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);
     if (!ctx) return;
@@ -1808,7 +1819,7 @@ router.put("/timeslots/:timeslotId", async (req, res) => {
   }
 });
 
-router.delete("/timeslots/:timeslotId", async (req, res) => {
+router.delete("/timeslots/:timeslotId", requireTimeslotsEnabled, async (req, res) => {
   try {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);
     if (!ctx) return;
@@ -1932,7 +1943,7 @@ router.post("/sections/bulk-upsert", async (req, res) => {
   } catch (err) { req.log.error({ err }, "sections bulk-upsert failed"); res.status(500).json({ error: "InternalError", message: "Failed" }); }
 });
 
-router.post("/timeslots/bulk-upsert", async (req, res) => {
+router.post("/timeslots/bulk-upsert", requireTimeslotsEnabled, async (req, res) => {
   try {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);
     if (!ctx) return;

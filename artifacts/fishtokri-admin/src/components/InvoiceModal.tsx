@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { printHtmlWithQZ } from "@/lib/qz-print";
 import { apiFetch } from "@/lib/api";
 import { getInvoicePaymentAmounts, isInvoicePaid } from "@/lib/invoice-payment-status.mjs";
+import { TIMESLOT_FEATURE_ENABLED } from "@/lib/feature-flags";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -204,7 +205,7 @@ export function InvoiceModal({ order, onClose }: { order: any; onClose: () => vo
       `<div style="border-top:2px solid #444;margin:8px 0;"></div>` +
       `<div style="margin:4px 0;font-size:17px;"><b>Order Date :</b> ${orderDateStr} , ${timeStr}</div>` +
       `<div style="margin:4px 0;font-size:17px;"><b>Delivery Date :</b> ${deliveryDateStr}</div>` +
-      (slotLabel ? `<div style="margin:4px 0;font-size:17px;"><b>Delivery Slot :</b> ${slotLabel}</div>` : "") +
+      (TIMESLOT_FEATURE_ENABLED && slotLabel ? `<div style="margin:4px 0;font-size:17px;"><b>Delivery Slot :</b> ${slotLabel}</div>` : "") +
       notesRow;
 
     const customerBody =
@@ -308,7 +309,7 @@ export function InvoiceModal({ order, onClose }: { order: any; onClose: () => vo
               <div className="border-t-2 border-gray-500 my-2" />
               <div className="text-[15px]"><b>Order Date :</b> {orderDateStr} , {timeStr}</div>
               <div className="text-[15px]"><b>Delivery Date :</b> {deliveryDateStr}</div>
-              {slotLabel && <div className="text-[15px]"><b>Delivery Slot :</b> {slotLabel}</div>}
+              {TIMESLOT_FEATURE_ENABLED && slotLabel && <div className="text-[15px]"><b>Delivery Slot :</b> {slotLabel}</div>}
               {order.notes && <div className="text-[15px]"><b>Notes : {order.notes}</b></div>}
               <div className="text-[15px]">
                 <b>Payment :</b> {payMode}
@@ -453,7 +454,7 @@ export function InvoiceModal({ order, onClose }: { order: any; onClose: () => vo
               <div className="border-t-2 border-gray-500 my-2" />
               <div className="text-[15px]"><b>Order Date :</b> {orderDateStr} , {timeStr}</div>
               <div className="text-[15px]"><b>Delivery Date :</b> {deliveryDateStr}</div>
-              {slotLabel && <div className="text-[15px]"><b>Delivery Slot :</b> {slotLabel}</div>}
+              {TIMESLOT_FEATURE_ENABLED && slotLabel && <div className="text-[15px]"><b>Delivery Slot :</b> {slotLabel}</div>}
               {order.notes && <div className="text-[15px]"><b>Notes : {order.notes}</b></div>}
               <div className="border-t-2 border-gray-500 my-2" />
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
