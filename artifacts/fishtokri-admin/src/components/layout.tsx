@@ -13,6 +13,7 @@ const WHATSAPP_NAV_ENABLED = false;
 
 const masterAdminNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/menu", label: "Menu Management", icon: Store, matchPrefix: "/sub-hub-menu" },
   { href: "/hubs", label: "Hubs", icon: Warehouse },
   { href: "/orders", label: "Orders", icon: ClipboardList },
   {
@@ -239,6 +240,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   //   Sub Hub:   Dashboard, Orders, Inventory Management, Customers (+ Menu shortcut)
   const superHubAllowedHrefs = new Set([
     "/dashboard",
+    "/menu",
     "/hubs",
     "/orders",
     "/inventory",
@@ -247,6 +249,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   ]);
   const subHubAllowedHrefs = new Set([
     "/dashboard",
+    "/menu",
     "/orders",
     "/inventory",
     "/customers",
@@ -258,8 +261,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const subHubNavItems = [
     ...filterNavByHrefs(masterAdminNavItems, subHubAllowedHrefs),
-    // Sub Hub menu shortcut → resolves to first assigned sub hub's menu admin
-    { href: "/menu", label: "Menu", icon: Store },
   ];
 
   const deliveryNavItems = [

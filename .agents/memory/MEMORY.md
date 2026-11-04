@@ -18,3 +18,4 @@
 - [Secrets in process configuration](secrets-in-process-config.md) — after managing a Replit secret, check tracked process configs for plaintext copies and pass values through the environment.
 - [Admark template variables in chats](admark-chat-template-rendering.md) — Admark messages can carry `variables.bodyN`; resolve them against raw template text and avoid displaying unresolved tokens.
 - [OpenAPI code generation and Zod 3](openapi-codegen-zod-v3.md) — inspect generated schemas for Zod 4-only methods and start the API after regeneration.
+- [Sub-hub menu shortcut routing](subhub-menu-shortcut.md) — keep each Sub Hub Dashboard button opening its menu admin; add a separate sidebar shortcut for Menu Management.

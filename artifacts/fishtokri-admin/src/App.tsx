@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect } from "react";
+import { apiFetch } from "@/lib/api";
 import NotFound from "@/pages/not-found";
 import RoleSelect from "@/pages/role-select";
 import Login from "@/pages/login";
@@ -93,19 +94,47 @@ function ProtectedRoute({
   );
 }
 
-// Sub-hub Menu shortcut: redirect /menu to the menu admin for the user's
-// first assigned sub hub.
+// Menu shortcut: open the last selected sub hub, or the first available one.
 function MenuRedirect() {
   const [, setLocation] = useLocation();
   const admin = getStoredAdmin();
   const subHubIds: string[] =
     admin?.subHubIds?.length > 0 ? admin.subHubIds : admin?.subHubId ? [admin.subHubId] : [];
+
   useEffect(() => {
-    if (subHubIds.length > 0) {
-      setLocation(`/sub-hub-menu/${subHubIds[0]}`);
-    } else {
-      setLocation("/dashboard");
-    }
+    let cancelled = false;
+    const openMenu = async () => {
+      const lastSelectedId = localStorage.getItem("fishtokri_last_subhub_id") || "";
+      if (subHubIds.length > 0) {
+        const targetId = subHubIds.includes(lastSelectedId) ? lastSelectedId : subHubIds[0];
+        localStorage.setItem("fishtokri_last_subhub_id", targetId);
+        setLocation(`/sub-hub-menu/${targetId}`);
+        return;
+      }
+
+      try {
+        const data = await apiFetch("/api/sub-hubs");
+        if (cancelled) return;
+        const subHubs = Array.isArray(data?.subHubs) ? data.subHubs : [];
+        const activeSubHubs = subHubs.filter((sub: any) => sub.status === "Active");
+        const target =
+          activeSubHubs.find((sub: any) => sub.id === lastSelectedId) ??
+          activeSubHubs[0] ??
+          subHubs.find((sub: any) => sub.id === lastSelectedId) ??
+          subHubs[0];
+        if (target?.id) {
+          localStorage.setItem("fishtokri_last_subhub_id", String(target.id));
+          setLocation(`/sub-hub-menu/${target.id}`);
+        } else {
+          setLocation("/hubs");
+        }
+      } catch {
+        if (!cancelled) setLocation("/hubs");
+      }
+    };
+
+    void openMenu();
+    return () => { cancelled = true; };
   }, [subHubIds.join(",")]);
   return null;
 }
@@ -231,9 +260,9 @@ function App() {
             <Route path="/sub-hub-menu/:id">
               <ProtectedRoute component={SubHubMenuAdmin} allowedRoles={ALL_ADMIN_ROLES} />
             </Route>
-            {/* Sub Hub menu shortcut → resolves to first sub hub's menu */}
+            {/* Sidebar shortcut → resolves to the last selected or first available sub hub */}
             <Route path="/menu">
-              <ProtectedRoute component={MenuRedirect} allowedRoles={SUB_HUB_ONLY} />
+              <ProtectedRoute component={MenuRedirect} allowedRoles={ALL_ADMIN_ROLES} />
             </Route>
 
             {/* ── Legacy redirects (preserve old bookmarks) ──────────────── */}
