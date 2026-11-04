@@ -14,6 +14,8 @@ router.use(denyIfNotMaster as any);
 
 const PHONE_REGEX = /^\d{10}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ASSIGNABLE_USER_ROLES = new Set(["super_admin", "super_hub", "sub_hub"]);
+const LEGACY_DELIVERY_PERSON_ROLE = "delivery_person";
 
 async function enrichUser(user: any) {
   const ids: string[] = Array.isArray(user.superHubIds) && user.superHubIds.length > 0
@@ -74,9 +76,14 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { name, email, phone, profileImageUrl, role, superHubId, superHubIds, subHubId, subHubIds, status, password } = req.body;
+    const requestedRole = role ?? "sub_hub";
 
     if (!name || !email) {
       res.status(400).json({ error: "ValidationError", message: "Name and email are required" });
+      return;
+    }
+    if (!ASSIGNABLE_USER_ROLES.has(String(requestedRole))) {
+      res.status(400).json({ error: "ValidationError", message: "Choose Master Admin, Super Hub Admin, or Sub Hub Admin. Delivery Person is no longer assignable." });
       return;
     }
     if (!EMAIL_REGEX.test(email)) {
@@ -115,7 +122,7 @@ router.post("/", async (req, res) => {
       email: email.toLowerCase().trim(),
       phone: phone?.trim() ?? "",
       profileImageUrl: profileImageUrl ?? "",
-      role: role ?? "sub_hub",
+      role: requestedRole,
       password: hashedPassword,
       superHubId: resolvedSuperHubIds[0] || null,
       superHubIds: resolvedSuperHubIds,
@@ -141,6 +148,13 @@ router.put("/:id", async (req, res) => {
     if (!user) { res.status(404).json({ error: "NotFound", message: "User not found" }); return; }
 
     const { name, email, phone, profileImageUrl, role, superHubId, superHubIds, subHubId, subHubIds, status, password } = req.body;
+
+    const isUnchangedLegacyDeliveryRole =
+      user.role === LEGACY_DELIVERY_PERSON_ROLE && role === LEGACY_DELIVERY_PERSON_ROLE;
+    if (role !== undefined && !ASSIGNABLE_USER_ROLES.has(String(role)) && !isUnchangedLegacyDeliveryRole) {
+      res.status(400).json({ error: "ValidationError", message: "Choose Master Admin, Super Hub Admin, or Sub Hub Admin. Delivery Person is no longer assignable." });
+      return;
+    }
 
     if (email !== undefined && !EMAIL_REGEX.test(email)) {
       res.status(400).json({ error: "ValidationError", message: "Invalid email format" });

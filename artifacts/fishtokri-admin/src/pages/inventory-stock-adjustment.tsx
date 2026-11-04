@@ -127,7 +127,7 @@ function fishTotalPrice(weightKg: string | number, pricePerKg: string | number):
   const weight = Number(weightKg);
   const rate = Number(pricePerKg);
   if (!Number.isFinite(weight) || weight <= 0 || !Number.isFinite(rate) || rate <= 0) return "";
-  return (Math.round(weight * rate * 100) / 100).toFixed(2);
+  return String(Math.round(weight * rate));
 }
 
 function bulkPortionPrice(weightKg: string | number, pricePerKg: string | number): string {
@@ -881,7 +881,7 @@ function BatchSelector({
                   <p className="text-sm font-bold text-[#162B4D]">{b.batchNumber || "Unnamed Batch"}</p>
                   <p className="text-[11px] text-gray-400 mt-0.5">
                     {b.fishWeightKg != null
-                      ? `${b.fishWeightKg} kg · ₹${Number(b.fishPrice ?? 0).toFixed(2)} per fish · `
+                      ? `${b.fishWeightKg} kg · ₹${Math.round(Number(b.fishPrice ?? 0))} per fish · `
                       : ""}
                     Added {formatDate(b.receivedDate)} · Exp <span className={`font-semibold ${tone}`}>{formatExpiry(b.expiryDate)}</span>
                   </p>
@@ -914,7 +914,7 @@ function BatchSelector({
       >
         <span className="truncate">
           {selected
-            ? `${selected.batchNumber || "Unnamed"}${selected.fishWeightKg != null ? ` · ${selected.fishWeightKg} kg · ₹${Number(selected.fishPrice ?? 0).toFixed(2)}` : ""}`
+            ? `${selected.batchNumber || "Unnamed"}${selected.fishWeightKg != null ? ` · ${selected.fishWeightKg} kg · ₹${Math.round(Number(selected.fishPrice ?? 0))}` : ""}`
             : placeholder}
         </span>
         <ChevronDown className={`w-3.5 h-3.5 flex-shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
@@ -956,10 +956,14 @@ function ExistingBatchesCard({
     setEdited(visibleBatches.map((b) => ({
       ...b,
       shelfLifeDays: b.shelfLifeDays ?? calculateShelfLifeDays(b.receivedDate, b.expiryDate),
-      ...(wholeFishProduct && Number(b.fishPricePerKg) > 0 && Number(b.fishWeightKg) > 0
+      ...(wholeFishProduct
         ? {
-            fishPricePerKg: Number(b.fishPricePerKg),
-            fishPrice: Math.round(Number(b.fishWeightKg) * Number(b.fishPricePerKg) * 100) / 100,
+            ...(Number(b.fishPricePerKg) > 0 ? { fishPricePerKg: Number(b.fishPricePerKg) } : {}),
+            fishPrice: Number(b.fishPricePerKg) > 0 && Number(b.fishWeightKg) > 0
+              ? Math.round(Number(b.fishWeightKg) * Number(b.fishPricePerKg))
+              : b.fishPrice != null && b.fishPrice !== "" && Number.isFinite(Number(b.fishPrice))
+                ? Math.round(Number(b.fishPrice))
+                : b.fishPrice,
           }
         : {}),
       expiryTime: extractTime12hFromISO(b.expiryDate),
@@ -981,10 +985,14 @@ function ExistingBatchesCard({
       // Strip UI-only expiryTime and reconstruct expiryDate as a full IST ISO string
       const batchesToSend = edited.map(({ expiryTime, ...rest }) => ({
         ...rest,
-        ...(wholeFishProduct && Number(rest.fishPricePerKg) > 0 && Number(rest.fishWeightKg) > 0
+        ...(wholeFishProduct
           ? {
-              fishPricePerKg: Number(rest.fishPricePerKg),
-              fishPrice: Math.round(Number(rest.fishWeightKg) * Number(rest.fishPricePerKg) * 100) / 100,
+              ...(Number(rest.fishPricePerKg) > 0 ? { fishPricePerKg: Number(rest.fishPricePerKg) } : {}),
+              fishPrice: Number(rest.fishPricePerKg) > 0 && Number(rest.fishWeightKg) > 0
+                ? Math.round(Number(rest.fishWeightKg) * Number(rest.fishPricePerKg))
+                : rest.fishPrice != null && rest.fishPrice !== "" && Number.isFinite(Number(rest.fishPrice))
+                  ? Math.round(Number(rest.fishPrice))
+                  : rest.fishPrice,
             }
           : {}),
         expiryDate: rest.expiryDate
@@ -1077,8 +1085,10 @@ function ExistingBatchesCard({
                     <input
                       type="number"
                       value={Number(b.fishPricePerKg) > 0 && Number(b.fishWeightKg) > 0
-                        ? (Number(b.fishWeightKg) * Number(b.fishPricePerKg)).toFixed(2)
-                        : b.fishPrice ?? ""}
+                       ? String(Math.round(Number(b.fishWeightKg) * Number(b.fishPricePerKg)))
+                        : wholeFishProduct && b.fishPrice != null && b.fishPrice !== "" && Number.isFinite(Number(b.fishPrice))
+                          ? String(Math.round(Number(b.fishPrice)))
+                          : b.fishPrice ?? ""}
                       aria-label="Calculated total price for this fish"
                       readOnly
                       className="h-7 px-2 text-[11px] text-[#162B4D] border border-gray-200 rounded bg-gray-50 mt-0.5"

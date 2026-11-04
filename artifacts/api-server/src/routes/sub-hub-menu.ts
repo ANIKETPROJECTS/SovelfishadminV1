@@ -206,7 +206,7 @@ router.get("/products", async (req, res) => {
             batchId: String(batch._id ?? ""),
             batchNumber: String(batch.batchNumber ?? ""),
             weightKg: Number(batch.fishWeightKg),
-            price: Number(batch.fishPrice),
+            price: Math.round(Number(batch.fishPrice)),
             quantity: Number(batch.quantity) || 0,
             expiryDate: batch.expiryDate ?? null,
           }))

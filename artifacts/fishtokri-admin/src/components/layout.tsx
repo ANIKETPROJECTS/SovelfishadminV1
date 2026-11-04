@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Warehouse, Users, LogOut, Store, Truck, UserCircle, ShoppingBasket, ClipboardList, Handshake, ChevronLeft, ChevronRight, Boxes, ChevronDown, FolderOpen, SlidersHorizontal, FileText, Receipt, Package, History, Menu, X, FileSpreadsheet, Trash2, MessageSquare, BookUser } from "lucide-react";
+import { LayoutDashboard, Warehouse, Users, LogOut, Truck, UserCircle, ShoppingBasket, ClipboardList, Handshake, ChevronLeft, ChevronRight, Boxes, ChevronDown, FolderOpen, SlidersHorizontal, FileText, Receipt, Package, History, Menu, X, FileSpreadsheet, Trash2, MessageSquare, BookUser } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useRef } from "react";
 import { useNewOrderPopup } from "@/hooks/use-new-order-popup";
@@ -13,7 +13,6 @@ const WHATSAPP_NAV_ENABLED = false;
 
 const masterAdminNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/menu", label: "Menu Management", icon: Store, matchPrefix: "/sub-hub-menu" },
   { href: "/hubs", label: "Hubs", icon: Warehouse },
   { href: "/orders", label: "Orders", icon: ClipboardList },
   {

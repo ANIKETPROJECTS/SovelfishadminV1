@@ -385,7 +385,7 @@ function SubHubCard({ sub, onEdit, onDelete }: { sub: any; onEdit: () => void; o
         {sub.pincodes?.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-3">
             {sub.pincodes.slice(0, 4).map((p: any) => (
-              <span key={p.pincode} title={`+₹${p.charge} · +${p.timeDelay}min`} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">{p.pincode}</span>
+              <span key={p.pincode} title={`₹${p.charge} extra delivery charge`} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">{p.pincode}</span>
             ))}
             {sub.pincodes.length > 4 && (
               <span className="text-[10px] text-gray-400 px-1 py-0.5">+{sub.pincodes.length - 4} more</span>
@@ -465,7 +465,7 @@ function SubHubTableRow({ sub, onEdit, onDelete }: { sub: any; onEdit: () => voi
       <td className="px-3 py-4">
         <div className="flex flex-wrap gap-1 max-w-[200px]">
           {(sub.pincodes || []).slice(0, 3).map((p: any) => (
-            <span key={p.pincode} title={`+₹${p.charge} · +${p.timeDelay}min`} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">{p.pincode}</span>
+            <span key={p.pincode} title={`₹${p.charge} extra delivery charge`} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">{p.pincode}</span>
           ))}
           {(sub.pincodes || []).length > 3 && (
             <span className="text-[10px] text-gray-400">+{sub.pincodes.length - 3}</span>
@@ -526,7 +526,6 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
   const [pincodes, setPincodes] = useState<PincodeEntry[]>(subHub?.pincodes || []);
   const [pinInput, setPinInput] = useState("");
   const [pinCharge, setPinCharge] = useState("0");
-  const [pinTimeDelay, setPinTimeDelay] = useState("0");
   const [isActive, setIsActive] = useState(subHub ? subHub.status === "Active" : true);
   const [dbName, setDbName] = useState(subHub?.dbName || "");
 
@@ -537,10 +536,9 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
   const addPin = () => {
     const val = pinInput.trim();
     if (val && !pincodes.some((p) => p.pincode === val)) {
-      setPincodes([...pincodes, { pincode: val, charge: Number(pinCharge) || 0, timeDelay: Number(pinTimeDelay) || 0 }]);
+      setPincodes([...pincodes, { pincode: val, charge: Number(pinCharge) || 0, timeDelay: 0 }]);
       setPinInput("");
       setPinCharge("0");
-      setPinTimeDelay("0");
     }
   };
 
@@ -643,11 +641,11 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
           <div>
             <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Service Areas</p>
-            <p className="text-xs text-gray-400 mt-1">Each pincode can have an extra delivery charge and delivery delay.</p>
+            <p className="text-xs text-gray-400 mt-1">Set an extra delivery charge for each serviceable pincode.</p>
           </div>
 
           <div className="space-y-3">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label className="text-xs font-semibold text-gray-600">Pincode</Label>
                 <Input
@@ -670,18 +668,6 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
                   className="h-9 text-black"
                 />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold text-gray-600">Time Delay (min)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={pinTimeDelay}
-                  onChange={(e) => setPinTimeDelay(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPin(); } }}
-                  placeholder="0"
-                  className="h-9 text-black"
-                />
-              </div>
             </div>
             <Button type="button" variant="secondary" onClick={addPin} className="h-9 px-4 text-sm">
               Add Pincode
@@ -694,7 +680,6 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
                     <tr className="bg-gray-50 border-b border-gray-100">
                       <th className="px-3 py-2 text-left font-semibold text-gray-500">Pincode</th>
                       <th className="px-3 py-2 text-left font-semibold text-gray-500">Extra Charge</th>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-500">Time Delay</th>
                       <th className="px-3 py-2 text-right font-semibold text-gray-500">Remove</th>
                     </tr>
                   </thead>
@@ -703,7 +688,6 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
                       <tr key={p.pincode} className="hover:bg-gray-50 transition-colors">
                         <td className="px-3 py-2 font-semibold text-blue-700">{p.pincode}</td>
                         <td className="px-3 py-2 text-gray-700">₹{p.charge}</td>
-                        <td className="px-3 py-2 text-gray-700">{p.timeDelay} min</td>
                         <td className="px-3 py-2 text-right">
                           <button
                             type="button"

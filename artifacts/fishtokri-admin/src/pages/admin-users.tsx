@@ -100,7 +100,7 @@ export default function AdminUsers() {
 
   const users = usersData?.users || [];
   const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"all" | "super_admin" | "super_hub" | "sub_hub" | "delivery_person">("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | "super_admin" | "super_hub" | "sub_hub">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "Active" | "Inactive">("all");
   const [sort, setSort] = useState<"name_asc" | "name_desc" | "role" | "status">("name_asc");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -191,7 +191,6 @@ export default function AdminUsers() {
               <SelectItem value="super_admin">Master Admin</SelectItem>
               <SelectItem value="super_hub">Super Hub</SelectItem>
               <SelectItem value="sub_hub">Sub Hub</SelectItem>
-              <SelectItem value="delivery_person">Delivery Person</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -685,7 +684,9 @@ function UserModal({ isOpen, onClose, user }: { isOpen: boolean; onClose: () => 
                 <SelectItem value="super_admin">Master Admin</SelectItem>
                 <SelectItem value="super_hub">Super Hub Admin</SelectItem>
                 <SelectItem value="sub_hub">Sub Hub Admin</SelectItem>
-                <SelectItem value="delivery_person">Delivery Person</SelectItem>
+                {isEditing && user?.role === "delivery_person" && (
+                  <SelectItem value="delivery_person" disabled>Delivery Person (existing account)</SelectItem>
+                )}
               </SelectContent>
             </Select>
           </div>

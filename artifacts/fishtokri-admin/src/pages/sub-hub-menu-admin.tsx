@@ -701,7 +701,6 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
   const [pincodes, setPincodes] = useState<PincodeEntry[]>([]);
   const [pinInput, setPinInput] = useState("");
   const [pinCharge, setPinCharge] = useState("0");
-  const [pinTimeDelay, setPinTimeDelay] = useState("0");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -710,7 +709,6 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
   const [editingPincode, setEditingPincode] = useState<string | null>(null);
   const [editPinInput, setEditPinInput] = useState("");
   const [editPinCharge, setEditPinCharge] = useState("0");
-  const [editPinTimeDelay, setEditPinTimeDelay] = useState("0");
 
   useEffect(() => {
     setLoading(true);
@@ -745,11 +743,10 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
       toast({ title: "Pincode already added", variant: "destructive" });
       return;
     }
-    const next = [...pincodes, { pincode: val, charge: Number(pinCharge) || 0, timeDelay: Number(pinTimeDelay) || 0 }];
+    const next = [...pincodes, { pincode: val, charge: Number(pinCharge) || 0, timeDelay: 0 }];
     setPincodes(next);
     setPinInput("");
     setPinCharge("0");
-    setPinTimeDelay("0");
     setDirty(true);
     onCountChange(next.length);
   };
@@ -765,7 +762,6 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
     setEditingPincode(pin.pincode);
     setEditPinInput(pin.pincode);
     setEditPinCharge(String(pin.charge ?? 0));
-    setEditPinTimeDelay(String(pin.timeDelay ?? 0));
   };
 
   const cancelEditPin = () => {
@@ -785,7 +781,7 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
     }
     const next = pincodes.map((p) =>
       p.pincode === editingPincode
-        ? { pincode: val, charge: Number(editPinCharge) || 0, timeDelay: Number(editPinTimeDelay) || 0 }
+        ? { ...p, pincode: val, charge: Number(editPinCharge) || 0 }
         : p
     );
     setPincodes(next);
@@ -843,7 +839,7 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Service Areas</p>
-          <p className="text-xs text-gray-400 mt-1">Each pincode can have an extra delivery charge and delivery delay.</p>
+          <p className="text-xs text-gray-400 mt-1">Set an extra delivery charge for each serviceable pincode.</p>
         </div>
         {dirty && (
           <Button
@@ -859,7 +855,7 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
       </div>
 
       <div className="space-y-3">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
             <Label className="text-xs font-semibold text-gray-600">Pincode</Label>
             <Input
@@ -882,18 +878,6 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
               className="h-9 text-black"
             />
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs font-semibold text-gray-600">Time Delay (min)</Label>
-            <Input
-              type="number"
-              min="0"
-              value={pinTimeDelay}
-              onChange={(e) => setPinTimeDelay(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPin(); } }}
-              placeholder="0"
-              className="h-9 text-black"
-            />
-          </div>
         </div>
         <Button type="button" variant="secondary" onClick={addPin} className="h-9 px-4 text-sm">
           Add Pincode
@@ -906,8 +890,7 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
                 <tr className="bg-gray-50 border-b border-gray-100">
                   <th className="px-3 py-2 text-left font-semibold text-gray-500">Pincode</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-500">Extra Charge</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-500">Time Delay</th>
-                      <th className="px-3 py-2 text-right font-semibold text-gray-500">Actions</th>
+                  <th className="px-3 py-2 text-right font-semibold text-gray-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -929,15 +912,6 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
                               min="0"
                               value={editPinCharge}
                               onChange={(e) => setEditPinCharge(e.target.value)}
-                              className="h-8 text-xs text-black"
-                            />
-                          </td>
-                          <td className="px-3 py-1.5">
-                            <Input
-                              type="number"
-                              min="0"
-                              value={editPinTimeDelay}
-                              onChange={(e) => setEditPinTimeDelay(e.target.value)}
                               className="h-8 text-xs text-black"
                             />
                           </td>
@@ -966,7 +940,6 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
                         <>
                           <td className="px-3 py-2 font-semibold text-blue-700">{p.pincode}</td>
                           <td className="px-3 py-2 text-gray-700">₹{p.charge}</td>
-                          <td className="px-3 py-2 text-gray-700">{p.timeDelay} min</td>
                           <td className="px-3 py-2 text-right">
                             <div className="inline-flex items-center gap-1">
                               <button

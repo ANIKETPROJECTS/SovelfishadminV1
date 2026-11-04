@@ -1658,11 +1658,25 @@ export default function Orders() {
     return cust + selectedProducts.length;
   }, [orderItems, selectedProducts]);
 
+  const eligibleCoupons = useMemo(() => {
+    if (totalItemCount === 0) return [];
+    return activeCoupons.filter((coupon) =>
+      itemsSubtotal >= (Number(coupon.minOrderAmount) || 0) &&
+      isCouponApplicable(coupon)
+    );
+  }, [activeCoupons, itemsSubtotal, isCouponApplicable, totalItemCount]);
+
+  useEffect(() => {
+    if (loadingCoupons || coupons.length === 0) return;
+    const eligibleIds = new Set(eligibleCoupons.map((coupon) => String(coupon._id)));
+    setAppliedCouponIds((current) => current.filter((id) => eligibleIds.has(id)));
+  }, [coupons.length, eligibleCoupons, loadingCoupons]);
+
   const appliedCoupons = useMemo(
     () => appliedCouponIds
-      .map((id) => activeCoupons.find((c) => String(c._id) === id))
+      .map((id) => eligibleCoupons.find((c) => String(c._id) === id))
       .filter(Boolean) as any[],
-    [activeCoupons, appliedCouponIds]
+    [eligibleCoupons, appliedCouponIds]
   );
 
   const couponDiscount = useMemo(() => {
@@ -1935,7 +1949,7 @@ export default function Orders() {
     let address = "";
     let deliveryArea = "";
     let deliveryAddressDetail: any = undefined;
-    if (!DIRECT_ORDER_ONLY && orderDeliveryType === "delivery") {
+    if (orderDeliveryType === "delivery") {
       if (chosenCustomer && orderAddressMode === "saved" && selectedAddressIdx !== null) {
         const f = editedSavedAddress;
         if (!f.building.trim()) {
@@ -5159,26 +5173,22 @@ export default function Orders() {
                   <Button type="button" variant="outline" onClick={applyCouponByCode} disabled={!couponCode.trim()} className="h-7 text-xs px-2.5">Apply</Button>
                 </div>
                 {couponError && <p className="text-[11px] text-red-500 mt-1">{couponError}</p>}
-                {totalItemCount > 0 && !loadingCoupons && activeCoupons.length > 0 && (
+                {totalItemCount > 0 && !loadingCoupons && eligibleCoupons.length > 0 && (
                   <div className="mt-1.5 divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
-                    {activeCoupons.slice(0, 5).map((c) => {
+                    {eligibleCoupons.slice(0, 5).map((c) => {
                       const cid = String(c._id);
                       const isApplied = appliedCouponIds.includes(cid);
-                      const min = Number(c.minOrderAmount) || 0;
-                      const meetsMin = itemsSubtotal >= min;
-                      const canApply = isCouponApplicable(c) && meetsMin;
                       const label = c.type === "percentage" ? `${Number(c.discountValue)}% OFF` : `₹${Number(c.discountValue)} OFF`;
                       return (
                         <div key={cid} className="flex items-center justify-between px-2.5 py-1.5">
                           <div className="min-w-0">
                             <span className="text-xs font-bold text-[#162B4D]">{c.code}</span>
                             <span className="text-[11px] text-gray-400 ml-1.5">{label}</span>
-                            {min > 0 && !meetsMin && <p className="text-[10px] text-gray-400">Min ₹{min}</p>}
                           </div>
                           {isApplied ? (
                             <button onClick={() => setAppliedCouponIds((ids) => ids.filter((id) => id !== cid))} className="text-[11px] font-semibold text-red-500 hover:text-red-600 flex-shrink-0 ml-2">Remove</button>
                           ) : (
-                            <button onClick={() => canApply && toggleCoupon(cid)} disabled={!canApply} className={`text-[11px] font-semibold flex-shrink-0 ml-2 transition-colors ${canApply ? "text-emerald-600 hover:text-emerald-700" : "text-gray-300 cursor-not-allowed"}`}>Apply</button>
+                            <button onClick={() => toggleCoupon(cid)} className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 flex-shrink-0 ml-2 transition-colors">Apply</button>
                           )}
                         </div>
                       );

@@ -111,7 +111,7 @@ function normalizeBatch(b: any): Batch {
   const fishPriceInput = b?.fishPrice != null && b.fishPrice !== "" ? Number(b.fishPrice) : NaN;
   const fishPricePerKgInput = b?.fishPricePerKg != null && b.fishPricePerKg !== "" ? Number(b.fishPricePerKg) : NaN;
   const fishWeightValue = Number.isFinite(fishWeightInput) ? Math.round(fishWeightInput * 1000) / 1000 : NaN;
-  const fishPriceValue = Number.isFinite(fishPriceInput) ? Math.round(fishPriceInput * 100) / 100 : NaN;
+  const fishPriceValue = Number.isFinite(fishPriceInput) ? Math.round(fishPriceInput) : NaN;
   const fishPricePerKgValue = Number.isFinite(fishPricePerKgInput) ? Math.round(fishPricePerKgInput * 100) / 100 : NaN;
   let expiry = toDate(b?.expiryDate);
   if (!expiry && shelf != null && Number.isFinite(shelf)) {
@@ -159,7 +159,7 @@ function batchSnapshot(batch: Batch) {
   return {
     batchNumber: batch.batchNumber || "",
     fishWeightKg: batch.fishWeightKg ?? null,
-    fishPrice: batch.fishPrice ?? null,
+    fishPrice: batch.fishPrice == null ? null : Math.round(Number(batch.fishPrice)),
     fishPricePerKg: batch.fishPricePerKg ?? null,
     shelfLifeDays: batch.shelfLifeDays ?? null,
     receivedDate: batch.receivedDate ?? null,
@@ -529,7 +529,9 @@ router.get("/products", async (req, res) => {
             batchNumber: b.batchNumber ?? "",
             quantity: Number(b.quantity) || 0,
             fishWeightKg: b.fishWeightKg != null ? Number(b.fishWeightKg) : null,
-            fishPrice: b.fishPrice != null ? Number(b.fishPrice) : null,
+            fishPrice: b.fishPrice != null
+              ? fishInventoryMode === "whole_fish" ? Math.round(Number(b.fishPrice)) : Number(b.fishPrice)
+              : null,
             fishPricePerKg: b.fishPricePerKg != null ? Number(b.fishPricePerKg) : null,
             shelfLifeDays: b.shelfLifeDays ?? null,
             receivedDate: b.receivedDate ? new Date(b.receivedDate).toISOString() : null,
@@ -803,8 +805,8 @@ router.post("/adjustments", async (req, res) => {
         const weightKg = Math.round(Number(it.fishWeightKg) * 1000) / 1000;
         const rate = Number(it.fishPricePerKg);
         const fishPrice = Number.isFinite(rate) && rate > 0
-          ? roundMoney(weightKg * rate)
-          : roundMoney(Number(it.fishPrice));
+          ? Math.round(weightKg * rate)
+          : Math.round(Number(it.fishPrice));
         if (mode !== "add" || Number(it.addQuantity) !== 1 ||
           !Number.isFinite(weightKg) || weightKg <= 0 ||
           !Number.isFinite(fishPrice) || fishPrice <= 0) {
@@ -902,7 +904,7 @@ router.post("/adjustments", async (req, res) => {
             return {
               ...batch,
               fishPricePerKg,
-              fishPrice: roundMoney(weight * fishPricePerKg),
+              fishPrice: Math.round(weight * fishPricePerKg),
             };
           });
         }
@@ -940,7 +942,7 @@ router.post("/adjustments", async (req, res) => {
         const fishWeightKg = Number(it.fishWeightKg);
         const submittedFishPrice = Number(it.fishPrice);
         const fishPrice = fishInventoryMode === "whole_fish" && Number.isFinite(fishWeightKg) && fishPricePerKg != null
-          ? roundMoney(fishWeightKg * fishPricePerKg)
+          ? Math.round(fishWeightKg * fishPricePerKg)
           : submittedFishPrice;
         const batch = normalizeBatch({
           batchNumber: it.batchNumber,
@@ -1047,7 +1049,7 @@ router.post("/adjustments", async (req, res) => {
           return {
             ...batch,
             fishPricePerKg,
-            fishPrice: roundMoney(weight * fishPricePerKg),
+            fishPrice: Math.round(weight * fishPricePerKg),
           };
         });
       }
@@ -1136,12 +1138,21 @@ router.get("/products/:productId/batches", async (req, res) => {
     const product = await ctx.conn.db.collection("products").findOne({ _id: pid });
     if (!product) { res.status(404).json({ error: "NotFound", message: "Product not found" }); return; }
     const batches: Batch[] = Array.isArray(product.batches) ? product.batches : [];
+    const isWholeFish = resolvedFishInventoryMode(product) === "whole_fish";
+    const displayBatches = isWholeFish
+      ? batches.map((batch) => ({
+          ...batch,
+          ...(batch.fishPrice != null && Number.isFinite(Number(batch.fishPrice))
+            ? { fishPrice: Math.round(Number(batch.fishPrice)) }
+            : {}),
+        }))
+      : batches;
     res.json({
       productId: String(pid),
       name: product.name,
       unit: product.unit ?? "",
       quantity: batchesTotal(batches) || (Number(product.quantity) || 0),
-      batches: sortBatchesByExpiry(batches),
+      batches: sortBatchesByExpiry(displayBatches),
     });
   } catch (err) {
     req.log.error({ err }, "Failed to fetch batches");
