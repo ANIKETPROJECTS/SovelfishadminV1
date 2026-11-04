@@ -245,7 +245,7 @@ router.get("/products", async (req, res) => {
               } : {}),
               weightLabel: formatBulkPortionRangeLabel(option),
               averageWeightLabel: formatBulkPortionWeightLabel(weightKg),
-              price: Math.round(weightKg * fishPricePerKg * 100) / 100,
+              price: Math.round(weightKg * fishPricePerKg),
               availableQuantity: wholePacksAvailable,
             };
           })

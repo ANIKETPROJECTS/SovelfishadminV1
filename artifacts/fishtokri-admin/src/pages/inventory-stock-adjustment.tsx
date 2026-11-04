@@ -130,6 +130,13 @@ function fishTotalPrice(weightKg: string | number, pricePerKg: string | number):
   return (Math.round(weight * rate * 100) / 100).toFixed(2);
 }
 
+function bulkPortionPrice(weightKg: string | number, pricePerKg: string | number): string {
+  const weight = Number(weightKg);
+  const rate = Number(pricePerKg);
+  if (!Number.isFinite(weight) || weight <= 0 || !Number.isFinite(rate) || rate <= 0) return "";
+  return String(Math.round(weight * rate));
+}
+
 function bulkPortionLabel(weightKg: string | number): string {
   const weight = Number(weightKg);
   if (!Number.isFinite(weight) || weight <= 0) return "";
@@ -2160,7 +2167,7 @@ export default function InventoryStockAdjustment() {
                                   const parsedOption = parseBulkPortionInput(option.weightInput);
                                   const isRange = parsedOption?.minWeightKg != null && parsedOption?.maxWeightKg != null;
                                   const averageWeightKg = parsedOption?.weightKg ?? Number.NaN;
-                                  const calculatedPrice = fishTotalPrice(averageWeightKg, firstRow.fishPricePerKg);
+                                  const calculatedPrice = bulkPortionPrice(averageWeightKg, firstRow.fishPricePerKg);
                                   return (
                                     <div
                                       key={`bulk-portion-${portionIndex}`}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useLocation } from "wouter";
 import {
   useGetStatsSummary,
   getGetStatsSummaryQueryKey,
@@ -119,6 +120,7 @@ function SectionHeader({ icon: Icon, iconColor, title, action, onAction }: any) 
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const [, setLocation] = useLocation();
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useGetStatsSummary(undefined, {
     query: { queryKey: getGetStatsSummaryQueryKey() },
   });
@@ -132,6 +134,29 @@ export default function Dashboard() {
   const [vendors, setVendors]                 = useState<{ total: number }>({ total: 0 });
   const [deliveryPersons, setDeliveryPersons] = useState<{ total: number }>({ total: 0 });
   const [extraLoading, setExtraLoading]       = useState(true);
+  const [airoliSubHubId, setAiroliSubHubId]   = useState("");
+  const [airoliLookupLoading, setAiroliLookupLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/api/sub-hubs")
+      .then((data) => {
+        const subHubs = Array.isArray(data?.subHubs) ? data.subHubs : [];
+        const airoli =
+          subHubs.find((sub: any) =>
+            String(sub.name ?? "").trim().toLowerCase() === "airoli" && sub.status === "Active"
+          ) ??
+          subHubs.find((sub: any) => String(sub.name ?? "").trim().toLowerCase() === "airoli");
+        if (!cancelled) setAiroliSubHubId(airoli?.id ? String(airoli.id) : "");
+      })
+      .catch(() => {
+        if (!cancelled) setAiroliSubHubId("");
+      })
+      .finally(() => {
+        if (!cancelled) setAiroliLookupLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const loadExtra = useCallback(async (silent = false) => {
     if (!silent) setExtraLoading(true);
@@ -162,6 +187,12 @@ export default function Dashboard() {
     refetchStats();
     refetchHubs();
     loadExtra();
+  };
+
+  const handleOpenAiroliMenu = () => {
+    if (!airoliSubHubId) return;
+    localStorage.setItem("fishtokri_last_subhub_id", airoliSubHubId);
+    setLocation(`/sub-hub-menu/${encodeURIComponent(airoliSubHubId)}`);
   };
 
   const superHubs = superHubsData?.superHubs ?? [];
@@ -205,9 +236,21 @@ export default function Dashboard() {
           <h2 className="text-2xl font-extrabold text-[#162B4D]">Dashboard</h2>
           <p className="text-gray-400 text-sm mt-0.5">Complete overview of your distribution network</p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleRefresh} className="h-8 gap-1.5 text-gray-500">
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={handleOpenAiroliMenu}
+            disabled={!airoliSubHubId}
+            title={!airoliLookupLoading && !airoliSubHubId ? "Airoli Sub Hub was not found" : undefined}
+            className="h-8 gap-1.5 bg-[#1A56DB] hover:bg-[#1447B4] text-white disabled:opacity-60"
+          >
+            <Store className="w-3.5 h-3.5" />
+            {airoliLookupLoading ? "Loading Airoli..." : "Manage Airoli Menu"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleRefresh} className="h-8 gap-1.5 text-gray-500">
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </Button>
+        </div>
       </div>
 
       {/* ── Row 1: Network stats ─────────────────────────────────────────────── */}
