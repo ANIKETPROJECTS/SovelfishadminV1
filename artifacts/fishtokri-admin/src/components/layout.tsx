@@ -85,8 +85,8 @@ function ExpandableNavItem({ href, label, icon: Icon, isActive, childActive, sub
             sidebarOpen ? "gap-3 px-5 py-2.5" : "justify-center px-0 py-3"
           } ${
             isActive || childActive
-              ? "bg-white/10 text-white border-amber-400"
-              : "text-white/60 hover:text-white hover:bg-white/5 border-transparent"
+              ? "bg-[#000035] text-[#69D84F] border-[#000035] shadow-sm"
+              : "text-[#000035]/75 hover:text-[#000035] hover:bg-[#52C83C] border-transparent"
           }`}
         >
           <Icon className="w-4 h-4 flex-shrink-0" />
@@ -113,9 +113,9 @@ function ExpandableNavItem({ href, label, icon: Icon, isActive, childActive, sub
         >
           {/* small bridge so cursor can travel without losing hover */}
           <div className="absolute -left-2 top-0 h-full w-2" />
-          <div className="ml-1 min-w-[200px] rounded-lg bg-[#162B4D] border border-white/10 shadow-2xl py-1.5 overflow-hidden">
-            <div className="px-3 py-1.5 border-b border-white/10">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">{label}</p>
+          <div className="ml-1 min-w-[200px] rounded-xl bg-[#000035] border border-white/10 shadow-2xl py-1.5 overflow-hidden">
+            <div className="px-3 py-2 border-b border-white/10">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#69D84F]">{label}</p>
             </div>
             {subItems.map((child: any) => {
               const ChildIcon = child.icon;
@@ -125,8 +125,8 @@ function ExpandableNavItem({ href, label, icon: Icon, isActive, childActive, sub
                   <div
                     className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer text-[13px] font-medium transition-colors ${
                       isChildActive
-                        ? "bg-white/10 text-white"
-                        : "text-white/70 hover:text-white hover:bg-white/5"
+                         ? "bg-[#69D84F] text-[#000035]"
+                         : "text-white/70 hover:text-white hover:bg-white/10"
                     }`}
                   >
                     <ChildIcon className="w-3.5 h-3.5 flex-shrink-0" />
@@ -292,7 +292,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {mobileOpen && (
         <button
           onClick={() => setMobileOpen(false)}
-          className="md:hidden fixed z-50 w-10 h-10 rounded-full bg-[#162B4D] border-2 border-white/20 shadow-xl flex items-center justify-center hover:bg-[#1d3a6b] transition-colors active:scale-95"
+          className="md:hidden fixed z-50 w-10 h-10 rounded-full bg-[#000035] border-2 border-white/70 shadow-xl flex items-center justify-center hover:bg-[#17174D] transition-colors active:scale-95"
           style={{ left: "220px", top: "50%", transform: "translateY(-50%)" }}
           aria-label="Close menu"
         >
@@ -302,27 +302,28 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Sidebar — drawer on mobile, fixed column on md+ */}
       <aside
-        className={`fixed inset-y-0 left-0 bg-[#162B4D] text-white flex flex-col overflow-hidden transition-transform md:transition-all duration-300 ease-in-out z-40 md:z-20 w-[240px] md:w-[var(--sidebar-w)] ${
+        className={`fixed inset-y-0 left-0 bg-[#69D84F] text-[#000035] flex flex-col overflow-hidden transition-transform md:transition-all duration-300 ease-in-out z-40 md:z-20 w-[240px] md:w-[var(--sidebar-w)] border-r border-[#54C540] shadow-[5px_0_22px_rgba(0,0,53,0.07)] ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         } md:translate-x-0`}
       >
         {/* Brand */}
-        <div className="flex justify-center pt-5 pb-1">
-          <div className="w-16 h-12 rounded-lg bg-white flex items-center justify-center flex-shrink-0">
-            <img src="/brand-mark.svg" alt="Fresh Stock Xchange" className="w-14 h-10 object-contain" />
+        <div className={`flex ${expanded ? "justify-start px-5" : "justify-center"} pt-5 pb-3`}>
+          <div className={`h-12 rounded-xl bg-[#000035] flex items-center ${expanded ? "gap-2.5 px-2.5 w-full" : "justify-center w-12"} flex-shrink-0 shadow-sm`}>
+            <img src="/brand-mark.svg" alt="Fresh Stock Xchange" className="w-8 h-8 object-contain" />
+            {expanded && <div className="min-w-0"><p className="text-sm font-bold leading-none text-white tracking-tight">Fresh Stock Xchange</p><p className="mt-1 text-[9px] uppercase tracking-[0.14em] text-white/55">Operations</p></div>}
           </div>
         </div>
 
         {/* Role Label — hidden for delivery */}
         {expanded && !isDelivery && (
-          <div className="px-5 pt-2 pb-2">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">{roleLabel}</p>
+          <div className="px-5 pt-2 pb-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#285D21]">{roleLabel}</p>
           </div>
         )}
         {expanded && isDelivery && <div className="pt-4" />}
 
         {/* Nav */}
-        <nav className={`flex-1 pb-4 ${isDelivery ? "pt-2" : "pt-2"}`} style={isDelivery && isMobile ? { fontFamily: "Poppins, sans-serif" } : {}}>
+    <nav className={`flex-1 pb-4 ${isDelivery ? "pt-2" : "pt-2"}`} style={isDelivery && isMobile ? { fontFamily: "'DM Sans', sans-serif" } : {}}>
           {navItems.map((item: any) => {
             const { href, label, icon: Icon, matchPrefix, children, iconSrc } = item;
             const isActive =
@@ -357,8 +358,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <div
                     className={`mx-3 mb-2 flex items-center gap-4 px-4 rounded-2xl cursor-pointer transition-all active:scale-[0.97] ${
                       isActive
-                        ? "bg-white/15 border border-white/20"
-                        : "border border-transparent hover:bg-white/8"
+                        ? "bg-[#000035] border border-[#000035]"
+                        : "border border-transparent hover:bg-[#52C83C]"
                     }`}
                     style={{ height: "68px" }}
                   >
@@ -374,13 +375,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
                           maskRepeat: "no-repeat",
                           WebkitMaskPosition: "center",
                           maskPosition: "center",
-                          backgroundColor: isActive ? "white" : "rgba(255,255,255,0.7)",
+                          backgroundColor: isActive ? "#69D84F" : "#000035",
                         }}
                       />
                     ) : (
-                      <Icon className={`w-7 h-7 flex-shrink-0 ${isActive ? "text-white" : "text-white/70"}`} />
+                     <Icon className={`w-7 h-7 flex-shrink-0 ${isActive ? "text-[#69D84F]" : "text-[#000035]"}`} />
                     )}
-                    <span className={`text-lg font-semibold truncate text-white`}>
+                    <span className={`text-lg font-semibold truncate ${isActive ? "text-[#69D84F]" : "text-[#000035]"}`}>
                       {label}
                     </span>
                   </div>
@@ -396,22 +397,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   className={`flex items-center cursor-pointer transition-all text-sm font-medium border-l-2 relative ${
                     expanded ? "gap-3 px-5 py-2.5" : "justify-center px-0 py-3"
                   } ${
-                    isActive
-                      ? "bg-white/10 text-white border-amber-400"
-                      : "text-white/60 hover:text-white hover:bg-white/5 border-transparent"
+                     isActive
+                       ? "bg-[#000035] text-[#69D84F] border-[#000035] shadow-sm"
+                       : "text-[#000035]/75 hover:text-[#000035] hover:bg-[#52C83C] border-transparent"
                   }`}
                 >
                   <div className="relative flex-shrink-0">
                     <Icon className="w-4 h-4" />
                     {!expanded && badgeCount > 0 && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-[#162B4D]" />
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#000035] ring-2 ring-[#69D84F]" />
                     )}
                   </div>
                   {expanded && (
                     <>
                       <span className="truncate flex-1">{label}</span>
                       {badgeCount > 0 && (
-                        <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 text-[10px] font-bold rounded-full bg-amber-400 text-[#162B4D]">
+                         <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 text-[10px] font-bold rounded-full bg-[#000035] text-[#69D84F]">
                           {badgeCount > 99 ? "99+" : badgeCount}
                         </span>
                       )}
@@ -426,15 +427,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Profile Section */}
-        <div className={`border-t border-white/10 ${expanded ? "px-5 pt-4 pb-3" : "py-3"}`}>
+        <div className={`border-t border-[#000035]/15 ${expanded ? "px-4 pt-4 pb-3" : "py-3"}`}>
           {expanded && (
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-3">Profile</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#285D21] mb-3 px-1">Profile</p>
           )}
 
           {/* User info card */}
           {expanded ? (
-            <div className="flex items-center gap-3 mb-3 px-3 py-2.5 rounded-lg bg-white/5">
-              <div className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center flex-shrink-0">
+             <div className="flex items-center gap-3 mb-3 px-2.5 py-2.5 rounded-xl bg-[#54C540]/70 border border-[#000035]/10">
+              <div className="w-9 h-9 rounded-full bg-[#000035] border border-[#000035]/20 flex items-center justify-center flex-shrink-0">
                 <div
                   className="w-5 h-5 flex-shrink-0"
                   style={{
@@ -446,22 +447,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     maskRepeat: "no-repeat",
                     WebkitMaskPosition: "center",
                     maskPosition: "center",
-                    backgroundColor: "white",
+                    backgroundColor: "#69D84F",
                   }}
                 />
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-white truncate leading-tight">{adminName}</p>
-                <p className="text-[10px] text-white/40 mt-0.5">{roleLabel}</p>
+                <p className="text-sm font-bold text-[#000035] truncate leading-tight">{adminName}</p>
+                <p className="text-[10px] text-[#000035]/65 mt-0.5">{roleLabel}</p>
                 {admin?.email && (
-                  <p className="text-[10px] text-white/30 truncate">{admin.email}</p>
+                  <p className="text-[10px] text-[#000035]/55 truncate">{admin.email}</p>
                 )}
               </div>
             </div>
           ) : (
             <div className="flex justify-center mb-2">
               <div
-                className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center"
+                className="w-8 h-8 rounded-full bg-[#000035] border border-[#000035]/20 flex items-center justify-center"
                 title={`${adminName} — ${roleLabel}`}
               >
                 <div
@@ -475,7 +476,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     maskRepeat: "no-repeat",
                     WebkitMaskPosition: "center",
                     maskPosition: "center",
-                    backgroundColor: "white",
+                    backgroundColor: "#69D84F",
                   }}
                 />
               </div>
@@ -486,7 +487,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {expanded ? (
             <button
               onClick={handleLogout}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white hover:bg-red-500/15 hover:border-red-500/20 border border-transparent transition-colors"
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-semibold text-[#000035] hover:bg-red-700/10 hover:text-red-950 hover:border-red-900/15 border border-transparent transition-colors"
             >
               <LogOut className="w-4 h-4 flex-shrink-0" />
               <span>Logout</span>
@@ -496,7 +497,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <button
                 onClick={handleLogout}
                 title="Logout"
-                className="p-2 rounded-lg text-white hover:text-red-400 hover:bg-red-500/15 transition-colors"
+                 className="p-2 rounded-lg text-[#000035] hover:text-red-950 hover:bg-red-700/10 transition-colors"
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -507,7 +508,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Desktop-only collapse/expand toggle at the bottom */}
         <button
           onClick={() => setSidebarOpen((o) => !o)}
-          className="hidden md:flex items-center justify-center py-3 border-t border-white/10 hover:bg-white/10 transition-colors text-white/50 hover:text-white w-full"
+          className="hidden md:flex items-center justify-center py-3 border-t border-[#000035]/15 hover:bg-[#52C83C] transition-colors text-[#000035]/65 hover:text-[#000035] w-full"
           title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
         >
           {sidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -521,7 +522,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {/* Mobile hamburger */}
           <button
             onClick={() => setMobileOpen(true)}
-            className="md:hidden inline-flex items-center justify-center w-9 h-9 rounded-md text-[#162B4D] hover:bg-gray-100 -ml-1"
+            className="md:hidden inline-flex items-center justify-center w-9 h-9 rounded-md text-[#000035] hover:bg-[#F0FBEA] -ml-1"
             aria-label="Open menu"
             data-testid="button-mobile-menu"
           >
@@ -531,7 +532,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {/* Mobile inline brand — hidden for delivery (page injects its own title via slot) */}
           {!isDelivery && (
             <div className="md:hidden flex items-center gap-2 min-w-0">
-              <span className="text-sm font-bold text-[#162B4D] truncate">{roleLabel}</span>
+              <span className="text-sm font-bold text-[#000035] truncate">{roleLabel}</span>
             </div>
           )}
 
