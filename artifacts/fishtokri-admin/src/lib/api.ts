@@ -47,6 +47,27 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
   return res.json();
 }
 
+export function logPidgeDispatchResult(orderId: string, pidge: any) {
+  if (!pidge) return;
+  const title = `[Pidge] ${orderId}: ${String(pidge.status ?? "unknown").toUpperCase()}`;
+  console.groupCollapsed(title);
+  console.info("Submission result:", pidge.success ? "success" : "not successful");
+  if (pidge.requestMethod || pidge.requestUrl) {
+    console.info("Pidge endpoint:", pidge.requestMethod ?? "POST", pidge.requestUrl ?? "(not configured)");
+  }
+  if (pidge.authentication) console.info("Authentication (token hidden):", pidge.authentication);
+  if (pidge.httpStatus !== undefined) console.info("HTTP status:", pidge.httpStatus);
+  if (pidge.pidgeOrderId) console.info("Pidge order ID:", pidge.pidgeOrderId);
+  if (pidge.message) console.info("Message:", pidge.message);
+  if (Array.isArray(pidge.warnings) && pidge.warnings.length > 0) {
+    console.warn("Payload warnings:", pidge.warnings);
+  }
+  if (pidge.requestPayload) console.info("Request payload (credentials excluded):", pidge.requestPayload);
+  if (pidge.responseBody !== undefined) console.info("Pidge response:", pidge.responseBody);
+  if (pidge.error) console.error("Pidge error:", pidge.error);
+  console.groupEnd();
+}
+
 export function formatRupees(n: number) {
   return `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }

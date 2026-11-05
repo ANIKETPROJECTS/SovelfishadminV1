@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { apiFetch, getCurrentAdminScope } from "@/lib/api";
+import { apiFetch, getCurrentAdminScope, logPidgeDispatchResult } from "@/lib/api";
 
 const CHANNEL_NAME  = "fishtokri-order-alert";
 const POLL_MS       = 5000;
@@ -178,19 +178,29 @@ export function useNewOrderPopup(): NewOrderPopupState {
   }, []);
 
   const acceptOrder = useCallback(async (id: string) => {
+    const queueEntry = queue.find(p => String(p.order._id) === id);
     try {
-      const queueEntry = queue.find(p => String(p.order._id) === id);
       console.log(
         `[WhatsApp] popup acceptOrder → orderId=${queueEntry?.order?.orderId || id} ` +
         `customer=${queueEntry?.order?.customerName} phone=${queueEntry?.order?.phone} ` +
         `→ confirmed | WA template: fishtokri_order_confirmed`
       );
-      await apiFetch(`/api/orders/${id}`, {
+      const updateResult = await apiFetch(`/api/orders/${id}`, {
         method: "PUT",
         body: JSON.stringify({ status: "confirmed" }),
       });
-    } catch {
+      logPidgeDispatchResult(String(queueEntry?.order?.orderId || id), updateResult.pidge);
+      if (updateResult.pidge && !updateResult.pidge.success) {
+        console.error(
+          `[Pidge] ${queueEntry?.order?.orderId || id} was confirmed locally, but Pidge did not accept the order.`,
+        );
+      }
+    } catch (error) {
       // Best-effort — popup still closes
+      console.error(
+        `[Pidge] Confirmation request for ${queueEntry?.order?.orderId || id} failed before a result was received. Check the order and Pidge before retrying.`,
+        error,
+      );
     }
     removeFromQueue(id);
   }, [removeFromQueue, queue]);

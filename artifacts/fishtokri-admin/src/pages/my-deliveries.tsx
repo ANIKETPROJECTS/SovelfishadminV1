@@ -20,6 +20,7 @@ import {
 import { OrderQrScanner } from "@/components/OrderQrScanner";
 import { isPaymentStatusPaid, paymentStatusDisplayLabel } from "@/lib/invoice-payment-status.mjs";
 import { TIMESLOT_FEATURE_ENABLED } from "@/lib/feature-flags";
+import { logPidgeDispatchResult } from "@/lib/api";
 
 function getAdminData() {
   try { return JSON.parse(localStorage.getItem("fishtokri_admin") || "null"); } catch { return null; }
@@ -526,8 +527,20 @@ function OrdersList({ mode, refreshKey, silentRefreshKey, onCountChange }: { mod
 
     setSaving(true);
     try {
-      await apiFetch(`/api/orders/${selectedOrder._id}`, { method: "PUT", body: JSON.stringify({ status: editStatus }) });
-      toast({ title: "Status updated successfully" });
+      const updateResult = await apiFetch(`/api/orders/${selectedOrder._id}`, { method: "PUT", body: JSON.stringify({ status: editStatus }) });
+      if (editStatus === "confirmed") {
+        logPidgeDispatchResult(String(selectedOrder.orderId || selectedOrder._id), updateResult.pidge);
+        if (updateResult.pidge && !updateResult.pidge.success) {
+          console.error(`[Pidge] ${selectedOrder.orderId || selectedOrder._id} was confirmed locally, but Pidge did not accept the order.`);
+        }
+      }
+      toast({
+        title: updateResult.pidge && !updateResult.pidge.success
+          ? "Order confirmed; Pidge submission failed"
+          : "Status updated successfully",
+        description: updateResult.pidge?.error?.message,
+        ...(updateResult.pidge && !updateResult.pidge.success ? { variant: "destructive" as const } : {}),
+      });
       setSelectedOrder(null);
       loadOrders();
     } catch (err: any) {

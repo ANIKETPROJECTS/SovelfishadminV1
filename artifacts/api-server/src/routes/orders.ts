@@ -15,6 +15,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { loadScope, type ScopedRequest } from "../middlewares/scope.js";
 import { HubUser } from "../db/models/hub-user.js";
 import { sendOrderConfirmed, sendOutForDelivery, sendOrderCancelled } from "../services/whatsapp.js";
+import { createPidgeOrder } from "../services/pidge.mjs";
 import {
   ensureFtwPendingPaymentExpiryDates,
   isFtwOrder,
@@ -134,6 +135,11 @@ function extractOrderPincode(order: any): string {
     detail && typeof detail === "object" ? JSON.stringify(detail) : "",
   ].join(" ");
   return addressText.match(/\b\d{6}\b/)?.[0] ?? "";
+}
+
+function isPidgeOrder(order: any): boolean {
+  const orderId = String(order?.orderId ?? "").trim().replace(/^#+/, "").toUpperCase();
+  return orderId.startsWith("FTS") || orderId.startsWith("FTW");
 }
 
 function addMinutesToTimeString(timeString: string, minutes: number): string {
@@ -2225,7 +2231,131 @@ router.put("/:id", async (req: ScopedRequest, res) => {
       }
     }
 
-    res.json({ order: result });
+    let pidgeResult: any;
+    const orderAfterUpdate = result as any;
+    const pidgeOrderIsEligible =
+      status === "confirmed" &&
+      orderAfterUpdate.deliveryType !== "takeaway" &&
+      isPidgeOrder(orderAfterUpdate);
+    const shouldAttemptPidge =
+      pidgeOrderIsEligible &&
+      (
+        String(prev.status ?? "") !== "confirmed" ||
+        String(prev.pidgeDispatch?.status ?? "") === "failed"
+      );
+
+    if (shouldAttemptPidge) {
+      const sourceOrderId = String(orderAfterUpdate.orderId ?? "").trim().replace(/^#+/, "");
+      const attemptedAt = new Date();
+      try {
+        // Claim the one allowed submission atomically so simultaneous admin
+        // confirmations cannot create duplicate Pidge orders.
+        const claim = await conn.db!.collection(COLLECTION).updateOne(
+          {
+            _id: oid,
+            status: "confirmed",
+            "pidgeDispatch.status": { $nin: ["sending", "sent", "unknown"] },
+          },
+          {
+            $set: {
+              pidgeDispatch: {
+                status: "sending",
+                sourceOrderId,
+                attemptedAt,
+              },
+            },
+          },
+        );
+
+        if (claim.modifiedCount > 0) {
+          req.log.info({ orderId: sourceOrderId }, "Submitting confirmed FishTokri order to Pidge");
+          pidgeResult = await createPidgeOrder(orderAfterUpdate);
+          const dispatchStatus = pidgeResult.success
+            ? "sent"
+            : pidgeResult.error?.outcomeMayBeUnknown
+              ? "unknown"
+              : "failed";
+          const persistedDispatch = {
+            status: dispatchStatus,
+            sourceOrderId,
+            pidgeOrderId: pidgeResult.pidgeOrderId,
+            attemptedAt,
+            completedAt: new Date(),
+            httpStatus: pidgeResult.httpStatus,
+            errorMessage: pidgeResult.error?.message,
+          };
+          try {
+            await conn.db!.collection(COLLECTION).updateOne(
+              { _id: oid, "pidgeDispatch.status": "sending" },
+              { $set: { pidgeDispatch: persistedDispatch } },
+            );
+            orderAfterUpdate.pidgeDispatch = persistedDispatch;
+          } catch (persistError) {
+            // Keep the claim in "sending" if MongoDB cannot persist the result.
+            // This blocks a later confirmation from unknowingly creating a duplicate.
+            req.log.error(
+              { err: persistError, orderId: sourceOrderId, pidgeOrderId: pidgeResult.pidgeOrderId },
+              "Could not persist Pidge submission result; duplicate protection remains active",
+            );
+            orderAfterUpdate.pidgeDispatch = { status: "sending", sourceOrderId, attemptedAt };
+          }
+
+          if (pidgeResult.success) {
+            req.log.info(
+              { orderId: sourceOrderId, pidgeOrderId: pidgeResult.pidgeOrderId, httpStatus: pidgeResult.httpStatus },
+              "Pidge accepted the order",
+            );
+          } else {
+            req.log.error(
+              { orderId: sourceOrderId, pidgeStatus: dispatchStatus, httpStatus: pidgeResult.httpStatus, error: pidgeResult.error },
+              "Pidge order submission failed",
+            );
+          }
+        } else {
+          const current = await conn.db!.collection(COLLECTION).findOne(
+            { _id: oid },
+            { projection: { pidgeDispatch: 1 } },
+          );
+          const priorDispatch = current?.pidgeDispatch ?? {};
+          const alreadySent = priorDispatch.status === "sent";
+          pidgeResult = {
+            success: alreadySent,
+            status: alreadySent ? "already_sent" : priorDispatch.status === "unknown" ? "unknown" : "in_progress",
+            pidgeOrderId: priorDispatch.pidgeOrderId,
+            message: alreadySent
+              ? "This order was already submitted to Pidge; no duplicate was created."
+              : priorDispatch.status === "unknown"
+                ? "The prior Pidge result is uncertain. Check Pidge before retrying to avoid a duplicate."
+                : "A Pidge submission is already in progress; no second request was sent.",
+          };
+        }
+      } catch (pidgeError: any) {
+        req.log.error({ err: pidgeError, orderId: sourceOrderId }, "Pidge integration failed while confirming order");
+        pidgeResult = {
+          success: false,
+          status: "failed",
+          error: { message: pidgeError?.message || "Pidge integration failed unexpectedly." },
+        };
+        try {
+          const failedDispatch = {
+            status: "failed",
+            sourceOrderId,
+            attemptedAt,
+            completedAt: new Date(),
+            errorMessage: pidgeResult.error.message,
+          };
+          await conn.db!.collection(COLLECTION).updateOne(
+            { _id: oid },
+            { $set: { pidgeDispatch: failedDispatch } },
+          );
+          orderAfterUpdate.pidgeDispatch = failedDispatch;
+        } catch (persistError) {
+          req.log.error({ err: persistError, orderId: sourceOrderId }, "Could not persist Pidge failure state");
+        }
+      }
+    }
+
+    res.json({ order: result, ...(pidgeResult ? { pidge: pidgeResult } : {}) });
 
     // --- WhatsApp notifications (fire-and-forget, never blocks the response) ---
     if (status !== undefined && String(status) !== String(prev.status ?? "")) {
