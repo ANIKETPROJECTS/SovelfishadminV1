@@ -81,12 +81,12 @@ function ExpandableNavItem({ href, label, icon: Icon, isActive, childActive, sub
         <div
           ref={rowRef}
           title={!sidebarOpen ? label : undefined}
-          className={`flex items-center cursor-pointer transition-all text-sm font-medium border-l-2 ${
-            sidebarOpen ? "gap-3 px-5 py-2.5" : "justify-center px-0 py-3"
+          className={`mx-2 mb-1 flex items-center cursor-pointer transition-all text-sm font-medium border-l-4 rounded-lg ${
+            sidebarOpen ? "gap-3 px-3 py-2.5" : "justify-center px-0 py-3"
           } ${
             isActive || childActive
-              ? "bg-[#000035] text-[#69D84F] border-[#000035] shadow-sm"
-              : "text-[#000035]/75 hover:text-[#000035] hover:bg-[#52C83C] border-transparent"
+              ? "bg-[#000035] text-white border-[#69D84F] shadow-md"
+              : "text-[#000035]/80 hover:text-[#000035] hover:bg-[#C9DFF1] border-transparent"
           }`}
         >
           <Icon className="w-4 h-4 flex-shrink-0" />
@@ -302,22 +302,31 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Sidebar — drawer on mobile, fixed column on md+ */}
       <aside
-        className={`fixed inset-y-0 left-0 bg-[#69D84F] text-[#000035] flex flex-col overflow-hidden transition-transform md:transition-all duration-300 ease-in-out z-40 md:z-20 w-[240px] md:w-[var(--sidebar-w)] border-r border-[#54C540] shadow-[5px_0_22px_rgba(0,0,53,0.07)] ${
+        className={`fixed inset-y-0 left-0 bg-[#DCEAF7] text-[#000035] flex flex-col overflow-hidden transition-transform md:transition-all duration-300 ease-in-out z-40 md:z-20 w-[240px] md:w-[var(--sidebar-w)] border-r border-[#BCD4E8] shadow-[5px_0_22px_rgba(0,0,53,0.07)] ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         } md:translate-x-0`}
       >
         {/* Brand */}
-        <div className={`flex ${expanded ? "justify-start px-5" : "justify-center"} pt-5 pb-3`}>
-          <div className={`h-12 rounded-xl bg-[#000035] flex items-center ${expanded ? "gap-2.5 px-2.5 w-full" : "justify-center w-12"} flex-shrink-0 shadow-sm`}>
-            <img src="/brand-mark.svg" alt="Fresh Stock Xchange" className="w-8 h-8 object-contain" />
-            {expanded && <div className="min-w-0"><p className="text-sm font-bold leading-none text-white tracking-tight">Fresh Stock Xchange</p><p className="mt-1 text-[9px] uppercase tracking-[0.14em] text-white/55">Operations</p></div>}
-          </div>
+        <div className={`flex ${expanded ? "justify-center px-4" : "justify-center"} pt-5 pb-3`}>
+          {expanded ? (
+            <div className="w-full rounded-xl border border-[#000035]/10 bg-white p-2.5 shadow-sm flex items-center justify-center">
+              <img
+                src="/fresh-stock-xchange-logo.png"
+                alt="Fresh Stock Xchange"
+                className="block w-full h-auto object-contain"
+              />
+            </div>
+          ) : (
+            <div className="w-10 h-10 rounded-xl border border-[#000035]/10 bg-white flex items-center justify-center flex-shrink-0 shadow-sm">
+              <img src="/brand-mark.svg" alt="Fresh Stock Xchange" className="w-8 h-8 object-contain" />
+            </div>
+          )}
         </div>
 
         {/* Role Label — hidden for delivery */}
         {expanded && !isDelivery && (
           <div className="px-5 pt-2 pb-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#285D21]">{roleLabel}</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#000035]/65">{roleLabel}</p>
           </div>
         )}
         {expanded && isDelivery && <div className="pt-4" />}
@@ -358,8 +367,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <div
                     className={`mx-3 mb-2 flex items-center gap-4 px-4 rounded-2xl cursor-pointer transition-all active:scale-[0.97] ${
                       isActive
-                        ? "bg-[#000035] border border-[#000035]"
-                        : "border border-transparent hover:bg-[#52C83C]"
+                        ? "bg-[#000035] border border-[#000035] border-l-4 border-l-[#69D84F] shadow-md"
+                        : "text-[#000035] border border-transparent hover:bg-[#C9DFF1]"
                     }`}
                     style={{ height: "68px" }}
                   >
@@ -381,7 +390,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     ) : (
                      <Icon className={`w-7 h-7 flex-shrink-0 ${isActive ? "text-[#69D84F]" : "text-[#000035]"}`} />
                     )}
-                    <span className={`text-lg font-semibold truncate ${isActive ? "text-[#69D84F]" : "text-[#000035]"}`}>
+                    <span className={`text-lg font-semibold truncate ${isActive ? "text-white" : "text-[#000035]"}`}>
                       {label}
                     </span>
                   </div>
@@ -394,25 +403,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Link key={href} href={href}>
                 <div
                   title={!expanded ? (badgeCount > 0 ? `${label} (${badgeCount} pending)` : label) : undefined}
-                  className={`flex items-center cursor-pointer transition-all text-sm font-medium border-l-2 relative ${
-                    expanded ? "gap-3 px-5 py-2.5" : "justify-center px-0 py-3"
+                  className={`mx-2 mb-1 flex items-center cursor-pointer transition-all text-sm font-medium border-l-4 rounded-lg relative ${
+                    expanded ? "gap-3 px-3 py-2.5" : "justify-center px-0 py-3"
                   } ${
                      isActive
-                       ? "bg-[#000035] text-[#69D84F] border-[#000035] shadow-sm"
-                       : "text-[#000035]/75 hover:text-[#000035] hover:bg-[#52C83C] border-transparent"
+                       ? "bg-[#000035] text-white border-[#69D84F] shadow-md"
+                       : "text-[#000035]/80 hover:text-[#000035] hover:bg-[#C9DFF1] border-transparent"
                   }`}
                 >
                   <div className="relative flex-shrink-0">
                     <Icon className="w-4 h-4" />
                     {!expanded && badgeCount > 0 && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#000035] ring-2 ring-[#69D84F]" />
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#000035] ring-2 ring-[#DCEAF7]" />
                     )}
                   </div>
                   {expanded && (
                     <>
                       <span className="truncate flex-1">{label}</span>
                       {badgeCount > 0 && (
-                         <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 text-[10px] font-bold rounded-full bg-[#000035] text-[#69D84F]">
+                        <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 text-[10px] font-bold rounded-full bg-[#000035] text-white">
                           {badgeCount > 99 ? "99+" : badgeCount}
                         </span>
                       )}
@@ -429,12 +438,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Profile Section */}
         <div className={`border-t border-[#000035]/15 ${expanded ? "px-4 pt-4 pb-3" : "py-3"}`}>
           {expanded && (
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#285D21] mb-3 px-1">Profile</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#000035]/65 mb-3 px-1">Profile</p>
           )}
 
           {/* User info card */}
           {expanded ? (
-             <div className="flex items-center gap-3 mb-3 px-2.5 py-2.5 rounded-xl bg-[#54C540]/70 border border-[#000035]/10">
+             <div className="flex items-center gap-3 mb-3 px-2.5 py-2.5 rounded-xl bg-[#C9DFF1] border border-[#000035]/10">
               <div className="w-9 h-9 rounded-full bg-[#000035] border border-[#000035]/20 flex items-center justify-center flex-shrink-0">
                 <div
                   className="w-5 h-5 flex-shrink-0"
@@ -447,7 +456,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     maskRepeat: "no-repeat",
                     WebkitMaskPosition: "center",
                     maskPosition: "center",
-                    backgroundColor: "#69D84F",
+                    backgroundColor: "#DCEAF7",
                   }}
                 />
               </div>
@@ -476,7 +485,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     maskRepeat: "no-repeat",
                     WebkitMaskPosition: "center",
                     maskPosition: "center",
-                    backgroundColor: "#69D84F",
+                    backgroundColor: "#DCEAF7",
                   }}
                 />
               </div>
@@ -508,7 +517,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Desktop-only collapse/expand toggle at the bottom */}
         <button
           onClick={() => setSidebarOpen((o) => !o)}
-          className="hidden md:flex items-center justify-center py-3 border-t border-[#000035]/15 hover:bg-[#52C83C] transition-colors text-[#000035]/65 hover:text-[#000035] w-full"
+          className="hidden md:flex items-center justify-center py-3 border-t border-[#000035]/15 hover:bg-[#C9DFF1] transition-colors text-[#000035]/65 hover:text-[#000035] w-full"
           title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
         >
           {sidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -522,7 +531,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {/* Mobile hamburger */}
           <button
             onClick={() => setMobileOpen(true)}
-            className="md:hidden inline-flex items-center justify-center w-9 h-9 rounded-md text-[#000035] hover:bg-[#F0FBEA] -ml-1"
+            className="md:hidden inline-flex items-center justify-center w-9 h-9 rounded-md text-[#000035] hover:bg-[#DCEAF7] -ml-1"
             aria-label="Open menu"
             data-testid="button-mobile-menu"
           >

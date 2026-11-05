@@ -125,43 +125,44 @@ export default function Login() {
   return (
     <div className="min-h-[100dvh] w-full flex bg-[#F4F6FA]">
       {/* Left brand panel */}
-      <div className="hidden lg:flex lg:w-[44%] xl:w-[43%] relative overflow-hidden bg-[#000035]">
+      <div className="hidden lg:flex lg:w-[44%] xl:w-[43%] relative overflow-hidden bg-[#F4F7EC] text-[#000035]">
         <div className="absolute inset-0">
-          <img src="/bg.jpg" alt="" className="w-full h-full object-cover opacity-20" />
-          <div className="absolute inset-0 bg-gradient-to-br from-[#000035]/95 via-[#000035]/90 to-[#12124A]/95" />
-          <div className="absolute -right-28 -bottom-32 w-[34rem] h-[34rem] rounded-full border border-[#69D84F]/20" />
-          <div className="absolute -right-10 -bottom-14 w-[24rem] h-[24rem] rounded-full border border-[#69D84F]/20" />
+          <div className="absolute inset-0 bg-gradient-to-br from-[#FBF9F0] via-[#F1F8E9] to-[#E6F3DC]" />
+          <div className="absolute -left-28 top-[28%] w-[32rem] h-[32rem] rounded-full bg-[#69D84F]/10 blur-3xl" />
+          <div className="absolute -right-32 -bottom-36 w-[34rem] h-[34rem] rounded-full border border-[#3E9F2B]/15" />
+          <div className="absolute -right-12 -bottom-16 w-[24rem] h-[24rem] rounded-full border border-[#3E9F2B]/15" />
         </div>
-        <div className="relative z-10 flex flex-col justify-between p-12 xl:p-14 w-full text-white">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-[#69D84F] flex items-center justify-center shadow-lg shadow-black/20">
-              <img src="/brand-mark.svg" alt="" className="w-8 h-8 object-contain" />
+        <div className="relative z-10 flex flex-col justify-between p-12 xl:p-14 w-full">
+          <div className="w-full pt-12 text-center">
+            <div className="mx-auto w-full max-w-[500px] rounded-2xl border border-white bg-white/95 px-5 py-4 shadow-[0_14px_34px_rgba(0,0,53,0.09)]">
+              <img
+                src="/fresh-stock-xchange-logo.png"
+                alt="Fresh Stock Xchange"
+                className="mx-auto block w-full max-w-[430px] h-auto max-h-[74px] object-contain"
+              />
             </div>
-            <div>
-              <span className="block text-lg font-bold tracking-tight">Fresh Stock Xchange</span>
-              <span className="block text-[10px] uppercase tracking-[0.2em] text-white/55">Operations console</span>
-            </div>
+            <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#52614D]">Operations console</p>
           </div>
 
           <div className="space-y-5 max-w-md">
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#69D84F]/30 bg-[#69D84F]/10 px-3 py-1.5 text-[11px] font-semibold tracking-wide text-[#A3F08F]">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#3E9F2B]/20 bg-white/70 px-3 py-1.5 text-[11px] font-semibold tracking-wide text-[#347F27] shadow-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-[#69D84F]" />
               FRESH FISH. EVERY HUB. IN SYNC.
             </div>
-            <h2 className="text-4xl xl:text-[3.35rem] font-semibold leading-[1.06] tracking-tight">
-              The day starts<br />with a better <span className="text-[#69D84F]">catch.</span>
+            <h2 className="text-4xl xl:text-[3.35rem] font-semibold leading-[1.06] tracking-tight text-[#000035]">
+              The day starts<br />with a better <span className="text-[#3E9F2B]">catch.</span>
             </h2>
-            <p className="text-white/65 text-sm leading-7 max-w-sm">
+            <p className="text-[#52614D] text-sm leading-7 max-w-sm">
               Keep hubs, stock, orders and deliveries moving together from one clear operations desk.
             </p>
-            <div className="grid grid-cols-3 gap-5 pt-4 border-t border-white/10 max-w-sm">
-              <div><p className="text-xl font-semibold text-white">Hubs</p><p className="text-[10px] mt-1 uppercase tracking-wider text-white/45">Connected</p></div>
-              <div><p className="text-xl font-semibold text-white">Stock</p><p className="text-[10px] mt-1 uppercase tracking-wider text-white/45">In view</p></div>
-              <div><p className="text-xl font-semibold text-white">Orders</p><p className="text-[10px] mt-1 uppercase tracking-wider text-white/45">On track</p></div>
+            <div className="grid grid-cols-3 gap-5 pt-4 border-t border-[#000035]/10 max-w-sm">
+              <div><p className="text-xl font-semibold text-[#000035]">Hubs</p><p className="text-[10px] mt-1 uppercase tracking-wider text-[#687468]">Connected</p></div>
+              <div><p className="text-xl font-semibold text-[#000035]">Stock</p><p className="text-[10px] mt-1 uppercase tracking-wider text-[#687468]">In view</p></div>
+              <div><p className="text-xl font-semibold text-[#000035]">Orders</p><p className="text-[10px] mt-1 uppercase tracking-wider text-[#687468]">On track</p></div>
             </div>
           </div>
 
-          <div className="text-xs text-white/40">
+          <div className="text-xs text-[#000035]/45">
             © {new Date().getFullYear()} Fresh Stock Xchange
           </div>
         </div>
@@ -185,11 +186,15 @@ export default function Login() {
           </button>
 
           {/* Mobile brand */}
-          <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-[#69D84F] flex items-center justify-center">
-              <img src="/brand-mark.svg" alt="" className="w-7 h-7 object-contain" />
+          <div className="lg:hidden mb-8">
+            <div className="rounded-xl border border-[#000035]/10 bg-white px-4 py-3 shadow-sm">
+              <img
+                src="/fresh-stock-xchange-logo.png"
+                alt="Fresh Stock Xchange"
+                className="mx-auto block w-full max-w-[320px] h-auto max-h-12 object-contain"
+              />
             </div>
-            <div><span className="block text-lg font-bold tracking-tight text-[#000035]">Fresh Stock Xchange</span><span className="block text-[9px] uppercase tracking-[0.18em] text-[#77798A]">Operations console</span></div>
+            <p className="mt-2 text-center text-[9px] font-semibold uppercase tracking-[0.18em] text-[#687468]">Operations console</p>
           </div>
 
           <div className="mb-8">
