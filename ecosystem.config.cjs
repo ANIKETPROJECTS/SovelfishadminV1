@@ -19,8 +19,6 @@ module.exports = {
         CUSTOMER_EXPORT_PASSWORD: process.env.CUSTOMER_EXPORT_PASSWORD,
         QZ_PRIVATE_KEY: process.env.QZ_PRIVATE_KEY,
         QZ_CERTIFICATE: process.env.QZ_CERTIFICATE,
-        RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID,
-        RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET,
       },
     },
   ],
