@@ -4,7 +4,7 @@ module.exports = {
       name: "Shovelfishadmin",
       script: "./artifacts/api-server/dist/index.mjs",
       cwd: "/var/www/SovelfishadminV1",
-      node_args: "--env-file=.env",
+      node_args: ["--env-file=/var/www/SovelfishadminV1/.env"],
       instances: 1,
       autorestart: true,
       watch: false,
