@@ -125,8 +125,8 @@ function ExpandableNavItem({ href, label, icon: Icon, isActive, childActive, sub
                   <div
                     className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer text-[13px] font-medium transition-colors ${
                       isChildActive
-                         ? "bg-[#69D84F] text-[#000035]"
-                         : "text-white/70 hover:text-white hover:bg-white/10"
+                         ? "bg-[#C9DFF1] text-[#000035]"
+                         : "text-white/75 hover:text-[#000035] hover:bg-[#C9DFF1]"
                     }`}
                   >
                     <ChildIcon className="w-3.5 h-3.5 flex-shrink-0" />
