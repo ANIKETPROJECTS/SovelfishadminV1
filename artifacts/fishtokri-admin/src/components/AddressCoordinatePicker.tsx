@@ -226,7 +226,7 @@ export function AddressCoordinatePicker({
       </div>
 
       <div className="space-y-2">
-        <div className="relative z-20">
+        <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
           <input
             type="search"
@@ -246,7 +246,7 @@ export function AddressCoordinatePicker({
           {searchResults.length > 0 && (
             <div
               id="address-location-search-results"
-              className="absolute left-0 right-0 top-full mt-1 max-h-52 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg"
+              className="relative z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg"
               role="listbox"
               aria-label="Location search results"
             >
