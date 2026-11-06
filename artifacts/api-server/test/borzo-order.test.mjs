@@ -45,7 +45,8 @@ test("builds Borzo test points, required contacts, item summary, and COD amount"
   assert.equal(result.payload.points[1].contact_person.phone, "919000000003");
   assert.equal(result.payload.points[1].client_order_id, "FTW20261105001");
   assert.equal(result.payload.points[1].taking_amount, "520.00");
-  assert.equal(result.payload.points[1].is_order_payment_here, true);
+  assert.equal(result.payload.points[1].is_cod_cash_voucher_required, true);
+  assert.equal(result.payload.points[1].is_order_payment_here, undefined);
   assert.match(result.payload.matter, /Basa/);
   assert.equal(result.payload.total_weight_kg, 1);
 });
@@ -57,8 +58,8 @@ test("does not request cash collection for a settled online payment", () => {
     paymentMode: "upi",
     dueAmount: 0,
   }, pickupEnv);
-  assert.equal(result.payload.points[1].taking_amount, "0.00");
-  assert.equal(result.payload.points[1].is_order_payment_here, false);
+  assert.equal(result.payload.points[1].taking_amount, undefined);
+  assert.equal(result.payload.points[1].is_cod_cash_voucher_required, undefined);
 });
 
 test("rejects incomplete customer and pickup data before making an API request", () => {
@@ -133,6 +134,38 @@ test("marks server errors as uncertain to prevent duplicate delivery orders", as
     assert.equal(result.success, false);
     assert.equal(result.status, "unknown");
     assert.equal(result.error.outcomeMayBeUnknown, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    for (const [key, value] of Object.entries(previousPickup)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("includes Borzo's exact field path when the API rejects request parameters", async () => {
+  const envKeys = ["BORZO_API_TOKEN"];
+  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  process.env.BORZO_API_TOKEN = "test-token";
+  const pickupKeys = Object.keys(pickupEnv).filter((key) => key.startsWith("BORZO_PICKUP_"));
+  const previousPickup = Object.fromEntries(pickupKeys.map((key) => [key, process.env[key]]));
+  for (const key of pickupKeys) process.env[key] = pickupEnv[key];
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    is_successful: false,
+    errors: ["invalid_parameters"],
+    parameter_errors: { points: [null, { taking_amount: ["not_allowed"] }] },
+  }), { status: 400 });
+
+  try {
+    const result = await createBorzoOrder(ftwOrder);
+    assert.equal(result.success, false);
+    assert.equal(result.status, "failed");
+    assert.match(result.error.message, /points\[1\]\.taking_amount: not_allowed/);
   } finally {
     globalThis.fetch = originalFetch;
     for (const [key, value] of Object.entries(previousEnv)) {

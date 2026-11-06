@@ -98,6 +98,25 @@ function sanitizeResponseBody(value) {
   );
 }
 
+function summarizeParameterErrors(value, path = "") {
+  if (Array.isArray(value)) {
+    if (value.every((entry) => typeof entry === "string")) {
+      return value.map((entry) => `${path}: ${entry}`);
+    }
+    return value.flatMap((entry, index) =>
+      entry === null || entry === undefined
+        ? []
+        : summarizeParameterErrors(entry, `${path}[${index}]`),
+    );
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).flatMap(([key, entry]) =>
+      summarizeParameterErrors(entry, path ? `${path}.${key}` : key),
+    );
+  }
+  return path ? [`${path}: ${String(value)}`] : [];
+}
+
 export function buildBorzoOrderPayload(order, env = process.env) {
   const detail = order?.deliveryAddressDetail && typeof order.deliveryAddressDetail === "object"
     ? order.deliveryAddressDetail
@@ -173,8 +192,12 @@ export function buildBorzoOrderPayload(order, env = process.env) {
           phone: receiverPhone,
         },
         client_order_id: orderId.slice(0, 32),
-        taking_amount: takingAmount.toFixed(2),
-        is_order_payment_here: takingAmount > 0,
+        ...(takingAmount > 0
+          ? {
+              is_cod_cash_voucher_required: true,
+              taking_amount: takingAmount.toFixed(2),
+            }
+          : {}),
       },
     ],
   };
@@ -194,7 +217,6 @@ export function buildBorzoOrderPayload(order, env = process.env) {
     payload,
     missingFields,
     warnings: [
-      "Borzo Client ID is not sent: the Business API documentation authenticates with X-DV-Auth-Token.",
       ...(totalWeightKg > 0 && totalWeightKg < 1
         ? ["Borzo total_weight_kg is an integer, so this order weight is rounded up to 1 kg."]
         : []),
@@ -262,6 +284,7 @@ export async function createBorzoOrder(order) {
       const detail = Array.isArray(response.body?.errors)
         ? response.body.errors.join(", ")
         : "";
+      const parameterDetails = summarizeParameterErrors(response.body?.parameter_errors);
       return {
         success: false,
         status: outcomeMayBeUnknown ? "unknown" : "failed",
@@ -273,7 +296,11 @@ export async function createBorzoOrder(order) {
         httpStatus: response.status,
         responseBody,
         error: {
-          message: detail || `Borzo test API returned HTTP ${response.status} without a confirmed order ID.`,
+          message: [
+            detail ? `Borzo test API rejected the request (${detail}).` : "",
+            ...parameterDetails,
+          ].filter(Boolean).join(" ") ||
+            `Borzo test API returned HTTP ${response.status} without a confirmed order ID.`,
           httpStatus: response.status,
           responseBody,
           outcomeMayBeUnknown,
