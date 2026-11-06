@@ -15,7 +15,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { loadScope, type ScopedRequest } from "../middlewares/scope.js";
 import { HubUser } from "../db/models/hub-user.js";
 import { sendOrderConfirmed, sendOutForDelivery, sendOrderCancelled } from "../services/whatsapp.js";
-import { createBorzoOrder } from "../services/borzo.mjs";
+import { createBorzoBatchOrder, createBorzoOrder } from "../services/borzo.mjs";
 import {
   ensureFtwPendingPaymentExpiryDates,
   isFtwOrder,
@@ -1763,6 +1763,277 @@ router.get("/:id", async (req: ScopedRequest, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to get order");
     res.status(500).json({ error: "InternalError", message: "Failed to fetch order" });
+  }
+});
+
+// POST /api/orders/borzo-batch — dispatch paid orders as one Borzo route.
+router.post("/borzo-batch", async (req: ScopedRequest, res) => {
+  const attemptedAt = new Date();
+  const claimedOrders: Array<{ order: any; previousDispatch: any }> = [];
+  let batchId = "";
+  let borzoRequestMayHaveStarted = false;
+
+  try {
+    const requestedIds = Array.isArray(req.body?.orderIds)
+      ? req.body.orderIds.map((id: unknown) => String(id ?? "").trim()).filter(Boolean)
+      : [];
+    if (requestedIds.length < 2 || requestedIds.length > 98) {
+      res.status(400).json({
+        error: "ValidationError",
+        message: "Select between 2 and 98 orders for one Borzo route.",
+      });
+      return;
+    }
+    if (new Set(requestedIds).size !== requestedIds.length) {
+      res.status(400).json({ error: "ValidationError", message: "The selected order list contains duplicates." });
+      return;
+    }
+
+    const objectIds = requestedIds.map((id: string) => toId(id));
+    if (objectIds.some((id: any) => !id)) {
+      res.status(400).json({ error: "ValidationError", message: "One or more selected order IDs are invalid." });
+      return;
+    }
+
+    const conn = await getOrdersDb();
+    const ordersCollection = conn.db.collection(COLLECTION);
+    await ensureFtwPendingPaymentExpiryDates(conn.db);
+    const foundOrders = await ordersCollection.find({ _id: { $in: objectIds } }).toArray();
+    const foundById = new Map(foundOrders.map((order: any) => [String(order._id), order]));
+    const orders = objectIds.map((id: any) => foundById.get(String(id))).filter(Boolean) as any[];
+
+    if (orders.length !== requestedIds.length) {
+      res.status(404).json({ error: "NotFound", message: "One or more selected orders were not found." });
+      return;
+    }
+    if (orders.some((order) => !isOrderInScope(req.scope, order, req))) {
+      res.status(403).json({ error: "Forbidden", message: "One or more selected orders are outside your hub access." });
+      return;
+    }
+
+    const dateKey = (value: unknown) => {
+      if (value instanceof Date) return value.toISOString().slice(0, 10);
+      return String(value ?? "").trim().slice(0, 10);
+    };
+    const groupKey = (order: any) => [
+      String(order?.subHubId ?? "").trim(),
+      dateKey(order?.deliveryDate),
+      String(order?.scheduleType ?? "instant").trim().toLowerCase(),
+      String(order?.timeslotStart ?? "").trim().toLowerCase(),
+      String(order?.timeslotEnd ?? "").trim().toLowerCase(),
+    ].join("|");
+    const firstGroup = groupKey(orders[0]);
+    if (!orders[0]?.subHubId || !dateKey(orders[0]?.deliveryDate) ||
+      orders.some((order) => groupKey(order) !== firstGroup)) {
+      res.status(400).json({
+        error: "ValidationError",
+        message: "All selected orders must have the same sub-hub, delivery date, and delivery time window.",
+      });
+      return;
+    }
+
+    const notReady = orders.find((order) => {
+      const orderNumber = String(order?.orderId ?? order?._id);
+      if (!isBorzoOrder(order)) return `${orderNumber} is not an FTS/FTW order.`;
+      if (String(order?.status ?? "").toLowerCase() !== "pending") return `${orderNumber} is not pending.`;
+      if (String(order?.deliveryType ?? "delivery").toLowerCase() !== "delivery") {
+        return `${orderNumber} is not a delivery order.`;
+      }
+      if (order?.isExpress || String(order?.scheduleType ?? "").toLowerCase() === "express") {
+        return `${orderNumber} is an express order; express orders cannot be batched.`;
+      }
+      if (isFtwPaymentOnHold(order)) return `${orderNumber} is still on payment hold.`;
+
+      const total = Math.max(0, Number(order?.total) || 0);
+      const paidAmount = Math.max(0, Number(order?.paidAmount) || 0);
+      const paymentStatus = String(order?.paymentStatus ?? "").trim().toLowerCase();
+      const markedPaid = ["paid", "completed"].includes(paymentStatus);
+      const dueAmount = order?.dueAmount === undefined
+        ? (markedPaid ? 0 : Math.max(0, total - paidAmount))
+        : Math.max(0, Number(order.dueAmount) || 0);
+      if (dueAmount > 0 || (!markedPaid && (total > 0 && paidAmount < total))) {
+        return `${orderNumber} is not fully paid. Batch routes currently require prepaid orders; COD is not enabled.`;
+      }
+
+      const dispatchStatus = String(order?.borzoDispatch?.status ?? "").toLowerCase();
+      if (["sending", "sent", "unknown"].includes(dispatchStatus)) {
+        return `${orderNumber} already has a Borzo request in ${dispatchStatus} state; check Borzo before retrying.`;
+      }
+      return "";
+    });
+    if (notReady) {
+      res.status(409).json({ error: "OrderNotEligible", message: notReady });
+      return;
+    }
+
+    const sourceOrderIds = orders.map((order) =>
+      String(order?.orderId ?? order?._id).trim().replace(/^#+/, ""),
+    );
+    const documentIds = orders.map((order) => String(order._id));
+    batchId = crypto.randomUUID();
+
+    // Reserve every order before making the external request. If any reservation
+    // fails, restore earlier reservations and do not send a partial batch.
+    for (const order of orders) {
+      const claim = await ordersCollection.updateOne(
+        {
+          _id: order._id,
+          status: "pending",
+          "borzoDispatch.status": { $nin: ["sending", "sent", "unknown"] },
+        },
+        {
+          $set: {
+            borzoDispatch: {
+              status: "sending",
+              batchId,
+              batchOrderIds: sourceOrderIds,
+              sourceOrderId: String(order?.orderId ?? order?._id),
+              environment: "test",
+              attemptedAt,
+            },
+          },
+        },
+      );
+      if (claim.modifiedCount !== 1) {
+        for (const claimed of claimedOrders) {
+          const filter = { _id: claimed.order._id, "borzoDispatch.batchId": batchId, "borzoDispatch.status": "sending" };
+          if (claimed.previousDispatch === undefined) {
+            await ordersCollection.updateOne(filter, { $unset: { borzoDispatch: "" } });
+          } else {
+            await ordersCollection.updateOne(filter, { $set: { borzoDispatch: claimed.previousDispatch } });
+          }
+        }
+        res.status(409).json({
+          error: "OrderChanged",
+          message: "At least one order changed or was accepted by another user. Refresh the list and select again.",
+        });
+        return;
+      }
+      claimedOrders.push({ order, previousDispatch: order?.borzoDispatch });
+    }
+
+    let borzoResult: any;
+    borzoRequestMayHaveStarted = true;
+    try {
+      borzoResult = await createBorzoBatchOrder(orders);
+    } catch (err: any) {
+      borzoResult = {
+        success: false,
+        status: "unknown",
+        error: {
+          message: err?.message || "Borzo batch request failed unexpectedly; check the Borzo test cabinet before retrying.",
+          outcomeMayBeUnknown: true,
+        },
+      };
+    }
+    borzoResult = { ...borzoResult, batchId, batchOrderIds: sourceOrderIds, serverRequestId: req.id };
+
+    const dispatchStatus = borzoResult.success ? "sent" : borzoResult.status === "unknown" ? "unknown" : "failed";
+    const completedAt = new Date();
+    const dispatchRecord = {
+      status: dispatchStatus,
+      batchId,
+      batchOrderIds: sourceOrderIds,
+      environment: "test",
+      attemptedAt,
+      completedAt,
+      requestMethod: borzoResult.requestMethod ?? "POST",
+      requestUrl: borzoResult.requestUrl,
+      httpStatus: borzoResult.httpStatus,
+      borzoOrderId: borzoResult.borzoOrderId,
+      borzoOrderStatus: borzoResult.borzoOrderStatus,
+      errorMessage: borzoResult.error?.message,
+      serverRequestId: req.id,
+    };
+    const saved = await Promise.all(orders.map((order) =>
+      ordersCollection.updateOne(
+        { _id: order._id, "borzoDispatch.batchId": batchId, "borzoDispatch.status": "sending" },
+        { $set: { borzoDispatch: { ...dispatchRecord, sourceOrderId: String(order?.orderId ?? order?._id) } } },
+      ),
+    ));
+    if (saved.some((result) => result.modifiedCount !== 1)) {
+      await ordersCollection.updateMany(
+        { "borzoDispatch.batchId": batchId, "borzoDispatch.status": "sending" },
+        {
+          $set: {
+            "borzoDispatch.status": "unknown",
+            "borzoDispatch.completedAt": new Date(),
+            "borzoDispatch.errorMessage": "Borzo result could not be saved for every order; verify the batch in Borzo before retrying.",
+          },
+        },
+      );
+      req.log.error({ batchId, sourceOrderIds, dispatchStatus }, "[Borzo batch] Could not save dispatch result for every order");
+      res.status(500).json({
+        error: "DispatchStateUncertain",
+        message: "The Borzo request was made, but its result could not be saved for every order. Check the Borzo test cabinet before retrying.",
+        batchId,
+        orderIds: documentIds,
+        borzo: borzoResult,
+      });
+      return;
+    }
+
+    const logDetails = {
+      batchId,
+      orderIds: sourceOrderIds,
+      orderCount: orders.length,
+      environment: "test",
+      requestMethod: borzoResult.requestMethod,
+      requestUrl: borzoResult.requestUrl,
+      authentication: borzoResult.authentication,
+      requestPayload: borzoResult.requestPayload,
+      httpStatus: borzoResult.httpStatus,
+      responseBody: borzoResult.responseBody,
+      borzoOrderId: borzoResult.borzoOrderId,
+      success: borzoResult.success,
+      status: borzoResult.status,
+      warnings: borzoResult.warnings,
+      error: borzoResult.error,
+      serverRequestId: req.id,
+    };
+    if (borzoResult.success) {
+      req.log.info(logDetails, "[Borzo batch] One route accepted for multiple orders");
+    } else {
+      req.log.error(logDetails, "[Borzo batch] Route submission failed or has uncertain outcome");
+    }
+
+    res.json({ batchId, orderIds: documentIds, sourceOrderIds, borzo: borzoResult });
+  } catch (err) {
+    if (claimedOrders.length > 0 && batchId) {
+      try {
+        const ordersCollection = (await getOrdersDb()).db.collection(COLLECTION);
+        if (borzoRequestMayHaveStarted) {
+          await ordersCollection.updateMany(
+            { "borzoDispatch.batchId": batchId, "borzoDispatch.status": "sending" },
+            {
+              $set: {
+                "borzoDispatch.status": "unknown",
+                "borzoDispatch.completedAt": new Date(),
+                "borzoDispatch.errorMessage": "The server could not finish saving the Borzo result. Verify the batch before retrying.",
+              },
+            },
+          );
+        } else {
+          for (const claimed of claimedOrders) {
+            const filter = { _id: claimed.order._id, "borzoDispatch.batchId": batchId, "borzoDispatch.status": "sending" };
+            if (claimed.previousDispatch === undefined) {
+              await ordersCollection.updateOne(filter, { $unset: { borzoDispatch: "" } });
+            } else {
+              await ordersCollection.updateOne(filter, { $set: { borzoDispatch: claimed.previousDispatch } });
+            }
+          }
+        }
+      } catch (rollbackError) {
+        req.log.error({ err: rollbackError, batchId }, "[Borzo batch] Could not safely recover batch reservations");
+      }
+    }
+    req.log.error({ err, batchId, orderIds: claimedOrders.map(({ order }) => order?.orderId) }, "[Borzo batch] Failed to dispatch batch");
+    res.status(500).json({
+      error: "InternalError",
+      message: batchId
+        ? "Could not complete the batch request safely. Check the Borzo test cabinet and refresh the orders before retrying."
+        : "Failed to prepare Borzo batch.",
+    });
   }
 });
 

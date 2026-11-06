@@ -17,6 +17,8 @@ export interface BorzoDispatchResult {
   responseBody?: any;
   borzoOrderId?: string;
   borzoOrderStatus?: string;
+  batchId?: string;
+  batchOrderIds?: string[];
   error?: {
     message: string;
     missingFields?: string[];
@@ -27,4 +29,6 @@ export interface BorzoDispatchResult {
 }
 
 export function buildBorzoOrderPayload(order: any, env?: Record<string, string | undefined>): BorzoPayloadBuildResult;
+export function buildBorzoBatchOrderPayload(orders: any[], env?: Record<string, string | undefined>): BorzoPayloadBuildResult;
 export function createBorzoOrder(order: any): Promise<BorzoDispatchResult>;
+export function createBorzoBatchOrder(orders: any[]): Promise<BorzoDispatchResult>;

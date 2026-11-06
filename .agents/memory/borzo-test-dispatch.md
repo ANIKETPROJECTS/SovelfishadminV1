@@ -13,8 +13,12 @@ Send the merchandise subtotal as Borzo's `insurance_amount` (a two-decimal money
 
 The recipient stop must use the customer delivery address snapshot on the order, never the configured pickup address or a newly changed profile default. Preserve both full-string addresses and structured/legacy address fields.
 
+Customer map coordinates are optional. If both are valid, send `latitude` and `longitude` on the same Borzo point as the required written address; omit incomplete or invalid coordinate pairs.
+
+For a grouped route, batch 2–98 fully paid delivery orders only when they share the same sub-hub, delivery date, and schedule window. Send one shared pickup and one distinct destination stop per order, retaining each source order ID at its stop. Keep COD out of batches until the account's COD agreement is enabled.
+
 If a request times out, returns a server error, or otherwise has an uncertain outcome, do not automatically retry. Check the Borzo test dashboard first to avoid duplicate orders.
 
-**Why:** The user replaced Pidge with Borzo, authorized the test environment, chose to declare goods value, and explicitly required the recipient to receive the actual customer address; Borzo validates COD fields only when the voucher flag is enabled and this account separately requires a COD agreement.
+**Why:** The user replaced Pidge with Borzo, authorized the test environment, chose to declare goods value, and explicitly required the recipient to receive the actual customer address. Borzo's point schema keeps the address required while allowing optional coordinates. A single Borzo route needs one shared pickup and aligned delivery timing; this account separately requires a COD agreement.
 
-**How to apply:** Keep dispatch limited to eligible delivery orders on confirmation, keep the token server-side, declare goods separately from delivery charges, use the order-time address snapshot without substituting pickup/default customer data, include both COD fields together, and don't repeatedly retry COD after `cod_agreement_required`; have Borzo enable the agreement first.
+**How to apply:** Keep dispatch limited to eligible delivery orders on confirmation, keep the token server-side, declare goods separately from delivery charges, use the order-time address snapshot without substituting pickup/default customer data, send a complete valid coordinate pair only alongside the written address, include both COD fields together, and don't repeatedly retry COD after `cod_agreement_required`; have Borzo enable the agreement first. For batches, enforce payment, hub, date, schedule, and stop-count constraints on the server, and treat uncertain outcomes as non-retryable until checked.

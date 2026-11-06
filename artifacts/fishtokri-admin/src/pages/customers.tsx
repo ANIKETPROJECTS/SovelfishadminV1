@@ -18,6 +18,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AddressCoordinatePicker } from "@/components/AddressCoordinatePicker";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -1975,15 +1976,22 @@ type AddressDraft = {
   label: string; type: string; name: string; phone: string;
   building: string; street: string; area: string;
   pincode: string; instructions: string; isDefault: boolean;
+  latitude: number | null; longitude: number | null;
 };
 
 function emptyAddress(): AddressDraft {
-  return { label: "Home", type: "house", name: "", phone: "", building: "", street: "", area: "", pincode: "", instructions: "", isDefault: false };
+  return { label: "Home", type: "house", name: "", phone: "", building: "", street: "", area: "", pincode: "", instructions: "", isDefault: false, latitude: null, longitude: null };
 }
 
 function addressFromExisting(a: any): AddressDraft {
   const existingHouse = a?.houseNo ?? a?.flatNo ?? a?.house ?? a?.apartment ?? "";
   const existingBuilding = a?.building ?? a?.buildingName ?? a?.society ?? "";
+  const hasCoordinateValues = a?.latitude !== undefined && a?.latitude !== null && String(a.latitude).trim() !== "" &&
+    a?.longitude !== undefined && a?.longitude !== null && String(a.longitude).trim() !== "";
+  const latitude = Number(a?.latitude);
+  const longitude = Number(a?.longitude);
+  const hasCoordinates = hasCoordinateValues && Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 &&
+    Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
   return {
     label: a?.label ?? a?.type ?? "Home",
     type: a?.type ?? "house",
@@ -1995,6 +2003,8 @@ function addressFromExisting(a: any): AddressDraft {
     pincode: a?.pincode ?? a?.zipCode ?? a?.zip ?? "",
     instructions: a?.instructions ?? a?.deliveryInstructions ?? "",
     isDefault: !!a?.isDefault,
+    latitude: hasCoordinates ? latitude : null,
+    longitude: hasCoordinates ? longitude : null,
   };
 }
 
@@ -2009,6 +2019,7 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
   const [dob, setDob] = useState("");
   const [walletBalance, setWalletBalance] = useState("");
   const [addresses, setAddresses] = useState<AddressDraft[]>([]);
+  const [mapAddressIndex, setMapAddressIndex] = useState<number | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const reset = useCallback(() => {
@@ -2016,6 +2027,7 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
     setPhone(customer?.phone ?? ""); setDob(customer?.dateOfBirth ?? "");
     setWalletBalance(String(Number(customer?.walletBalance) || 0));
     setAddresses(Array.isArray(customer?.addresses) && customer!.addresses.length ? customer!.addresses.map(addressFromExisting) : []);
+    setMapAddressIndex(null);
     setErrors({});
   }, [customer]);
 
@@ -2045,7 +2057,8 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = "Invalid email format";
     if (dob.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(dob.trim())) e.dob = "Use YYYY-MM-DD format";
     addresses.forEach((a, i) => {
-      const hasAny = a.name || a.phone || a.building || a.street || a.area || a.pincode;
+      const hasAny = a.name || a.phone || a.building || a.street || a.area || a.pincode ||
+        a.latitude !== null || a.longitude !== null;
       if (hasAny) {
         if (!a.name.trim()) e[`addr_${i}_name`] = "Full name is required";
         if (!a.phone.trim()) e[`addr_${i}_phone`] = "Phone is required";
@@ -2054,6 +2067,15 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
         if (!a.area.trim()) e[`addr_${i}_area`] = "Area / Suburb is required";
         if (!a.pincode.trim()) e[`addr_${i}_pincode`] = "Pincode required";
         else if (!/^\d{6}$/.test(a.pincode.trim())) e[`addr_${i}_pincode`] = "Pincode must be 6 digits";
+      }
+      const hasLatitude = a.latitude !== null && a.latitude !== undefined;
+      const hasLongitude = a.longitude !== null && a.longitude !== undefined;
+      if (hasLatitude || hasLongitude) {
+        if (!hasLatitude || !hasLongitude ||
+          !Number.isFinite(Number(a.latitude)) || Number(a.latitude) < -90 || Number(a.latitude) > 90 ||
+          !Number.isFinite(Number(a.longitude)) || Number(a.longitude) < -180 || Number(a.longitude) > 180) {
+          e[`addr_${i}_coordinates`] = "Choose a valid pin with both coordinates.";
+        }
       }
     });
     return e;
@@ -2068,11 +2090,16 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
         const out: Record<string, any> = {};
         (Object.keys(a) as (keyof AddressDraft)[]).forEach((k) => {
           const v = a[k];
-          if (typeof v === "string") { if (v.trim()) out[k] = v.trim(); } else if (v) out[k] = v;
+          if (k === "isDefault" && !v) return;
+          if (typeof v === "string") {
+            if (v.trim()) out[k] = v.trim();
+          } else if (v !== null && v !== undefined && (typeof v !== "number" || Number.isFinite(v))) {
+            out[k] = v;
+          }
         });
         return out;
       })
-      .filter((a) => Object.keys(a).filter((k) => k !== "label" && k !== "type").length > 0);
+      .filter((a) => Object.keys(a).some((k) => !["label", "type", "isDefault"].includes(k)));
     const labelCounts: Record<string, number> = {};
     const numberedAddresses = cleanAddresses.map((a) => {
       const base = (a.label || "Home").replace(/\s+\d+$/, "").trim();
@@ -2162,7 +2189,10 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
                       </div>
                       <div className="flex items-center gap-2">
                         {!a.isDefault && <button type="button" onClick={() => setAddresses((prev) => prev.map((x, j) => ({ ...x, isDefault: j === i })))} className="text-[11px] text-[#1A56DB] hover:underline font-medium">Make default</button>}
-                        <button type="button" onClick={() => setAddresses((prev) => prev.filter((_, j) => j !== i))} className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-black hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors" title="Remove address">
+                        <button type="button" onClick={() => {
+                          setAddresses((prev) => prev.filter((_, j) => j !== i));
+                          setMapAddressIndex((current) => current === i ? null : current !== null && current > i ? current - 1 : current);
+                        }} className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-black hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors" title="Remove address">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -2202,6 +2232,38 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
                         <Field label="Delivery Instructions">
                           <Input value={a.instructions} onChange={(e) => updateAddress(i, { instructions: e.target.value })} placeholder="Leave at door, ring bell twice, etc." />
                         </Field>
+                      </div>
+                      <div className="md:col-span-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-semibold text-gray-800">Exact map location <span className="font-normal text-gray-500">(optional)</span></p>
+                            <p className="text-[11px] text-gray-500">The written address remains required for delivery.</p>
+                          </div>
+                          <button
+                            type="button"
+                            data-testid={`button-toggle-address-map-${i}`}
+                            onClick={() => setMapAddressIndex((current) => current === i ? null : i)}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100"
+                          >
+                            <MapPin className="h-3.5 w-3.5" />
+                            {mapAddressIndex === i ? "Hide map" : a.latitude !== null && a.longitude !== null ? "Update map pin" : "Add map pin"}
+                          </button>
+                        </div>
+                        {errors[`addr_${i}_coordinates`] && (
+                          <p className="mt-1 text-xs text-red-500">{errors[`addr_${i}_coordinates`]}</p>
+                        )}
+                        {mapAddressIndex === i && (
+                          <div className="mt-3">
+                            <AddressCoordinatePicker
+                              latitude={a.latitude}
+                              longitude={a.longitude}
+                              onChange={(coordinates) => updateAddress(i, {
+                                latitude: coordinates?.latitude ?? null,
+                                longitude: coordinates?.longitude ?? null,
+                              })}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

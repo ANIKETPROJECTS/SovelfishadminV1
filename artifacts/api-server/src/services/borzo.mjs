@@ -30,6 +30,25 @@ function extractPincode(order, detail) {
   return "";
 }
 
+function extractCoordinates(order, detail) {
+  const latitudeValue = detail?.latitude ?? detail?.lat ??
+    order?.deliveryLatitude ?? order?.latitude;
+  const longitudeValue = detail?.longitude ?? detail?.lng ??
+    order?.deliveryLongitude ?? order?.longitude;
+  const hasAnyCoordinate = asText(latitudeValue) !== "" || asText(longitudeValue) !== "";
+  const latitude = Number(latitudeValue);
+  const longitude = Number(longitudeValue);
+  const valid = hasAnyCoordinate &&
+    Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 &&
+    Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+  return {
+    coordinates: valid
+      ? { latitude: latitude.toFixed(7), longitude: longitude.toFixed(7) }
+      : null,
+    hasAnyCoordinate,
+  };
+}
+
 function cashToCollect(order) {
   const paymentStatus = asText(order?.paymentStatus).toLowerCase();
   if (paymentStatus === "paid" || paymentStatus === "completed") return 0;
@@ -159,6 +178,7 @@ export function buildBorzoOrderPayload(order, env = process.env) {
   const receiverName = asText(detail.name || detail.contactName || order?.customerName);
   const receiverPhone = normalizeIndianPhone(detail.phone || order?.phone);
   const receiverPincode = extractPincode(order, detail);
+  const { coordinates: receiverCoordinates, hasAnyCoordinate } = extractCoordinates(order, detail);
   const fullAddressCandidates = [
     order?.address,
     typeof order?.deliveryAddressDetail === "string" ? order.deliveryAddressDetail : "",
@@ -243,6 +263,7 @@ export function buildBorzoOrderPayload(order, env = process.env) {
           phone: receiverPhone,
         },
         client_order_id: orderId.slice(0, 32),
+        ...(receiverCoordinates ?? {}),
         ...(takingAmount > 0
           ? {
               is_cod_cash_voucher_required: true,
@@ -274,6 +295,67 @@ export function buildBorzoOrderPayload(order, env = process.env) {
       ...(totalWeightKg > 0 && totalWeightKg < 1
         ? ["Borzo total_weight_kg is an integer, so this order weight is rounded up to 1 kg."]
         : []),
+      ...(hasAnyCoordinate && !receiverCoordinates
+        ? ["Incomplete or invalid customer coordinates were omitted; the required address will still be sent."]
+        : []),
+    ],
+  };
+}
+
+export function buildBorzoBatchOrderPayload(orders, env = process.env) {
+  const batchOrders = Array.isArray(orders) ? orders : [];
+  const builtOrders = batchOrders.map((order) => buildBorzoOrderPayload(order, env));
+  const orderIds = batchOrders.map((order) =>
+    asText(order?.orderId).replace(/^#+/, "") || asText(order?._id),
+  );
+  const missingFields = builtOrders.flatMap((built, index) =>
+    built.missingFields.map((field) => `${orderIds[index] || `order ${index + 1}`}: ${field}`),
+  );
+  if (batchOrders.length < 2) missingFields.push("at least two orders to batch");
+  if (batchOrders.length > 98) missingFields.push("no more than 98 delivery stops per batch");
+
+  const firstPayload = builtOrders[0]?.payload;
+  const pickupAddresses = new Set(
+    builtOrders.map((built) => asText(built.payload.points?.[0]?.address)).filter(Boolean),
+  );
+  if (pickupAddresses.size > 1) missingFields.push("all orders must use the same Borzo pickup address");
+
+  const goodsAmount = batchOrders.reduce((sum, order) => sum + declaredGoodsAmount(order), 0);
+  const totalWeightKg = batchOrders.reduce((sum, order) => {
+    const items = Array.isArray(order?.items) ? order.items : [];
+    return sum + items.reduce((itemSum, item) =>
+      itemSum + itemWeightKg(item) * Math.max(1, Number(item?.quantity) || 1), 0);
+  }, 0);
+  const matter = batchOrders.map((order, index) => {
+    const items = (Array.isArray(order?.items) ? order.items : [])
+      .filter((item) => asText(item?.name))
+      .map((item) => `${asText(item.name)} × ${Math.max(1, Number(item.quantity) || 1)}`)
+      .join(", ");
+    return `${orderIds[index]}: ${items || "Order items"}`;
+  }).join("; ").slice(0, 5000);
+
+  const payload = firstPayload
+    ? {
+        ...firstPayload,
+        matter: `Fresh Stock Xchange batch: ${matter}`.slice(0, 5000),
+        total_weight_kg: Math.ceil(totalWeightKg),
+        ...(goodsAmount > 0 ? { insurance_amount: goodsAmount.toFixed(2) } : {}),
+        points: [
+          firstPayload.points[0],
+          ...builtOrders.map((built) => built.payload.points[1]),
+        ],
+      }
+    : { type: "standard", matter: "", total_weight_kg: 0, points: [] };
+
+  return {
+    payload,
+    missingFields: [...new Set(missingFields)],
+    warnings: [
+      ...new Set(builtOrders.flatMap((built) => built.warnings)),
+      `Borzo batch contains ${batchOrders.length} customer delivery stop(s).`,
+      ...(totalWeightKg > 0 && totalWeightKg < 1
+        ? ["Combined Borzo batch weight is rounded up to 1 kg."]
+        : []),
     ],
   };
 }
@@ -304,8 +386,7 @@ async function requestJson(url, body, token) {
   }
 }
 
-export async function createBorzoOrder(order) {
-  const { payload, missingFields, warnings } = buildBorzoOrderPayload(order);
+async function submitBorzoPayload({ payload, missingFields, warnings }) {
   const token = asText(process.env.BORZO_API_TOKEN);
   const requestUrl = `${TEST_API_URL}/create-order`;
   if (missingFields.length > 0) {
@@ -393,4 +474,19 @@ export async function createBorzoOrder(order) {
       },
     };
   }
+}
+
+export async function createBorzoOrder(order) {
+  return submitBorzoPayload(buildBorzoOrderPayload(order));
+}
+
+export async function createBorzoBatchOrder(orders) {
+  const built = buildBorzoBatchOrderPayload(orders);
+  const result = await submitBorzoPayload(built);
+  return {
+    ...result,
+    batchOrderIds: (Array.isArray(orders) ? orders : []).map((order) =>
+      asText(order?.orderId).replace(/^#+/, "") || asText(order?._id),
+    ),
+  };
 }

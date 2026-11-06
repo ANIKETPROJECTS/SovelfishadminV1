@@ -163,6 +163,45 @@ function isFullyPaidStatus(status: unknown): boolean {
   return ["paid", "completed"].includes(String(status ?? "").trim().toLowerCase());
 }
 
+function isPaidForBorzoBatch(order: any): boolean {
+  const total = Math.max(0, Number(order?.total) || 0);
+  const paidAmount = Math.max(0, Number(order?.paidAmount) || 0);
+  const markedPaid = isFullyPaidStatus(order?.paymentStatus);
+  const dueAmount = order?.dueAmount === undefined
+    ? (markedPaid ? 0 : Math.max(0, total - paidAmount))
+    : Math.max(0, Number(order.dueAmount) || 0);
+  return dueAmount <= 0 && (markedPaid || total === 0 || paidAmount >= total);
+}
+
+function borzoBatchGroupKey(order: any): string {
+  const deliveryDate = order?.deliveryDate instanceof Date
+    ? order.deliveryDate.toISOString().slice(0, 10)
+    : String(order?.deliveryDate ?? "").trim().slice(0, 10);
+  return [
+    String(order?.subHubId ?? "").trim(),
+    deliveryDate,
+    String(order?.scheduleType ?? "instant").trim().toLowerCase(),
+    String(order?.timeslotStart ?? "").trim().toLowerCase(),
+    String(order?.timeslotEnd ?? "").trim().toLowerCase(),
+  ].join("|");
+}
+
+function borzoBatchIneligibility(order: any): string {
+  const orderNumber = String(order?.orderId ?? order?._id ?? "Order");
+  const sourceId = orderNumber.trim().replace(/^#+/, "").toUpperCase();
+  if (!sourceId.startsWith("FTS") && !sourceId.startsWith("FTW")) return "Only FTS/FTW orders can be batched.";
+  if (String(order?.status ?? "").toLowerCase() !== "pending") return "Only pending orders can be batched.";
+  if (String(order?.deliveryType ?? "delivery").toLowerCase() !== "delivery") return "Takeaway orders cannot be batched.";
+  if (order?.isExpress || String(order?.scheduleType ?? "").toLowerCase() === "express") return "Express orders cannot be batched.";
+  if (isFtwPaymentOnHold(order)) return "Waiting for FTW payment.";
+  if (!String(order?.subHubId ?? "").trim() || !borzoBatchGroupKey(order).split("|")[1]) return "A sub-hub and delivery date are required.";
+  if (!isPaidForBorzoBatch(order)) return "Only fully paid orders can be batched; COD is not enabled.";
+  if (["sending", "sent", "unknown"].includes(String(order?.borzoDispatch?.status ?? "").toLowerCase())) {
+    return "A Borzo request is already in progress or has an uncertain result.";
+  }
+  return "";
+}
+
 function paymentStatusLabel(status: unknown): string {
   const value = String(status ?? "").trim().toLowerCase();
   if (isFullyPaidStatus(value)) return "Paid";
@@ -607,7 +646,25 @@ function getAddressFields(a: any) {
     pincode: a.pincode || a.zipCode || a.zip || "",
     instructions: a.instructions || a.deliveryInstructions || "",
     isDefault: !!a.isDefault,
+    latitude: a.latitude,
+    longitude: a.longitude,
   };
+}
+
+function validAddressCoordinates(address: any): { latitude: number | null; longitude: number | null } {
+  const latitudeValue = address?.latitude;
+  const longitudeValue = address?.longitude;
+  if (latitudeValue === undefined || latitudeValue === null || String(latitudeValue).trim() === "" ||
+    longitudeValue === undefined || longitudeValue === null || String(longitudeValue).trim() === "") {
+    return { latitude: null, longitude: null };
+  }
+  const latitude = Number(latitudeValue);
+  const longitude = Number(longitudeValue);
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+    !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    return { latitude: null, longitude: null };
+  }
+  return { latitude, longitude };
 }
 
 function formatAddressLines(a: any): string[] {
@@ -922,6 +979,8 @@ export default function Orders() {
 
   // Accept / Reject order
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [batchSelectedIds, setBatchSelectedIds] = useState<string[]>([]);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
   const [rejectingOrder, setRejectingOrder] = useState<any>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [confirmingReject, setConfirmingReject] = useState(false);
@@ -946,7 +1005,7 @@ export default function Orders() {
   const [orderDeliveryType, setOrderDeliveryType] = useState<"delivery" | "takeaway">("delivery");
   const [orderAddressMode, setOrderAddressMode] = useState<"saved" | "new">("saved");
   const [selectedAddressIdx, setSelectedAddressIdx] = useState<number | null>(null);
-  const [editedSavedAddress, setEditedSavedAddress] = useState({ label: "Home", name: "", phone: "", building: "", street: "", area: "", landmark: "", pincode: "", city: "", state: "" });
+  const [editedSavedAddress, setEditedSavedAddress] = useState({ label: "Home", name: "", phone: "", building: "", street: "", area: "", landmark: "", pincode: "", city: "", state: "", latitude: null as number | null, longitude: null as number | null });
   const [newAddress, setNewAddress] = useState({
     label: "Home", name: "", phone: "",
     building: "", street: "", area: "", pincode: "",
@@ -1032,7 +1091,7 @@ export default function Orders() {
   // Stores the last-committed version of the saved address. Save/Cancel only
   // appear when editedSavedAddress differs from this baseline (i.e. user has
   // made a change). After saving, the baseline is updated so buttons hide.
-  const emptyAddr = { label: "Home", name: "", phone: "", building: "", street: "", area: "", landmark: "", pincode: "", city: "", state: "" };
+  const emptyAddr = { label: "Home", name: "", phone: "", building: "", street: "", area: "", landmark: "", pincode: "", city: "", state: "", latitude: null as number | null, longitude: null as number | null };
   const [originalSavedAddress, setOriginalSavedAddress] = useState(emptyAddr);
 
   const resetCreateForm = useCallback(() => {
@@ -1110,7 +1169,19 @@ export default function Orders() {
     setOrderAddressMode(addrs.length ? "saved" : "new");
     if (initIdx !== null && addrs[initIdx]) {
       const f = getAddressFields(addrs[initIdx]);
-      if (f) setEditedSavedAddress({ label: f.label || "Home", name: f.contactName || "", phone: f.phone || "", building: [f.houseNo, f.building].filter(Boolean).join(", ") || "", street: f.street || "", area: f.area || "", landmark: f.landmark || "", pincode: f.pincode || "", city: f.city || "", state: f.state || "" });
+      if (f) setEditedSavedAddress({
+        label: f.label || "Home",
+        name: f.contactName || "",
+        phone: f.phone || "",
+        building: [f.houseNo, f.building].filter(Boolean).join(", ") || "",
+        street: f.street || "",
+        area: f.area || "",
+        landmark: f.landmark || "",
+        pincode: f.pincode || "",
+        city: f.city || "",
+        state: f.state || "",
+        ...validAddressCoordinates(addrs[initIdx]),
+      });
     }
     setCustomerSearch("");
     setNewAddress((a: any) => ({ ...a, name: c.name || "", phone: c.phone || "" }));
@@ -1289,6 +1360,7 @@ export default function Orders() {
       pincode: f.pincode || "",
       city: f.city || "",
       state: f.state || "",
+      ...validAddressCoordinates(a),
     };
     setEditedSavedAddress(fresh);
     setOriginalSavedAddress(fresh);
@@ -1966,7 +2038,7 @@ export default function Orders() {
         }
         address = [f.building, f.street, f.area, f.landmark, f.city, f.state, f.pincode].filter(Boolean).join(", ");
         deliveryArea = f.area || f.city || "";
-        deliveryAddressDetail = { label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.area, landmark: f.landmark, pincode: f.pincode, city: f.city, state: f.state };
+        deliveryAddressDetail = { label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.area, landmark: f.landmark, pincode: f.pincode, city: f.city, state: f.state, ...validAddressCoordinates(f) };
       } else {
         const f = newAddress;
         if (!f.name.trim()) {
@@ -2017,7 +2089,7 @@ export default function Orders() {
         if (f.building.trim()) {
           address = [f.building, f.street, f.area, f.landmark, f.city, f.state, f.pincode].filter(Boolean).join(", ");
           deliveryArea = f.area || f.city || "";
-          deliveryAddressDetail = { label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.area, landmark: f.landmark, pincode: f.pincode, city: f.city, state: f.state };
+          deliveryAddressDetail = { label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.area, landmark: f.landmark, pincode: f.pincode, city: f.city, state: f.state, ...validAddressCoordinates(f) };
         }
       } else if (newAddress.building.trim()) {
         address = formatAddressOneLine(newAddress);
@@ -2189,6 +2261,7 @@ export default function Orders() {
             pincode: f.pincode,
             city: f.city,
             state: f.state,
+            ...validAddressCoordinates(f),
           };
           currentAddresses[selectedAddressIdx] = updatedAddr;
           await apiFetch(`/api/customers/${customerId}`, {
@@ -2407,6 +2480,25 @@ export default function Orders() {
     }
     return list;
   }, [orders, payFilter, payModeFilter]);
+
+  const selectedBatchOrders = useMemo(() => {
+    const selected = new Set(batchSelectedIds);
+    return orders.filter((order) => selected.has(String(order._id)));
+  }, [orders, batchSelectedIds]);
+  const selectedBatchGroup = selectedBatchOrders[0] ? borzoBatchGroupKey(selectedBatchOrders[0]) : "";
+  const getBatchSelectionDisabledReason = (order: any) => {
+    const reason = borzoBatchIneligibility(order);
+    if (reason) return reason;
+    if (selectedBatchGroup && borzoBatchGroupKey(order) !== selectedBatchGroup) {
+      return "Selected orders must share the same sub-hub, delivery date, and delivery time window.";
+    }
+    return "";
+  };
+  const showBatchSelection = !["history", "invoices", "deleted"].includes(activeTab);
+
+  useEffect(() => {
+    setBatchSelectedIds([]);
+  }, [activeTab, page, search, statusFilter, deliveryTypeFilter, dateFrom, dateTo, subHubFilter, payFilter, payModeFilter]);
 
   // Persons to show in the modal (hub-filtered or all)
   const modalPersons = useMemo(() => {
@@ -2876,6 +2968,141 @@ export default function Orders() {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
       setAcceptingId(null);
+    }
+  };
+
+  const confirmOrdersAsBorzoBatch = async () => {
+    const selected = orders.filter((order) => batchSelectedIds.includes(String(order._id)));
+    if (selected.length < 2) {
+      toast({ title: "Select at least two orders", description: "Choose two or more eligible paid delivery orders." });
+      return;
+    }
+    const invalidSelection = selected.find((order) => borzoBatchIneligibility(order));
+    if (invalidSelection) {
+      toast({
+        title: "Orders are no longer eligible",
+        description: borzoBatchIneligibility(invalidSelection),
+        variant: "destructive",
+      });
+      setBatchSelectedIds([]);
+      await load();
+      return;
+    }
+    if (selected.some((order) => borzoBatchGroupKey(order) !== borzoBatchGroupKey(selected[0]))) {
+      toast({
+        title: "Orders must share a delivery window",
+        description: "Select orders from the same sub-hub, delivery date, and time window.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const documentIds = selected.map((order) => String(order._id));
+    const orderNumbers = selected.map((order) => String(order.orderId || order._id));
+    setBatchSubmitting(true);
+    console.group(`[Borzo batch] Preparing one route for ${orderNumbers.length} orders`);
+    console.info("Selected orders:", selected.map((order) => ({
+      orderId: order.orderId,
+      customer: order.customerName,
+      phone: order.phone,
+      deliveryAddress: order.address,
+      deliveryAddressDetail: order.deliveryAddressDetail,
+      subHub: order.subHubName,
+      deliveryDate: order.deliveryDate,
+      timeslotStart: order.timeslotStart,
+      timeslotEnd: order.timeslotEnd,
+      total: order.total,
+      paymentStatus: order.paymentStatus,
+    })));
+    console.groupEnd();
+
+    try {
+      const result = await apiFetch("/api/orders/borzo-batch", {
+        method: "POST",
+        body: JSON.stringify({ orderIds: documentIds }),
+      });
+      logBorzoDispatchResult(
+        `Batch ${result.batchId ?? ""} (${(result.sourceOrderIds ?? orderNumbers).join(", ")})`,
+        result.borzo,
+      );
+
+      if (!result.borzo?.success) {
+        const uncertain = result.borzo?.status === "unknown";
+        console.error(
+          `[Borzo batch] ${orderNumbers.join(", ")} were not confirmed because the single route was not accepted.`,
+          result.borzo?.error,
+        );
+        if (uncertain) setBatchSelectedIds([]);
+        await load();
+        loadStats();
+        toast({
+          title: uncertain ? "Borzo result is uncertain" : "Borzo did not accept the batch",
+          description: uncertain
+            ? "Check the Borzo test cabinet before retrying. The selected orders remain unconfirmed."
+            : result.borzo?.error?.message ?? "The orders remain pending; check the browser console for details.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const confirmationFailures: Array<{ orderId: string; error: string }> = [];
+      const locallyConfirmed: string[] = [];
+      for (let index = 0; index < documentIds.length; index += 1) {
+        const documentId = documentIds[index];
+        try {
+          await apiFetch(`/api/orders/${encodeURIComponent(documentId)}`, {
+            method: "PUT",
+            body: JSON.stringify({ status: "confirmed" }),
+          });
+          locallyConfirmed.push(orderNumbers[index]);
+        } catch (error: any) {
+          confirmationFailures.push({
+            orderId: orderNumbers[index],
+            error: error?.message ?? "Local confirmation failed",
+          });
+        }
+      }
+
+      console.info("[Borzo batch] Local order confirmation results:", {
+        batchId: result.batchId,
+        borzoOrderId: result.borzo.borzoOrderId,
+        confirmed: locallyConfirmed,
+        failed: confirmationFailures,
+        note: "The Borzo route was created once for the batch; retry local confirmation individually if needed. The saved batch dispatch prevents duplicate courier orders.",
+      });
+      setBatchSelectedIds([]);
+      await load();
+      loadStats();
+      if (confirmationFailures.length > 0) {
+        toast({
+          title: "Borzo route created; some orders need confirmation",
+          description: `${locallyConfirmed.length} confirmed; ${confirmationFailures.length} could not be updated. Use each order’s Accept button to retry local confirmation; no second Borzo job will be created.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Orders confirmed as one Borzo route",
+          description: `${orderNumbers.length} orders were sent together. Borzo route ${result.borzo.borzoOrderId ?? ""} has one pickup and separate customer stops.`,
+        });
+      }
+    } catch (error: any) {
+      console.error("[Borzo batch] Batch request failed before a result was received.", {
+        orderIds: orderNumbers,
+        error,
+      });
+      const message = error?.message ?? "The batch request failed.";
+      const uncertain = /check the Borzo|uncertain|before retrying|result could not/i.test(message);
+      if (uncertain) {
+        setBatchSelectedIds([]);
+        await load();
+      }
+      toast({
+        title: uncertain ? "Check Borzo before retrying" : "Batch dispatch failed",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setBatchSubmitting(false);
     }
   };
 
@@ -3491,6 +3718,46 @@ export default function Orders() {
           {statusFilter && activeTab !== "invoices" && !payFilter && <span className="ml-1">· filtered by <strong>{STATUS_CONFIG[statusFilter]?.label}</strong></span>}
         </div>
 
+        {showBatchSelection && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5">
+            <div className="flex items-start gap-2">
+              <Truck className="mt-0.5 h-4 w-4 shrink-0 text-blue-700" />
+              <div>
+                <p className="text-sm font-semibold text-blue-950">Batch orders into one Borzo route</p>
+                <p className="text-xs text-blue-800">
+                  Select paid pending delivery orders from the same sub-hub, date, and time window. COD is not included.
+                </p>
+              </div>
+              {batchSelectedIds.length > 0 && (
+                <span className="ml-1 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-blue-800">
+                  {batchSelectedIds.length} selected
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {batchSelectedIds.length > 0 && (
+                <button
+                  type="button"
+                  disabled={batchSubmitting}
+                  onClick={() => setBatchSelectedIds([])}
+                  className="rounded-md px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-white disabled:opacity-50"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={batchSelectedIds.length < 2 || batchSubmitting}
+                onClick={confirmOrdersAsBorzoBatch}
+                className="inline-flex items-center gap-1.5 rounded-md bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {batchSubmitting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}
+                {batchSubmitting ? "Sending batch…" : "Confirm as one Borzo route"}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Orders Table / Invoices List */}
         {activeTab === "invoices" ? (
           loading ? (
@@ -3578,6 +3845,7 @@ export default function Orders() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-white border-b border-gray-200 text-xs font-semibold text-black uppercase tracking-wide">
+                  {showBatchSelection && <th className="px-2 py-4 text-center">Batch</th>}
                   <th className="px-3 py-4 text-center">Customer</th>
                   <th className="px-3 py-4 text-center">Items</th>
                   <th className="px-3 py-4 text-center">Total</th>
@@ -3595,8 +3863,29 @@ export default function Orders() {
                   const total = effectiveOrderTotal(o);
                   const items: any[] = Array.isArray(o.items) ? o.items : [];
                   const slot = TIMESLOT_FEATURE_ENABLED ? formatTimeSlot(o) : null;
+                  const batchOrderId = String(o._id);
+                  const batchDisabledReason = getBatchSelectionDisabledReason(o);
+                  const batchChecked = batchSelectedIds.includes(batchOrderId);
                   return (
                     <tr key={String(o._id)} className="hover:bg-gray-50 transition-colors">
+                      {showBatchSelection && (
+                        <td className="px-2 py-4 text-center">
+                          <input
+                            type="checkbox"
+                            aria-label={`Add ${o.orderId || "order"} to Borzo batch`}
+                            checked={batchChecked}
+                            disabled={(!batchChecked && !!batchDisabledReason) || batchSubmitting}
+                            title={batchDisabledReason || "Select this order for a grouped Borzo route"}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) => {
+                              setBatchSelectedIds((current) => event.target.checked
+                                ? [...current, batchOrderId]
+                                : current.filter((id) => id !== batchOrderId));
+                            }}
+                            className="h-4 w-4 cursor-pointer accent-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </td>
+                      )}
                       <td className="px-3 py-4">
                         <p className="font-semibold text-black text-sm">{o.customerName}</p>
                         <p className="text-xs text-black">{o.phone}</p>

@@ -57,6 +57,8 @@ export function logBorzoDispatchResult(orderId: string, borzo: any) {
     console.info("Borzo endpoint:", borzo.requestMethod ?? "POST", borzo.requestUrl ?? "(not configured)");
   }
   if (borzo.authentication) console.info("Authentication (token hidden):", borzo.authentication);
+  if (borzo.batchId) console.info("Borzo batch ID:", borzo.batchId);
+  if (Array.isArray(borzo.batchOrderIds)) console.info("Source orders in this batch:", borzo.batchOrderIds);
   if (borzo.httpStatus !== undefined) console.info("HTTP status:", borzo.httpStatus);
   if (borzo.serverRequestId !== undefined) {
     console.info("API request ID (use this to find the matching server log):", borzo.serverRequestId);

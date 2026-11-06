@@ -141,6 +141,27 @@ function serializeCustomer(doc: any) {
 }
 
 
+function validateAddressCoordinates(addresses: any): string | null {
+  if (!Array.isArray(addresses)) return null;
+  for (let index = 0; index < addresses.length; index += 1) {
+    const address = addresses[index];
+    if (!address || typeof address !== "object") continue;
+    const hasLatitude = address.latitude !== undefined && address.latitude !== null && String(address.latitude).trim() !== "";
+    const hasLongitude = address.longitude !== undefined && address.longitude !== null && String(address.longitude).trim() !== "";
+    if (!hasLatitude && !hasLongitude) continue;
+    if (!hasLatitude || !hasLongitude) {
+      return `Address ${index + 1} must include both latitude and longitude.`;
+    }
+    const latitude = Number(address.latitude);
+    const longitude = Number(address.longitude);
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+      !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      return `Address ${index + 1} has invalid coordinates.`;
+    }
+  }
+  return null;
+}
+
 function sanitizeAddresses(addresses: any): any[] {
   if (!Array.isArray(addresses)) return [];
   return addresses
@@ -153,10 +174,16 @@ function sanitizeAddresses(addresses: any): any[] {
         "street", "addressLine1", "addressLine2", "area", "locality",
         "landmark", "city", "state", "pincode", "zipCode",
         "instructions", "deliveryInstructions",
-        "latitude", "longitude", "isDefault",
+        "isDefault",
       ];
       for (const k of keep) {
         if (a[k] !== undefined && a[k] !== null && a[k] !== "") cleaned[k] = a[k];
+      }
+      const hasLatitude = a.latitude !== undefined && a.latitude !== null && String(a.latitude).trim() !== "";
+      const hasLongitude = a.longitude !== undefined && a.longitude !== null && String(a.longitude).trim() !== "";
+      if (hasLatitude && hasLongitude) {
+        cleaned.latitude = Number(a.latitude);
+        cleaned.longitude = Number(a.longitude);
       }
       return Object.keys(cleaned).length ? cleaned : null;
     })
@@ -449,6 +476,11 @@ router.post("/", async (req, res) => {
   try {
     const Customer = await getCustomerModel();
     const { name, email, phone, dateOfBirth, addresses } = req.body;
+    const coordinatesError = validateAddressCoordinates(addresses);
+    if (coordinatesError) {
+      res.status(400).json({ error: "ValidationError", message: coordinatesError });
+      return;
+    }
 
     if (!name || !String(name).trim()) {
       res.status(400).json({ error: "ValidationError", message: "Name is required" });
@@ -506,6 +538,11 @@ router.put("/:id", async (req: ScopedRequest, res) => {
     }
 
     const { name, email, phone, dateOfBirth, addresses, walletBalance } = req.body;
+    const coordinatesError = validateAddressCoordinates(addresses);
+    if (coordinatesError) {
+      res.status(400).json({ error: "ValidationError", message: coordinatesError });
+      return;
+    }
 
     if (email !== undefined && email && String(email).toLowerCase().trim() !== String(customer.email ?? "")) {
       const existing = await Customer.findOne({ email: String(email).toLowerCase().trim(), _id: { $ne: customer._id } });
