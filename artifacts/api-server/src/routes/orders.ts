@@ -2364,6 +2364,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
       }
     }
 
+    if (borzoResult) borzoResult.serverRequestId = req.id;
     res.json({ order: result, ...(borzoResult ? { borzo: borzoResult } : {}) });
 
     // --- WhatsApp notifications (fire-and-forget, never blocks the response) ---

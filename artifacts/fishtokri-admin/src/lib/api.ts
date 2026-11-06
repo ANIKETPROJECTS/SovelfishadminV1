@@ -58,15 +58,33 @@ export function logBorzoDispatchResult(orderId: string, borzo: any) {
   }
   if (borzo.authentication) console.info("Authentication (token hidden):", borzo.authentication);
   if (borzo.httpStatus !== undefined) console.info("HTTP status:", borzo.httpStatus);
+  if (borzo.serverRequestId !== undefined) {
+    console.info("API request ID (use this to find the matching server log):", borzo.serverRequestId);
+  }
   if (borzo.borzoOrderId) console.info("Borzo order ID:", borzo.borzoOrderId);
   if (borzo.borzoOrderStatus) console.info("Borzo order status:", borzo.borzoOrderStatus);
   if (borzo.message) console.info("Message:", borzo.message);
   if (Array.isArray(borzo.warnings) && borzo.warnings.length > 0) {
     console.warn("Payload warnings:", borzo.warnings);
   }
-  if (borzo.requestPayload) console.info("Request payload (credentials excluded):", borzo.requestPayload);
-  if (borzo.responseBody !== undefined) console.info("Borzo response:", borzo.responseBody);
-  if (borzo.error) console.error("Borzo error:", borzo.error);
+  if (borzo.requestPayload) {
+    console.info(
+      "Request payload (full JSON; API token excluded):\n" +
+      JSON.stringify(borzo.requestPayload, null, 2),
+    );
+  }
+  if (borzo.responseBody !== undefined) {
+    console.info(
+      "Borzo response (full JSON):\n" +
+      JSON.stringify(borzo.responseBody, null, 2),
+    );
+  }
+  if (borzo.error) {
+    console.error(
+      "Borzo error details (full JSON):\n" +
+      JSON.stringify(borzo.error, null, 2),
+    );
+  }
   console.groupEnd();
 }
 
