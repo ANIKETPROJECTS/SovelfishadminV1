@@ -47,24 +47,26 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
   return res.json();
 }
 
-export function logPidgeDispatchResult(orderId: string, pidge: any) {
-  if (!pidge) return;
-  const title = `[Pidge] ${orderId}: ${String(pidge.status ?? "unknown").toUpperCase()}`;
+export function logBorzoDispatchResult(orderId: string, borzo: any) {
+  if (!borzo) return;
+  const title = `[Borzo test] ${orderId}: ${String(borzo.status ?? "unknown").toUpperCase()}`;
   console.groupCollapsed(title);
-  console.info("Submission result:", pidge.success ? "success" : "not successful");
-  if (pidge.requestMethod || pidge.requestUrl) {
-    console.info("Pidge endpoint:", pidge.requestMethod ?? "POST", pidge.requestUrl ?? "(not configured)");
+  console.info("Submission result:", borzo.success ? "success" : "not successful");
+  console.info("Environment: Borzo test");
+  if (borzo.requestMethod || borzo.requestUrl) {
+    console.info("Borzo endpoint:", borzo.requestMethod ?? "POST", borzo.requestUrl ?? "(not configured)");
   }
-  if (pidge.authentication) console.info("Authentication (token hidden):", pidge.authentication);
-  if (pidge.httpStatus !== undefined) console.info("HTTP status:", pidge.httpStatus);
-  if (pidge.pidgeOrderId) console.info("Pidge order ID:", pidge.pidgeOrderId);
-  if (pidge.message) console.info("Message:", pidge.message);
-  if (Array.isArray(pidge.warnings) && pidge.warnings.length > 0) {
-    console.warn("Payload warnings:", pidge.warnings);
+  if (borzo.authentication) console.info("Authentication (token hidden):", borzo.authentication);
+  if (borzo.httpStatus !== undefined) console.info("HTTP status:", borzo.httpStatus);
+  if (borzo.borzoOrderId) console.info("Borzo order ID:", borzo.borzoOrderId);
+  if (borzo.borzoOrderStatus) console.info("Borzo order status:", borzo.borzoOrderStatus);
+  if (borzo.message) console.info("Message:", borzo.message);
+  if (Array.isArray(borzo.warnings) && borzo.warnings.length > 0) {
+    console.warn("Payload warnings:", borzo.warnings);
   }
-  if (pidge.requestPayload) console.info("Request payload (credentials excluded):", pidge.requestPayload);
-  if (pidge.responseBody !== undefined) console.info("Pidge response:", pidge.responseBody);
-  if (pidge.error) console.error("Pidge error:", pidge.error);
+  if (borzo.requestPayload) console.info("Request payload (credentials excluded):", borzo.requestPayload);
+  if (borzo.responseBody !== undefined) console.info("Borzo response:", borzo.responseBody);
+  if (borzo.error) console.error("Borzo error:", borzo.error);
   console.groupEnd();
 }
 

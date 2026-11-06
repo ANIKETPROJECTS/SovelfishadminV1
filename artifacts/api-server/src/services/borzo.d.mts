@@ -1,24 +1,22 @@
-export interface PidgePayloadBuildResult {
+export interface BorzoPayloadBuildResult {
   payload: Record<string, any>;
   missingFields: string[];
   warnings: string[];
 }
 
-export interface PidgeDispatchResult {
+export interface BorzoDispatchResult {
   success: boolean;
   status: "sent" | "failed" | "already_sent" | "unknown" | "in_progress";
   requestPayload: Record<string, any>;
   requestMethod?: string;
   requestUrl?: string;
-  authentication?: {
-    scheme: string;
-    attempts: { success: boolean; httpStatus?: number; refreshed?: boolean; responseBody?: any }[];
-  };
+  authentication?: { scheme: string };
   warnings: string[];
   message?: string;
   httpStatus?: number;
   responseBody?: any;
-  pidgeOrderId?: string;
+  borzoOrderId?: string;
+  borzoOrderStatus?: string;
   error?: {
     message: string;
     missingFields?: string[];
@@ -28,5 +26,5 @@ export interface PidgeDispatchResult {
   };
 }
 
-export function buildPidgeOrderPayload(order: any, env?: Record<string, string | undefined>): PidgePayloadBuildResult;
-export function createPidgeOrder(order: any): Promise<PidgeDispatchResult>;
+export function buildBorzoOrderPayload(order: any, env?: Record<string, string | undefined>): BorzoPayloadBuildResult;
+export function createBorzoOrder(order: any): Promise<BorzoDispatchResult>;

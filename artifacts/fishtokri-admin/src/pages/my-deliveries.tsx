@@ -20,7 +20,7 @@ import {
 import { OrderQrScanner } from "@/components/OrderQrScanner";
 import { isPaymentStatusPaid, paymentStatusDisplayLabel } from "@/lib/invoice-payment-status.mjs";
 import { TIMESLOT_FEATURE_ENABLED } from "@/lib/feature-flags";
-import { logPidgeDispatchResult } from "@/lib/api";
+import { logBorzoDispatchResult } from "@/lib/api";
 
 function getAdminData() {
   try { return JSON.parse(localStorage.getItem("fishtokri_admin") || "null"); } catch { return null; }
@@ -529,17 +529,17 @@ function OrdersList({ mode, refreshKey, silentRefreshKey, onCountChange }: { mod
     try {
       const updateResult = await apiFetch(`/api/orders/${selectedOrder._id}`, { method: "PUT", body: JSON.stringify({ status: editStatus }) });
       if (editStatus === "confirmed") {
-        logPidgeDispatchResult(String(selectedOrder.orderId || selectedOrder._id), updateResult.pidge);
-        if (updateResult.pidge && !updateResult.pidge.success) {
-          console.error(`[Pidge] ${selectedOrder.orderId || selectedOrder._id} was confirmed locally, but Pidge did not accept the order.`);
+        logBorzoDispatchResult(String(selectedOrder.orderId || selectedOrder._id), updateResult.borzo);
+        if (updateResult.borzo && !updateResult.borzo.success) {
+          console.error(`[Borzo test] ${selectedOrder.orderId || selectedOrder._id} was confirmed locally, but Borzo did not accept the order.`);
         }
       }
       toast({
-        title: updateResult.pidge && !updateResult.pidge.success
-          ? "Order confirmed; Pidge submission failed"
+        title: updateResult.borzo && !updateResult.borzo.success
+          ? "Order confirmed; Borzo test submission failed"
           : "Status updated successfully",
-        description: updateResult.pidge?.error?.message,
-        ...(updateResult.pidge && !updateResult.pidge.success ? { variant: "destructive" as const } : {}),
+        description: updateResult.borzo?.error?.message,
+        ...(updateResult.borzo && !updateResult.borzo.success ? { variant: "destructive" as const } : {}),
       });
       setSelectedOrder(null);
       loadOrders();

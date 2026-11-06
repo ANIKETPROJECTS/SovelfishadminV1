@@ -45,7 +45,7 @@ import { useToast } from "@/hooks/use-toast";
 import { playOrderAlertOnce } from "@/hooks/use-order-alert";
 import { printHtmlWithQZ } from "@/lib/qz-print";
 import { useLocation } from "wouter";
-import { getCurrentAdminScope, logPidgeDispatchResult } from "@/lib/api";
+import { getCurrentAdminScope, logBorzoDispatchResult } from "@/lib/api";
 import { DayPicker, type Matcher } from "react-day-picker";
 import { format } from "date-fns";
 import "react-day-picker/style.css";
@@ -2656,32 +2656,32 @@ export default function Orders() {
         (waTemplate ? ` | WA template: ${waTemplate}` : " | no WA notification")
       );
       const updateResult = await apiFetch(`/api/orders/${selectedOrder._id}`, { method: "PUT", body: JSON.stringify({ status: editStatus }) });
-      logPidgeDispatchResult(String(selectedOrder.orderId || selectedOrder._id), updateResult.pidge);
-      if (updateResult.pidge && !updateResult.pidge.success) {
-        console.error(`[Pidge] ${selectedOrder.orderId || selectedOrder._id} was confirmed locally, but Pidge did not accept the order.`);
+      logBorzoDispatchResult(String(selectedOrder.orderId || selectedOrder._id), updateResult.borzo);
+      if (updateResult.borzo && !updateResult.borzo.success) {
+        console.error(`[Borzo test] ${selectedOrder.orderId || selectedOrder._id} was confirmed locally, but Borzo did not accept the order.`);
       }
       const movedOutOfDelivered =
         selectedOrder.status === "delivered" &&
         editStatus !== "delivered" &&
         editStatus !== "cancelled";
-      const pidgeFailed = updateResult.pidge && !updateResult.pidge.success;
-      const pidgeWasSent = updateResult.pidge?.status === "sent";
+      const borzoFailed = updateResult.borzo && !updateResult.borzo.success;
+      const borzoWasSent = updateResult.borzo?.status === "sent";
       toast({
-        title: pidgeFailed ? "Order confirmed; Pidge submission failed" : "Order status updated",
-        description: pidgeFailed
-          ? updateResult.pidge.error?.message ?? updateResult.pidge.message ?? "Check the browser console for Pidge details."
-          : pidgeWasSent
-            ? "Pidge created the order in Pending for manual allocation."
+        title: borzoFailed ? "Order confirmed; Borzo test submission failed" : "Order status updated",
+        description: borzoFailed
+          ? updateResult.borzo.error?.message ?? updateResult.borzo.message ?? "Check the browser console for Borzo test details."
+          : borzoWasSent
+            ? `Borzo test accepted order ${updateResult.borzo.borzoOrderId ?? ""} (status: ${updateResult.borzo.borzoOrderStatus ?? "new"}).`
             : movedOutOfDelivered
               ? "Previous payment info was cleared. Re-record payment when delivered again."
               : undefined,
-        ...(pidgeFailed ? { variant: "destructive" as const } : {}),
+        ...(borzoFailed ? { variant: "destructive" as const } : {}),
       });
       setSelectedOrder((o: any) => {
         const next: any = {
           ...o,
           status: editStatus,
-          ...(updateResult.order?.pidgeDispatch ? { pidgeDispatch: updateResult.order.pidgeDispatch } : {}),
+          ...(updateResult.order?.borzoDispatch ? { borzoDispatch: updateResult.order.borzoDispatch } : {}),
         };
         if (movedOutOfDelivered) {
           const totalAmt = Number(o?.total) > 0 ? Number(o.total) : orderTotal(o?.items);
@@ -2698,7 +2698,7 @@ export default function Orders() {
     } catch (err: any) {
       if (editStatus === "confirmed") {
         console.error(
-          `[Pidge] Confirmation request for ${selectedOrder.orderId || selectedOrder._id} failed before a result was received. Check the order and Pidge before retrying.`,
+          `[Borzo test] Confirmation request for ${selectedOrder.orderId || selectedOrder._id} failed before a result was received. Check the order and Borzo test cabinet before retrying.`,
           err,
         );
       }
@@ -2845,32 +2845,32 @@ export default function Orders() {
         `pending → confirmed | WA template: fishtokri_order_confirmed`
       );
       const updateResult = await apiFetch(`/api/orders/${orderId}`, { method: "PUT", body: JSON.stringify(payload) });
-      logPidgeDispatchResult(String(order.orderId || orderId), updateResult.pidge);
-      if (updateResult.pidge && !updateResult.pidge.success) {
-        console.error(`[Pidge] ${order.orderId || orderId} was confirmed locally, but Pidge did not accept the order.`);
+      logBorzoDispatchResult(String(order.orderId || orderId), updateResult.borzo);
+      if (updateResult.borzo && !updateResult.borzo.success) {
+        console.error(`[Borzo test] ${order.orderId || orderId} was confirmed locally, but Borzo did not accept the order.`);
       }
-      const pidgeFailed = updateResult.pidge && !updateResult.pidge.success;
-      const pidgeWasSent = updateResult.pidge?.status === "sent";
+      const borzoFailed = updateResult.borzo && !updateResult.borzo.success;
+      const borzoWasSent = updateResult.borzo?.status === "sent";
       toast({
-        title: pidgeFailed ? "Order confirmed; Pidge submission failed" : "Order accepted",
-        description: pidgeFailed
-          ? updateResult.pidge.error?.message ?? updateResult.pidge.message ?? "Check the browser console for Pidge details."
-          : pidgeWasSent
-            ? "Pidge created the order in Pending for manual allocation."
+        title: borzoFailed ? "Order confirmed; Borzo test submission failed" : "Order accepted",
+        description: borzoFailed
+          ? updateResult.borzo.error?.message ?? updateResult.borzo.message ?? "Check the browser console for Borzo test details."
+          : borzoWasSent
+            ? `Borzo test accepted order ${updateResult.borzo.borzoOrderId ?? ""} (status: ${updateResult.borzo.borzoOrderStatus ?? "new"}).`
             : isPorter
               ? "Status set to Confirmed and assigned to Porter Delivery."
               : "Status set to Confirmed.",
-        ...(pidgeFailed ? { variant: "destructive" as const } : {}),
+        ...(borzoFailed ? { variant: "destructive" as const } : {}),
       });
       setOrders((prev) => prev.map((o) => String(o._id) === orderId ? {
         ...o,
         ...payload,
-        ...(updateResult.order?.pidgeDispatch ? { pidgeDispatch: updateResult.order.pidgeDispatch } : {}),
+        ...(updateResult.order?.borzoDispatch ? { borzoDispatch: updateResult.order.borzoDispatch } : {}),
       } : o));
       loadStats();
     } catch (err: any) {
       console.error(
-        `[Pidge] Confirmation request for ${order.orderId || orderId} failed before a result was received. Check the order and Pidge before retrying.`,
+        `[Borzo test] Confirmation request for ${order.orderId || orderId} failed before a result was received. Check the order and Borzo test cabinet before retrying.`,
         err,
       );
       toast({ title: "Error", description: err.message, variant: "destructive" });

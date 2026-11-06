@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { apiFetch, getCurrentAdminScope, logPidgeDispatchResult } from "@/lib/api";
+import { apiFetch, getCurrentAdminScope, logBorzoDispatchResult } from "@/lib/api";
 
 const CHANNEL_NAME  = "fishtokri-order-alert";
 const POLL_MS       = 5000;
@@ -189,16 +189,16 @@ export function useNewOrderPopup(): NewOrderPopupState {
         method: "PUT",
         body: JSON.stringify({ status: "confirmed" }),
       });
-      logPidgeDispatchResult(String(queueEntry?.order?.orderId || id), updateResult.pidge);
-      if (updateResult.pidge && !updateResult.pidge.success) {
+      logBorzoDispatchResult(String(queueEntry?.order?.orderId || id), updateResult.borzo);
+      if (updateResult.borzo && !updateResult.borzo.success) {
         console.error(
-          `[Pidge] ${queueEntry?.order?.orderId || id} was confirmed locally, but Pidge did not accept the order.`,
+          `[Borzo test] ${queueEntry?.order?.orderId || id} was confirmed locally, but Borzo did not accept the order.`,
         );
       }
     } catch (error) {
       // Best-effort — popup still closes
       console.error(
-        `[Pidge] Confirmation request for ${queueEntry?.order?.orderId || id} failed before a result was received. Check the order and Pidge before retrying.`,
+        `[Borzo test] Confirmation request for ${queueEntry?.order?.orderId || id} failed before a result was received. Check the order and Borzo test cabinet before retrying.`,
         error,
       );
     }

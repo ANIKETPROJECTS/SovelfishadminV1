@@ -15,7 +15,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { loadScope, type ScopedRequest } from "../middlewares/scope.js";
 import { HubUser } from "../db/models/hub-user.js";
 import { sendOrderConfirmed, sendOutForDelivery, sendOrderCancelled } from "../services/whatsapp.js";
-import { createPidgeOrder } from "../services/pidge.mjs";
+import { createBorzoOrder } from "../services/borzo.mjs";
 import {
   ensureFtwPendingPaymentExpiryDates,
   isFtwOrder,
@@ -137,7 +137,7 @@ function extractOrderPincode(order: any): string {
   return addressText.match(/\b\d{6}\b/)?.[0] ?? "";
 }
 
-function isPidgeOrder(order: any): boolean {
+function isBorzoOrder(order: any): boolean {
   const orderId = String(order?.orderId ?? "").trim().replace(/^#+/, "").toUpperCase();
   return orderId.startsWith("FTS") || orderId.startsWith("FTW");
 }
@@ -2231,34 +2231,34 @@ router.put("/:id", async (req: ScopedRequest, res) => {
       }
     }
 
-    let pidgeResult: any;
+    let borzoResult: any;
     const orderAfterUpdate = result as any;
-    const pidgeOrderIsEligible =
+    const borzoOrderIsEligible =
       status === "confirmed" &&
       orderAfterUpdate.deliveryType !== "takeaway" &&
-      isPidgeOrder(orderAfterUpdate);
-    const shouldAttemptPidge =
-      pidgeOrderIsEligible &&
+      isBorzoOrder(orderAfterUpdate);
+    const shouldAttemptBorzo =
+      borzoOrderIsEligible &&
       (
         String(prev.status ?? "") !== "confirmed" ||
-        String(prev.pidgeDispatch?.status ?? "") === "failed"
+        String(prev.borzoDispatch?.status ?? "") === "failed"
       );
 
-    if (shouldAttemptPidge) {
+    if (shouldAttemptBorzo) {
       const sourceOrderId = String(orderAfterUpdate.orderId ?? "").trim().replace(/^#+/, "");
       const attemptedAt = new Date();
       try {
         // Claim the one allowed submission atomically so simultaneous admin
-        // confirmations cannot create duplicate Pidge orders.
+        // confirmations cannot create duplicate Borzo orders.
         const claim = await conn.db!.collection(COLLECTION).updateOne(
           {
             _id: oid,
             status: "confirmed",
-            "pidgeDispatch.status": { $nin: ["sending", "sent", "unknown"] },
+            "borzoDispatch.status": { $nin: ["sending", "sent", "unknown"] },
           },
           {
             $set: {
-              pidgeDispatch: {
+              borzoDispatch: {
                 status: "sending",
                 sourceOrderId,
                 attemptedAt,
@@ -2268,94 +2268,103 @@ router.put("/:id", async (req: ScopedRequest, res) => {
         );
 
         if (claim.modifiedCount > 0) {
-          req.log.info({ orderId: sourceOrderId }, "Submitting confirmed FishTokri order to Pidge");
-          pidgeResult = await createPidgeOrder(orderAfterUpdate);
-          const dispatchStatus = pidgeResult.success
+          req.log.info({ orderId: sourceOrderId, environment: "test" }, "Submitting confirmed FishTokri order to Borzo test API");
+          borzoResult = await createBorzoOrder(orderAfterUpdate);
+          const dispatchStatus = borzoResult.success
             ? "sent"
-            : pidgeResult.error?.outcomeMayBeUnknown
+            : borzoResult.error?.outcomeMayBeUnknown
               ? "unknown"
               : "failed";
           const persistedDispatch = {
             status: dispatchStatus,
             sourceOrderId,
-            pidgeOrderId: pidgeResult.pidgeOrderId,
+            borzoOrderId: borzoResult.borzoOrderId,
+            borzoOrderStatus: borzoResult.borzoOrderStatus,
+            environment: "test",
             attemptedAt,
             completedAt: new Date(),
-            httpStatus: pidgeResult.httpStatus,
-            errorMessage: pidgeResult.error?.message,
+            httpStatus: borzoResult.httpStatus,
+            errorMessage: borzoResult.error?.message,
           };
           try {
             await conn.db!.collection(COLLECTION).updateOne(
-              { _id: oid, "pidgeDispatch.status": "sending" },
-              { $set: { pidgeDispatch: persistedDispatch } },
+              { _id: oid, "borzoDispatch.status": "sending" },
+              { $set: { borzoDispatch: persistedDispatch } },
             );
-            orderAfterUpdate.pidgeDispatch = persistedDispatch;
+            orderAfterUpdate.borzoDispatch = persistedDispatch;
           } catch (persistError) {
             // Keep the claim in "sending" if MongoDB cannot persist the result.
             // This blocks a later confirmation from unknowingly creating a duplicate.
             req.log.error(
-              { err: persistError, orderId: sourceOrderId, pidgeOrderId: pidgeResult.pidgeOrderId },
-              "Could not persist Pidge submission result; duplicate protection remains active",
+              { err: persistError, orderId: sourceOrderId, borzoOrderId: borzoResult.borzoOrderId },
+              "Could not persist Borzo submission result; duplicate protection remains active",
             );
-            orderAfterUpdate.pidgeDispatch = { status: "sending", sourceOrderId, attemptedAt };
+            orderAfterUpdate.borzoDispatch = { status: "sending", sourceOrderId, attemptedAt, environment: "test" };
           }
 
-          if (pidgeResult.success) {
+          if (borzoResult.success) {
             req.log.info(
-              { orderId: sourceOrderId, pidgeOrderId: pidgeResult.pidgeOrderId, httpStatus: pidgeResult.httpStatus },
-              "Pidge accepted the order",
+              {
+                orderId: sourceOrderId,
+                borzoOrderId: borzoResult.borzoOrderId,
+                borzoOrderStatus: borzoResult.borzoOrderStatus,
+                httpStatus: borzoResult.httpStatus,
+              },
+              "Borzo test API accepted the order",
             );
           } else {
             req.log.error(
-              { orderId: sourceOrderId, pidgeStatus: dispatchStatus, httpStatus: pidgeResult.httpStatus, error: pidgeResult.error },
-              "Pidge order submission failed",
+              { orderId: sourceOrderId, borzoStatus: dispatchStatus, httpStatus: borzoResult.httpStatus, error: borzoResult.error },
+              "Borzo test API order submission failed",
             );
           }
         } else {
           const current = await conn.db!.collection(COLLECTION).findOne(
             { _id: oid },
-            { projection: { pidgeDispatch: 1 } },
+            { projection: { borzoDispatch: 1 } },
           );
-          const priorDispatch = current?.pidgeDispatch ?? {};
+          const priorDispatch = current?.borzoDispatch ?? {};
           const alreadySent = priorDispatch.status === "sent";
-          pidgeResult = {
+          borzoResult = {
             success: alreadySent,
             status: alreadySent ? "already_sent" : priorDispatch.status === "unknown" ? "unknown" : "in_progress",
-            pidgeOrderId: priorDispatch.pidgeOrderId,
+            borzoOrderId: priorDispatch.borzoOrderId,
+            borzoOrderStatus: priorDispatch.borzoOrderStatus,
             message: alreadySent
-              ? "This order was already submitted to Pidge; no duplicate was created."
+              ? "This order was already submitted to Borzo test; no duplicate was created."
               : priorDispatch.status === "unknown"
-                ? "The prior Pidge result is uncertain. Check Pidge before retrying to avoid a duplicate."
-                : "A Pidge submission is already in progress; no second request was sent.",
+                ? "The previous Borzo test result is uncertain. Check the Borzo test cabinet before retrying to avoid a duplicate."
+                : "A Borzo submission is already in progress; no second request was sent.",
           };
         }
-      } catch (pidgeError: any) {
-        req.log.error({ err: pidgeError, orderId: sourceOrderId }, "Pidge integration failed while confirming order");
-        pidgeResult = {
+      } catch (borzoError: any) {
+        req.log.error({ err: borzoError, orderId: sourceOrderId }, "Borzo integration failed while confirming order");
+        borzoResult = {
           success: false,
           status: "failed",
-          error: { message: pidgeError?.message || "Pidge integration failed unexpectedly." },
+          error: { message: borzoError?.message || "Borzo integration failed unexpectedly." },
         };
         try {
           const failedDispatch = {
             status: "failed",
             sourceOrderId,
+            environment: "test",
             attemptedAt,
             completedAt: new Date(),
-            errorMessage: pidgeResult.error.message,
+            errorMessage: borzoResult.error.message,
           };
           await conn.db!.collection(COLLECTION).updateOne(
             { _id: oid },
-            { $set: { pidgeDispatch: failedDispatch } },
+            { $set: { borzoDispatch: failedDispatch } },
           );
-          orderAfterUpdate.pidgeDispatch = failedDispatch;
+          orderAfterUpdate.borzoDispatch = failedDispatch;
         } catch (persistError) {
-          req.log.error({ err: persistError, orderId: sourceOrderId }, "Could not persist Pidge failure state");
+          req.log.error({ err: persistError, orderId: sourceOrderId }, "Could not persist Borzo failure state");
         }
       }
     }
 
-    res.json({ order: result, ...(pidgeResult ? { pidge: pidgeResult } : {}) });
+    res.json({ order: result, ...(borzoResult ? { borzo: borzoResult } : {}) });
 
     // --- WhatsApp notifications (fire-and-forget, never blocks the response) ---
     if (status !== undefined && String(status) !== String(prev.status ?? "")) {
