@@ -1201,6 +1201,9 @@ function WholeFishAdjustmentTable({
   onRemove,
   onReload,
   onRateChange,
+  onSaveRate,
+  canSaveRate,
+  savingRate,
   onWeightChange,
 }: {
   rows: Array<{ row: FormRow; idx: number }>;
@@ -1211,6 +1214,9 @@ function WholeFishAdjustmentTable({
   onRemove: (idx: number) => void;
   onReload: () => void;
   onRateChange: (value: string) => void;
+  onSaveRate: () => void;
+  canSaveRate: boolean;
+  savingRate: boolean;
   onWeightChange: (idx: number, value: string) => void;
 }) {
   const batches: Batch[] = product?.batches ?? [];
@@ -1233,8 +1239,16 @@ function WholeFishAdjustmentTable({
               className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm font-semibold text-[#162B4D] outline-none focus:border-[#364F9F] focus:ring-2 focus:ring-[#364F9F]/15"
             />
           </div>
+          <button
+            type="button"
+            onClick={onSaveRate}
+            disabled={!canSaveRate || savingRate}
+            className="mt-1 rounded-md border border-[#364F9F]/25 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#364F9F] hover:bg-[#364F9F]/5 disabled:cursor-not-allowed disabled:text-gray-400"
+          >
+            {savingRate ? "Saving price…" : "Save price only"}
+          </button>
         </div>
-        <p className="pb-2 text-xs text-gray-500">Each fish’s total price is calculated from its weight and this rate.</p>
+        <p className="pb-2 text-xs text-gray-500">Each fish’s total price is calculated from its weight and this rate. Saving the price does not change stock.</p>
       </div>
       <div className="overflow-x-auto rounded-lg border border-gray-200">
         <table className="w-full min-w-[900px] border-collapse text-left">
@@ -1355,6 +1369,7 @@ export default function InventoryStockAdjustment() {
   const [products, setProducts] = useState<Product[]>([]);
   const [saving, setSaving] = useState(false);
   const [savingPriceProductId, setSavingPriceProductId] = useState("");
+  const [savingFishPriceProductId, setSavingFishPriceProductId] = useState("");
   const [expandedBatchProductId, setExpandedBatchProductId] = useState("");
 
   const [formDate, setFormDate] = useState(toInputDate(new Date()));
@@ -1744,6 +1759,69 @@ export default function InventoryStockAdjustment() {
     }
   }
 
+  async function saveFishPriceOnly(i: number) {
+    const row = formRows[i];
+    const product = products.find((item) => item.id === row?.productId);
+    if (!row?.productId || !product || !selectedSubHubId || row.fishInventoryMode === "standard") return;
+    const fishPricePerKg = Number(row.fishPricePerKg);
+    if (!Number.isFinite(fishPricePerKg) || fishPricePerKg <= 0) {
+      toast({ title: "Enter a valid selling price per kg", variant: "destructive" });
+      return;
+    }
+    const currentRate = getFishPricePerKg(product);
+    if (fishPricePerKg === currentRate) return;
+
+    setSavingFishPriceProductId(row.productId);
+    try {
+      await apiFetch("/api/inventory/adjustments", {
+        method: "POST",
+        body: JSON.stringify({
+          subHubId: selectedSubHubId,
+          superHubId: selectedSuperHubId,
+          date: toInputDate(new Date()),
+          reason: "Customer selling price update",
+          items: [{
+            productId: row.productId,
+            mode: "configure",
+            fishInventoryMode: row.fishInventoryMode,
+            fishPricePerKg,
+            ...(row.fishInventoryMode === "whole_fish" ? { repriceExistingFish: true } : {}),
+          }],
+        }),
+      });
+
+      setProducts((current) => current.map((item) => item.id !== row.productId ? item : {
+        ...item,
+        fishPricePerKg,
+        ...(row.fishInventoryMode === "whole_fish" ? {
+          batches: (item.batches ?? []).map((batch) => {
+            const weight = Number(batch.fishWeightKg);
+            return Number.isFinite(weight) && weight > 0
+              ? { ...batch, fishPricePerKg, fishPrice: Math.round(weight * fishPricePerKg) }
+              : batch;
+          }),
+        } : {}),
+      }));
+      setFormRows((current) => current.map((candidate) =>
+        candidate.productId === row.productId ||
+        (row.selectionGroupId && candidate.selectionGroupId === row.selectionGroupId)
+        ? {
+            ...candidate,
+            fishPricePerKg: String(fishPricePerKg),
+            fishPrice: fishTotalPrice(candidate.fishWeightKg, fishPricePerKg),
+          }
+        : candidate));
+      toast({
+        title: "Price saved",
+        description: "The selling price was updated without changing stock.",
+      });
+    } catch (err: any) {
+      toast({ title: "Failed to save price", description: err.message, variant: "destructive" });
+    } finally {
+      setSavingFishPriceProductId("");
+    }
+  }
+
   function resetForm() {
     setFormDate(toInputDate(new Date()));
     setFormReason("");
@@ -2120,6 +2198,10 @@ export default function InventoryStockAdjustment() {
                         onRemove={(idx) => removeFishEntry(card, idx)}
                         onReload={reload}
                         onRateChange={(value) => updateFishPricePerKg(card, value)}
+                        onSaveRate={() => saveFishPriceOnly(firstEntry.idx)}
+                        canSaveRate={!saving && Number(firstRow.fishPricePerKg) > 0 &&
+                          Number(firstRow.fishPricePerKg) !== Number(getFishPricePerKg(cardProduct))}
+                        savingRate={saving || savingFishPriceProductId === firstRow.productId}
                         onWeightChange={updateFishWeight}
                       />
                     ) : (
@@ -2168,6 +2250,19 @@ export default function InventoryStockAdjustment() {
                                   className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm font-semibold text-[#162B4D] outline-none focus:border-[#364F9F] focus:ring-2 focus:ring-[#364F9F]/15"
                                 />
                               </div>
+                              <button
+                                type="button"
+                                onClick={() => saveFishPriceOnly(firstEntry.idx)}
+                                disabled={
+                                  saving ||
+                                  savingFishPriceProductId === firstRow.productId ||
+                                  !(Number(firstRow.fishPricePerKg) > 0) ||
+                                  Number(firstRow.fishPricePerKg) === Number(getFishPricePerKg(cardProduct))
+                                }
+                                className="rounded-md border border-[#364F9F]/25 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#364F9F] hover:bg-[#364F9F]/5 disabled:cursor-not-allowed disabled:text-gray-400"
+                              >
+                                {savingFishPriceProductId === firstRow.productId ? "Saving price…" : "Save price only"}
+                              </button>
                             </div>
                             </div>
                             <div className="space-y-1.5">
@@ -2327,12 +2422,12 @@ export default function InventoryStockAdjustment() {
                                       <button
                                         type="button"
                                         onClick={() => saveProductPrice(idx)}
-                                        disabled={!hasPriceChange || Boolean(savingPriceProductId)}
+                                        disabled={saving || !hasPriceChange || Boolean(savingPriceProductId)}
                                         aria-label={`Save price for ${row.productName}`}
                                         title={hasPriceChange ? "Save price" : "Price is current"}
                                         className="shrink-0 rounded-md border border-gray-200 px-1.5 py-1 text-[10px] font-semibold text-[#364F9F] hover:bg-[#364F9F]/5 disabled:cursor-not-allowed disabled:text-gray-400"
                                       >
-                                        {savingPriceProductId === row.productId ? "Saving…" : hasPriceChange ? "Save" : "Saved"}
+                                        {savingPriceProductId === row.productId ? "Saving…" : hasPriceChange ? "Save price" : "Saved"}
                                       </button>
                                     </div>
                                     </td>
