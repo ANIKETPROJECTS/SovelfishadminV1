@@ -1797,7 +1797,7 @@ router.post("/borzo-batch", async (req: ScopedRequest, res) => {
 
     const conn = await getOrdersDb();
     const ordersCollection = conn.db.collection(COLLECTION);
-    await ensureFtwPendingPaymentExpiryDates(conn.db);
+    await ensureFtwPendingPaymentExpiryDates(ordersCollection);
     const foundOrders = await ordersCollection.find({ _id: { $in: objectIds } }).toArray();
     const foundById = new Map(foundOrders.map((order: any) => [String(order._id), order]));
     const orders = objectIds.map((id: any) => foundById.get(String(id))).filter(Boolean) as any[];
