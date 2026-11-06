@@ -58,6 +58,20 @@ function cashToCollect(order) {
   return due;
 }
 
+function declaredGoodsAmount(order) {
+  const subtotal = Number(order?.subtotal);
+  if (Number.isFinite(subtotal) && subtotal > 0) return subtotal;
+
+  return (Array.isArray(order?.items) ? order.items : []).reduce((sum, item) => {
+    const price = Number(item?.price);
+    const quantity = Number(item?.quantity);
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(quantity) || quantity <= 0) {
+      return sum;
+    }
+    return sum + price * quantity;
+  }, 0);
+}
+
 function formatAddress(parts) {
   const result = [];
   const seen = new Set();
@@ -68,6 +82,26 @@ function formatAddress(parts) {
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
     result.push(text);
+  }
+  return result.join(", ");
+}
+
+function mergeAddressParts(parts) {
+  const result = [];
+  const seen = [];
+  for (const value of parts) {
+    const text = asText(value);
+    const normalized = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    if (!normalized) continue;
+    const coveredByShorterPart = seen.findIndex((existing) => normalized.includes(existing));
+    if (coveredByShorterPart >= 0) {
+      result[coveredByShorterPart] = text;
+      seen[coveredByShorterPart] = normalized;
+      continue;
+    }
+    if (seen.some((existing) => existing.includes(normalized))) continue;
+    result.push(text);
+    seen.push(normalized);
   }
   return result.join(", ");
 }
@@ -125,21 +159,36 @@ export function buildBorzoOrderPayload(order, env = process.env) {
   const receiverName = asText(detail.name || detail.contactName || order?.customerName);
   const receiverPhone = normalizeIndianPhone(detail.phone || order?.phone);
   const receiverPincode = extractPincode(order, detail);
+  const fullAddressCandidates = [
+    order?.address,
+    typeof order?.deliveryAddressDetail === "string" ? order.deliveryAddressDetail : "",
+    detail.address,
+    detail.fullAddress,
+    detail.line1,
+  ]
+    .filter((value) => typeof value === "string" && value.trim())
+    .sort((a, b) => b.trim().length - a.trim().length);
   const structuredAddress = [
-    detail.building,
-    detail.street,
-    detail.area,
-    detail.landmark,
+    detail.houseNo || detail.flatNo || detail.house || detail.apartment,
+    detail.building || detail.buildingName || detail.society,
+    detail.street || detail.streetName || detail.road || detail.addressLine1,
     detail.addressLine2,
+    detail.area || detail.locality || detail.neighbourhood,
+    detail.landmark,
   ].map(asText).filter(Boolean);
   const receiverCity = asText(detail.city || order?.deliveryCity);
   const receiverState = asText(detail.state || order?.deliveryState);
-  const receiverAddressBase = formatAddress(structuredAddress.length > 0
-    ? structuredAddress
-    : [order?.address, order?.deliveryArea]);
-  const receiverAddress = receiverAddressBase
-    ? formatAddress([receiverAddressBase, receiverCity, receiverState, receiverPincode])
-    : "";
+  const receiverAddressBase = mergeAddressParts([
+    ...fullAddressCandidates,
+    ...structuredAddress,
+    order?.deliveryArea,
+  ]);
+  const receiverAddress = mergeAddressParts([
+    receiverAddressBase,
+    receiverCity,
+    receiverState,
+    receiverPincode,
+  ]);
 
   const pickupAddressBase = asText(env.BORZO_PICKUP_ADDRESS) ||
     formatAddress([env.BORZO_PICKUP_ADDRESS_LINE_1, env.BORZO_PICKUP_ADDRESS_LINE_2]);
@@ -168,12 +217,14 @@ export function buildBorzoOrderPayload(order, env = process.env) {
     ...items.map((item) => `${item.name} × ${item.quantity}`),
   ].join("; ").slice(0, 5000);
   const totalWeightKg = items.reduce((sum, item) => sum + item.weightKg * item.quantity, 0);
+  const goodsAmount = declaredGoodsAmount(order);
   const takingAmount = cashToCollect(order);
 
   const payload = {
     type: "standard",
     matter,
     total_weight_kg: Math.ceil(totalWeightKg),
+    ...(goodsAmount > 0 ? { insurance_amount: goodsAmount.toFixed(2) } : {}),
     is_client_notification_enabled: false,
     is_contact_person_notification_enabled: false,
     points: [
@@ -217,6 +268,9 @@ export function buildBorzoOrderPayload(order, env = process.env) {
     payload,
     missingFields,
     warnings: [
+      ...(goodsAmount > 0
+        ? [`Declared goods value sent to Borzo: ₹${goodsAmount.toFixed(2)}; Borzo may apply an insurance fee.`]
+        : []),
       ...(totalWeightKg > 0 && totalWeightKg < 1
         ? ["Borzo total_weight_kg is an integer, so this order weight is rounded up to 1 kg."]
         : []),

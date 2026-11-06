@@ -20,4 +20,4 @@
 - [OpenAPI code generation and Zod 3](openapi-codegen-zod-v3.md) — inspect generated schemas for Zod 4-only methods and start the API after regeneration.
 - [Sub-hub menu shortcut routing](subhub-menu-shortcut.md) — keep each Sub Hub Dashboard button opening its menu admin; add a separate sidebar shortcut for Menu Management.
 - [Delivery-person role retirement](delivery-person-role-retirement.md) — exclude new assignments but preserve existing accounts and legacy delivery behavior.
-- [Borzo test dispatch](borzo-test-dispatch.md) — keep FTS/FTW on test; COD needs voucher and amount fields plus the account agreement, and unknown results need checking before retrying.
+- [Borzo test dispatch](borzo-test-dispatch.md) — use the order-time recipient address and separate declared goods value from Borzo fees.

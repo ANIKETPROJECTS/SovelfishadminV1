@@ -30,8 +30,10 @@ const ftwOrder = {
   deliveryType: "delivery",
   paymentStatus: "unpaid",
   paymentMode: "cash",
+  subtotal: 520,
+  deliveryCharge: 80,
   dueAmount: 520,
-  total: 520,
+  total: 600,
   items: [{ name: "Basa", productId: "basa-id", price: 520, quantity: 1, bulkWeightKg: 1 }],
 };
 
@@ -47,6 +49,8 @@ test("builds Borzo test points, required contacts, item summary, and COD amount"
   assert.equal(result.payload.points[1].taking_amount, "520.00");
   assert.equal(result.payload.points[1].is_cod_cash_voucher_required, true);
   assert.equal(result.payload.points[1].is_order_payment_here, undefined);
+  assert.equal(result.payload.insurance_amount, "520.00");
+  assert.ok(result.warnings.some((warning) => warning.includes("₹520.00")));
   assert.match(result.payload.matter, /Basa/);
   assert.equal(result.payload.total_weight_kg, 1);
 });
@@ -60,6 +64,66 @@ test("does not request cash collection for a settled online payment", () => {
   }, pickupEnv);
   assert.equal(result.payload.points[1].taking_amount, undefined);
   assert.equal(result.payload.points[1].is_cod_cash_voucher_required, undefined);
+  assert.equal(result.payload.insurance_amount, "520.00");
+});
+
+test("derives declared goods value from item prices when subtotal is missing", () => {
+  const result = buildBorzoOrderPayload({
+    ...ftwOrder,
+    subtotal: undefined,
+    total: 620,
+    deliveryCharge: 100,
+    items: [
+      { name: "Basa", price: 420, quantity: 1, bulkWeightKg: 1 },
+      { name: "Pomfret", price: 100, quantity: 1, bulkWeightKg: 0.2 },
+    ],
+  }, pickupEnv);
+
+  assert.equal(result.payload.insurance_amount, "520.00");
+});
+
+test("sends the full customer address snapshot, not the configured pickup address", () => {
+  const customerAddress = "Flat 805, Wing A, Example Heights, Lake Road, Thane, Maharashtra, 400606";
+  const result = buildBorzoOrderPayload({
+    ...ftwOrder,
+    address: customerAddress,
+    deliveryArea: "Thane",
+    deliveryAddressDetail: {
+      houseNo: "Flat 805",
+      buildingName: "Wing A, Example Heights",
+      streetName: "Lake Road",
+      locality: "Thane",
+      pincode: "400606",
+      city: "Thane",
+      state: "Maharashtra",
+    },
+  }, pickupEnv);
+
+  assert.equal(result.payload.points[1].address, customerAddress);
+  assert.notEqual(result.payload.points[1].address, result.payload.points[0].address);
+});
+
+test("builds the recipient address from legacy customer address fields", () => {
+  const result = buildBorzoOrderPayload({
+    ...ftwOrder,
+    address: "",
+    deliveryArea: "",
+    deliveryAddressDetail: {
+      flatNo: "Flat 12",
+      society: "Sample Residency",
+      road: "Market Road",
+      neighbourhood: "Airoli",
+      zipCode: "400708",
+      city: "Navi Mumbai",
+      state: "Maharashtra",
+    },
+  }, pickupEnv);
+
+  assert.match(result.payload.points[1].address, /Flat 12/);
+  assert.match(result.payload.points[1].address, /Sample Residency/);
+  assert.match(result.payload.points[1].address, /Market Road/);
+  assert.match(result.payload.points[1].address, /Airoli/);
+  assert.match(result.payload.points[1].address, /400708/);
 });
 
 test("rejects incomplete customer and pickup data before making an API request", () => {
