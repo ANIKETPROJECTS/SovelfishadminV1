@@ -3,7 +3,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { logger } from "../lib/logger.js";
 
 type LocationSearchResult = {
-  place_id: number;
+  place_id: string;
   display_name: string;
   lat: string;
   lon: string;
@@ -21,10 +21,10 @@ router.use(requireAuth as any);
 const resultCache = new Map<string, CachedResult>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 500;
-const MIN_REQUEST_INTERVAL_MS = 1100;
+const MIN_REQUEST_INTERVAL_MS = 600;
 const LOCATION_SEARCH_BASE_URL =
-  process.env.LOCATION_SEARCH_BASE_URL || "https://nominatim.openstreetmap.org/search";
-let lastNominatimRequestAt = 0;
+  process.env.LOCATION_SEARCH_BASE_URL || "https://photon.komoot.io/api/";
+let lastPhotonRequestAt = 0;
 let requestQueue: Promise<unknown> = Promise.resolve();
 
 function getCachedResults(key: string): LocationSearchResult[] | null {
@@ -37,7 +37,7 @@ function getCachedResults(key: string): LocationSearchResult[] | null {
   return cached.results;
 }
 
-async function searchNominatim(query: string): Promise<LocationSearchResult[]> {
+async function searchPhoton(query: string): Promise<LocationSearchResult[]> {
   const cacheKey = query.toLocaleLowerCase("en-IN");
   const cached = getCachedResults(cacheKey);
   if (cached) return cached;
@@ -48,17 +48,16 @@ async function searchNominatim(query: string): Promise<LocationSearchResult[]> {
     const queuedCache = getCachedResults(cacheKey);
     if (queuedCache) return queuedCache;
 
-    const waitMs = Math.max(0, MIN_REQUEST_INTERVAL_MS - (Date.now() - lastNominatimRequestAt));
+    const waitMs = Math.max(0, MIN_REQUEST_INTERVAL_MS - (Date.now() - lastPhotonRequestAt));
     if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
-    lastNominatimRequestAt = Date.now();
+    lastPhotonRequestAt = Date.now();
 
     const url = new URL(LOCATION_SEARCH_BASE_URL);
     url.searchParams.set("q", query);
-    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("lang", "en");
     url.searchParams.set("limit", "5");
-    url.searchParams.set("countrycodes", "in");
-    url.searchParams.set("addressdetails", "1");
-    url.searchParams.set("accept-language", "en-IN,en");
+    url.searchParams.set("lat", "19.2183");
+    url.searchParams.set("lon", "72.9781");
 
     const response = await fetch(url, {
       headers: {
@@ -68,29 +67,48 @@ async function searchNominatim(query: string): Promise<LocationSearchResult[]> {
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
-      const error = new Error(`Nominatim returned HTTP ${response.status}`) as Error & { status?: number };
+      const error = new Error(`Photon returned HTTP ${response.status}`) as Error & { status?: number };
       error.status = response.status;
       throw error;
     }
 
     const body: unknown = await response.json();
-    const results = Array.isArray(body)
-      ? body.filter((item: any) =>
-        item &&
-        Number.isFinite(Number(item.place_id)) &&
-        typeof item.display_name === "string" &&
-        Number.isFinite(Number(item.lat)) &&
-        Number.isFinite(Number(item.lon)) &&
-        Number(item.lat) >= -90 && Number(item.lat) <= 90 &&
-        Number(item.lon) >= -180 && Number(item.lon) <= 180,
-      ).map((item: any) => ({
-        place_id: Number(item.place_id),
-        display_name: item.display_name,
-        lat: String(item.lat),
-        lon: String(item.lon),
-        ...(typeof item.type === "string" ? { type: item.type } : {}),
-      }))
+    const features = (body as any)?.type === "FeatureCollection" && Array.isArray((body as any).features)
+      ? (body as any).features
       : [];
+    const results = features.flatMap((feature: any) => {
+      const coordinates = feature?.geometry?.coordinates;
+      const properties = feature?.properties;
+      const longitude = Number(coordinates?.[0]);
+      const latitude = Number(coordinates?.[1]);
+      if (!properties || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+        !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return [];
+
+      const displayParts = [
+        properties.name,
+        properties.street,
+        properties.locality,
+        properties.district,
+        properties.city,
+        properties.state,
+        properties.postcode,
+        properties.country,
+      ].filter((part, index, parts) =>
+        typeof part === "string" && part.trim() &&
+        parts.findIndex((candidate) => typeof candidate === "string" &&
+          candidate.trim().toLowerCase() === part.trim().toLowerCase()) === index,
+      );
+      const displayName = displayParts.join(", ");
+      if (!displayName) return [];
+
+      return [{
+        place_id: `${properties.osm_type ?? "osm"}-${properties.osm_id ?? `${latitude},${longitude}`}`,
+        display_name: displayName,
+        lat: String(latitude),
+        lon: String(longitude),
+        ...(typeof properties.type === "string" ? { type: properties.type } : {}),
+      }];
+    });
 
     resultCache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, results });
     if (resultCache.size > MAX_CACHE_ENTRIES) {
@@ -121,10 +139,10 @@ router.get("/", async (req, res) => {
   }
 
   try {
-    res.json({ results: await searchNominatim(query) });
+    res.json({ results: await searchPhoton(query) });
   } catch (error: any) {
     const status = Number(error?.status);
-    logger.warn({ status: Number.isFinite(status) ? status : undefined }, "OpenStreetMap location search failed");
+    logger.warn({ status: Number.isFinite(status) ? status : undefined }, "Photon location search failed");
     if (status === 429) {
       res.status(429).json({ message: "Location search is busy. Wait a moment and try again." });
       return;
