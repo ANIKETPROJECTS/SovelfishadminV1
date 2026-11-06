@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import * as L from "leaflet";
-import { LocateFixed, MapPin, Trash2 } from "lucide-react";
+import { LoaderCircle, LocateFixed, MapPin, Search, Trash2 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 import "leaflet/dist/leaflet.css";
 
 export type AddressCoordinates = {
@@ -15,6 +16,14 @@ type AddressCoordinatePickerProps = {
 };
 
 const DEFAULT_CENTER: [number, number] = [19.2183, 72.9781];
+
+type LocationSearchResult = {
+  place_id: number;
+  display_name: string;
+  lat: string;
+  lon: string;
+  type?: string;
+};
 
 function isValidCoordinatePair(latitude: unknown, longitude: unknown): boolean {
   if (latitude === null || latitude === undefined || String(latitude).trim() === "" ||
@@ -35,6 +44,9 @@ export function AddressCoordinatePicker({
   const markerRef = useRef<L.CircleMarker | null>(null);
   const onChangeRef = useRef(onChange);
   const [locating, setLocating] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<LocationSearchResult[]>([]);
   const [locationError, setLocationError] = useState("");
 
   useEffect(() => {
@@ -124,6 +136,46 @@ export function AddressCoordinatePicker({
     );
   };
 
+  const searchLocation = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    if (query.length < 3) {
+      setLocationError("Enter at least 3 characters to search.");
+      setSearchResults([]);
+      return;
+    }
+
+    setSearching(true);
+    setLocationError("");
+    setSearchResults([]);
+    try {
+      const response = await apiFetch(`/api/location-search?q=${encodeURIComponent(query)}`);
+      const results = Array.isArray(response?.results) ? response.results as LocationSearchResult[] : [];
+      setSearchResults(results);
+      if (results.length === 0) setLocationError("No places found. Try a nearby street, area, or public landmark.");
+    } catch (error: any) {
+      setLocationError(error?.message || "Location search failed. You can still place a pin on the map.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const chooseSearchResult = (result: LocationSearchResult) => {
+    const latitude = Number(result.lat);
+    const longitude = Number(result.lon);
+    if (!isValidCoordinatePair(latitude, longitude)) {
+      setLocationError("That search result did not include valid coordinates.");
+      return;
+    }
+    mapRef.current?.flyTo([latitude, longitude], Math.max(mapRef.current.getZoom(), 16), { duration: 0.4 });
+    onChangeRef.current({
+      latitude: Number(latitude.toFixed(6)),
+      longitude: Number(longitude.toFixed(6)),
+    });
+    setSearchResults([]);
+    setLocationError("");
+  };
+
   const hasCoordinates = isValidCoordinatePair(latitude, longitude);
 
   return (
@@ -158,11 +210,57 @@ export function AddressCoordinatePicker({
         </div>
       </div>
 
+      <div className="space-y-2">
+        <form onSubmit={searchLocation} className="flex gap-2">
+          <input
+            type="search"
+            value={searchQuery}
+            disabled={searching}
+            onChange={(event) => {
+              setSearchQuery(event.target.value);
+              setSearchResults([]);
+              setLocationError("");
+            }}
+            placeholder="Search a street, area, or public landmark"
+            aria-label="Search map location"
+            className="h-9 min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          />
+          <button
+            type="submit"
+            disabled={searching || searchQuery.trim().length < 3}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[#000035] px-3 text-xs font-semibold text-white hover:bg-[#17175a] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {searching ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+            {searching ? "Searching…" : "Search"}
+          </button>
+        </form>
+        <p className="text-[10px] leading-4 text-gray-500">
+          Search text is sent to OpenStreetMap Nominatim. Use a public street, area, or landmark; don’t enter customer names, phone numbers, or private flat details.
+        </p>
+        {searchResults.length > 0 && (
+          <div className="max-h-44 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-sm" role="listbox" aria-label="Location search results">
+            {searchResults.map((result) => (
+              <button
+                key={result.place_id}
+                type="button"
+                role="option"
+                aria-selected="false"
+                onClick={() => chooseSearchResult(result)}
+                className="flex w-full items-start gap-2 border-b border-gray-100 px-3 py-2 text-left last:border-b-0 hover:bg-blue-50"
+              >
+                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" />
+                <span className="text-xs leading-4 text-gray-800">{result.display_name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div
         ref={mapElementRef}
         data-testid="map-openstreetmap"
         aria-label="OpenStreetMap location picker"
-        className="h-64 w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100"
+        className="h-[360px] w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100"
       />
 
       {hasCoordinates ? (

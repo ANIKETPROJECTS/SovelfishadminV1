@@ -2120,7 +2120,7 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
 
   return (
     <Dialog open={isOpen} onOpenChange={(v) => { if (!v) { onClose(); reset(); } }}>
-      <DialogContent className="sm:max-w-3xl max-h-[92vh] overflow-y-auto">
+      <DialogContent className="w-[96vw] max-w-[1100px] max-h-[94vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-black">{isEditing ? "Edit Customer" : "Add Customer"}</DialogTitle>
           <DialogDescription>
