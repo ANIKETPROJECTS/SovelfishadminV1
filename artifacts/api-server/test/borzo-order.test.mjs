@@ -5,6 +5,7 @@ import {
   buildBorzoOrderPayload,
   createBorzoBatchOrder,
   createBorzoOrder,
+  getBorzoOrderDetails,
 } from "../src/services/borzo.mjs";
 
 const pickupEnv = {
@@ -378,5 +379,69 @@ test("includes Borzo's exact field path when the API rejects request parameters"
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
+  }
+});
+
+test("fetches a specific Borzo test order and returns its live status and fees", async () => {
+  const previousToken = process.env.BORZO_API_TOKEN;
+  const originalFetch = globalThis.fetch;
+  process.env.BORZO_API_TOKEN = "test-token";
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    return new Response(JSON.stringify({
+      is_successful: true,
+      orders: [{
+        order_id: 333402,
+        status: "completed",
+        status_description: "Completed",
+        payment_amount: "125.00",
+        delivery_fee_amount: "100.00",
+        insurance_fee_amount: "25.00",
+        points: [{ delivery: { status: "finished" } }],
+      }],
+    }), { status: 200 });
+  };
+
+  try {
+    const result = await getBorzoOrderDetails("333402");
+    assert.equal(result.success, true);
+    assert.equal(result.order.status, "completed");
+    assert.equal(result.order.delivery_fee_amount, "100.00");
+    assert.equal(result.order.points[0].delivery.status, "finished");
+    assert.equal(requests.length, 1);
+    assert.equal(
+      requests[0].url,
+      "https://robotapitest-in.borzodelivery.com/api/business/1.8/orders?order_id=333402&count=1",
+    );
+    assert.equal(requests[0].options.method, "GET");
+    assert.equal(requests[0].options.headers["X-DV-Auth-Token"], "test-token");
+    assert.equal(requests[0].options.body, undefined);
+    assert.equal(JSON.stringify(result).includes("test-token"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousToken === undefined) delete process.env.BORZO_API_TOKEN;
+    else process.env.BORZO_API_TOKEN = previousToken;
+  }
+});
+
+test("reports when the requested Borzo order is not returned by the test account", async () => {
+  const previousToken = process.env.BORZO_API_TOKEN;
+  const originalFetch = globalThis.fetch;
+  process.env.BORZO_API_TOKEN = "test-token";
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    is_successful: true,
+    orders: [{ order_id: 123, status: "new" }],
+  }), { status: 200 });
+
+  try {
+    const result = await getBorzoOrderDetails("333402");
+    assert.equal(result.success, false);
+    assert.equal(result.error.code, "order_not_found");
+    assert.match(result.error.message, /333402/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousToken === undefined) delete process.env.BORZO_API_TOKEN;
+    else process.env.BORZO_API_TOKEN = previousToken;
   }
 });

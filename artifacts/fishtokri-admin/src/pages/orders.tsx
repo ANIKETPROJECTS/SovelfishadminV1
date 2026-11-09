@@ -973,8 +973,60 @@ export default function Orders() {
   // Detail modal
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [borzoDetailsOpen, setBorzoDetailsOpen] = useState(false);
+  const [borzoProviderOrder, setBorzoProviderOrder] = useState<any>(null);
+  const [borzoRefreshing, setBorzoRefreshing] = useState(false);
+  const [borzoRefreshError, setBorzoRefreshError] = useState("");
+  const [borzoLastRefreshedAt, setBorzoLastRefreshedAt] = useState<string | Date | null>(null);
   const [editStatus, setEditStatus] = useState("");
   const [savingStatus, setSavingStatus] = useState(false);
+
+  const refreshBorzoDetails = useCallback(async (targetOrder: any) => {
+    if (!targetOrder?._id) return;
+    setBorzoRefreshing(true);
+    setBorzoRefreshError("");
+    try {
+      const result = await apiFetch(`/api/orders/${encodeURIComponent(String(targetOrder._id))}/borzo-refresh`, {
+        method: "POST",
+      });
+      setBorzoProviderOrder(result.order ?? null);
+      setBorzoLastRefreshedAt(result.fetchedAt ?? null);
+      const updatedDispatch = {
+        ...(targetOrder.borzoDispatch ?? {}),
+        latestProviderOrder: result.order,
+        lastProviderRefreshAt: result.fetchedAt,
+        lastProviderHttpStatus: result.httpStatus,
+        lastProviderRefreshError: null,
+      };
+      setSelectedOrder((current: any) =>
+        current?._id === targetOrder._id
+          ? { ...current, borzoDispatch: updatedDispatch }
+          : current,
+      );
+      setOrders((current) => current.map((entry) =>
+        entry?._id === targetOrder._id
+          ? { ...entry, borzoDispatch: updatedDispatch }
+          : entry,
+      ));
+    } catch (error: any) {
+      setBorzoRefreshError(error?.message || "Could not refresh the order from Borzo.");
+    } finally {
+      setBorzoRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!borzoDetailsOpen || !selectedOrder) return;
+    const savedDispatch = selectedOrder.borzoDispatch ?? {};
+    setBorzoProviderOrder(savedDispatch.latestProviderOrder ?? null);
+    setBorzoLastRefreshedAt(savedDispatch.lastProviderRefreshAt ?? null);
+    setBorzoRefreshError("");
+    if (savedDispatch.borzoOrderId) void refreshBorzoDetails(selectedOrder);
+  }, [
+    borzoDetailsOpen,
+    selectedOrder?._id,
+    selectedOrder?.borzoDispatch?.borzoOrderId,
+    refreshBorzoDetails,
+  ]);
 
   // Payment-on-deliver dialog
   const [deliverPayOpen, setDeliverPayOpen] = useState(false);
@@ -6614,6 +6666,11 @@ export default function Orders() {
         open={borzoDetailsOpen}
         onOpenChange={setBorzoDetailsOpen}
         order={selectedOrder}
+        providerOrder={borzoProviderOrder}
+        refreshing={borzoRefreshing}
+        refreshError={borzoRefreshError}
+        lastRefreshedAt={borzoLastRefreshedAt}
+        onRefresh={() => void refreshBorzoDetails(selectedOrder)}
       />
 
       {/* Payment-on-deliver dialog */}

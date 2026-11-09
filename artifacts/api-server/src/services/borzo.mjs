@@ -386,6 +386,99 @@ async function requestJson(url, body, token) {
   }
 }
 
+export async function getBorzoOrderDetails(orderId) {
+  const normalizedOrderId = asText(orderId);
+  if (!/^\d+$/.test(normalizedOrderId) || Number(normalizedOrderId) <= 0) {
+    return {
+      success: false,
+      error: { message: "A valid Borzo order ID is required." },
+    };
+  }
+
+  const token = asText(process.env.BORZO_API_TOKEN);
+  const requestUrl = `${TEST_API_URL}/orders?${new URLSearchParams({
+    order_id: normalizedOrderId,
+    count: "1",
+  })}`;
+  if (!token) {
+    return {
+      success: false,
+      requestMethod: "GET",
+      requestUrl,
+      authentication: { scheme: "X-DV-Auth-Token (value not logged)" },
+      error: { message: "Borzo test API token is not configured on the server." },
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(requestUrl, {
+      method: "GET",
+      headers: { "X-DV-Auth-Token": token },
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let body;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = { raw: text.slice(0, 4000) };
+    }
+    const responseBody = sanitizeResponseBody(body);
+    const order = Array.isArray(body?.orders)
+      ? body.orders.find((entry) => String(entry?.order_id ?? "") === normalizedOrderId)
+      : null;
+    const fetchedAt = new Date().toISOString();
+
+    if (!response.ok || body?.is_successful !== true || !order) {
+      return {
+        success: false,
+        requestMethod: "GET",
+        requestUrl,
+        authentication: { scheme: "X-DV-Auth-Token (value not logged)" },
+        httpStatus: response.status,
+        fetchedAt,
+        responseBody,
+        error: {
+          message: !response.ok
+            ? `Borzo test API returned HTTP ${response.status}.`
+            : body?.is_successful !== true
+              ? "Borzo did not confirm the order lookup."
+              : `Borzo test account did not return order ${normalizedOrderId}.`,
+          code: !order && response.ok && body?.is_successful === true ? "order_not_found" : undefined,
+          httpStatus: response.status,
+        },
+      };
+    }
+
+    return {
+      success: true,
+      requestMethod: "GET",
+      requestUrl,
+      authentication: { scheme: "X-DV-Auth-Token (value not logged)" },
+      httpStatus: response.status,
+      fetchedAt,
+      order: sanitizeResponseBody(order),
+      responseBody,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      requestMethod: "GET",
+      requestUrl,
+      authentication: { scheme: "X-DV-Auth-Token (value not logged)" },
+      error: {
+        message: error?.name === "AbortError"
+          ? "Borzo order lookup timed out."
+          : (error?.message || "Borzo order lookup failed."),
+      },
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function submitBorzoPayload({ payload, missingFields, warnings }) {
   const token = asText(process.env.BORZO_API_TOKEN);
   const requestUrl = `${TEST_API_URL}/create-order`;

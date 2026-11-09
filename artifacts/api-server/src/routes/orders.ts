@@ -15,7 +15,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { loadScope, type ScopedRequest } from "../middlewares/scope.js";
 import { HubUser } from "../db/models/hub-user.js";
 import { sendOrderConfirmed, sendOutForDelivery, sendOrderCancelled } from "../services/whatsapp.js";
-import { createBorzoBatchOrder, createBorzoOrder } from "../services/borzo.mjs";
+import { createBorzoBatchOrder, createBorzoOrder, getBorzoOrderDetails } from "../services/borzo.mjs";
 import {
   ensureFtwPendingPaymentExpiryDates,
   isFtwOrder,
@@ -1749,6 +1749,109 @@ router.post("/dispatch-by-qr", async (req: ScopedRequest, res) => {
 });
 
 // GET /api/orders/:id — single order
+router.post("/:id/borzo-refresh", async (req: ScopedRequest, res) => {
+  try {
+    const oid = toId(req.params.id);
+    if (!oid) {
+      res.status(400).json({ error: "InvalidId", message: "Invalid order ID" });
+      return;
+    }
+    const conn = await getOrdersDb();
+    const collection = conn.db.collection(COLLECTION);
+    const order = await collection.findOne({ _id: oid });
+    if (!order || !isOrderInScope(req.scope, order, req)) {
+      res.status(404).json({ error: "NotFound", message: "Order not found" });
+      return;
+    }
+
+    const dispatch = order.borzoDispatch ?? {};
+    const borzoOrderId = String(dispatch.borzoOrderId ?? "").trim();
+    if (!/^\d+$/.test(borzoOrderId)) {
+      res.status(409).json({
+        error: "BorzoOrderUnavailable",
+        message: "This app order does not have a saved Borzo order ID to look up.",
+      });
+      return;
+    }
+    if (dispatch.environment && dispatch.environment !== "test") {
+      res.status(409).json({
+        error: "BorzoEnvironmentMismatch",
+        message: "This app is configured to query Borzo test orders only.",
+      });
+      return;
+    }
+
+    const result = await getBorzoOrderDetails(borzoOrderId);
+    if (!result.success || !result.order) {
+      const refreshedAt = result.fetchedAt ? new Date(result.fetchedAt) : new Date();
+      await collection.updateOne(
+        { _id: oid, "borzoDispatch.borzoOrderId": borzoOrderId },
+        {
+          $set: {
+            "borzoDispatch.lastProviderRefreshAt": refreshedAt,
+            "borzoDispatch.lastProviderHttpStatus": result.httpStatus ?? null,
+            "borzoDispatch.lastProviderRefreshError": result.error?.message ?? "Borzo order lookup failed.",
+          },
+        },
+      );
+      req.log.warn({
+        appOrderId: order.orderId,
+        borzoOrderId,
+        httpStatus: result.httpStatus,
+        errorCode: result.error?.code,
+      }, "Borzo live order lookup failed");
+      const statusCode = result.error?.code === "order_not_found" ? 404 : 502;
+      res.status(statusCode).json({
+        error: result.error?.code ?? "BorzoLookupFailed",
+        message: result.error?.message ?? "Could not refresh the Borzo order details.",
+        httpStatus: result.httpStatus,
+        fetchedAt: result.fetchedAt,
+        responseBody: result.responseBody,
+      });
+      return;
+    }
+
+    const refreshedAt = new Date(result.fetchedAt ?? Date.now());
+    const update = await collection.updateOne(
+      { _id: oid, "borzoDispatch.borzoOrderId": borzoOrderId },
+      {
+        $set: {
+          "borzoDispatch.latestProviderOrder": result.order,
+          "borzoDispatch.lastProviderRefreshAt": refreshedAt,
+          "borzoDispatch.lastProviderHttpStatus": result.httpStatus,
+          "borzoDispatch.lastProviderRefreshError": null,
+        },
+      },
+    );
+    if (!update.matchedCount) {
+      res.status(409).json({
+        error: "BorzoOrderChanged",
+        message: "The saved Borzo order ID changed while it was being refreshed. Reopen the details and try again.",
+      });
+      return;
+    }
+
+    req.log.info({
+      appOrderId: order.orderId,
+      borzoOrderId,
+      borzoStatus: result.order.status,
+      httpStatus: result.httpStatus,
+    }, "Fetched live Borzo order details");
+    res.json({
+      success: true,
+      order: result.order,
+      fetchedAt: result.fetchedAt,
+      httpStatus: result.httpStatus,
+      requestMethod: result.requestMethod,
+      requestUrl: result.requestUrl,
+      authentication: result.authentication,
+    });
+  } catch (err) {
+    req.log.error({ err, appOrderId: req.params.id }, "Failed to refresh live Borzo order details");
+    res.status(500).json({ error: "InternalError", message: "Failed to refresh Borzo order details" });
+  }
+});
+
 router.get("/:id", async (req: ScopedRequest, res) => {
   try {
     const oid = toId(req.params.id);

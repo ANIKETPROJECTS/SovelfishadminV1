@@ -3,9 +3,12 @@ import {
   CheckCircle2,
   Clock3,
   Code2,
+  Loader2,
+  RefreshCw,
   Truck,
   XCircle,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +21,14 @@ function readableDate(value: unknown): string {
   if (!value) return "—";
   const date = new Date(value as string | number | Date);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function rupees(value: unknown): string {
+  if (value === undefined || value === null || value === "") return "—";
+  const amount = Number(value);
+  return Number.isFinite(amount)
+    ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(amount)
+    : String(value);
 }
 
 function jsonText(value: unknown): string {
@@ -60,12 +71,23 @@ export function BorzoOrderDetailsDialog({
   open,
   onOpenChange,
   order,
+  providerOrder,
+  refreshing,
+  refreshError,
+  lastRefreshedAt,
+  onRefresh,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   order: any;
+  providerOrder: any;
+  refreshing: boolean;
+  refreshError: string;
+  lastRefreshedAt: string | Date | null;
+  onRefresh: () => void;
 }) {
   const dispatch = order?.borzoDispatch ?? null;
+  const liveOrder = providerOrder ?? dispatch?.latestProviderOrder ?? dispatch?.responseBody?.order ?? null;
   const dispatchStatus = String(dispatch?.status ?? "").trim().toLowerCase();
   const isAccepted = dispatchStatus === "sent";
   const isFailed = dispatchStatus === "failed";
@@ -84,6 +106,21 @@ export function BorzoOrderDetailsDialog({
             : { label: "No submission recorded", className: "bg-slate-50 text-slate-700 border-slate-200", icon: AlertTriangle };
   const ProviderIcon = providerState.icon;
   const error = dispatch?.error ?? (dispatch?.errorMessage ? { message: dispatch.errorMessage } : undefined);
+  const providerStatus = String(liveOrder?.status ?? "").trim();
+  const priceFields = [
+    ["Borzo delivery fee", liveOrder?.delivery_fee_amount],
+    ["Borzo total charge", liveOrder?.payment_amount],
+    ["Weight fee", liveOrder?.weight_fee_amount],
+    ["Insurance value", liveOrder?.insurance_amount],
+    ["Insurance fee", liveOrder?.insurance_fee_amount],
+    ["COD fee", liveOrder?.cod_fee_amount],
+    ["Money transfer fee", liveOrder?.money_transfer_fee_amount],
+    ["Loading fee", liveOrder?.loading_fee_amount],
+    ["Return fee", liveOrder?.return_fee_amount],
+    ["Waiting fee", liveOrder?.waiting_fee_amount],
+    ["Promo discount", liveOrder?.promo_code_discount_amount],
+    ["Backpayment", liveOrder?.backpayment_amount],
+  ] as const;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -105,7 +142,7 @@ export function BorzoOrderDetailsDialog({
               <p className="font-bold">{providerState.label}</p>
               <p className="mt-1 text-sm">
                 {isAccepted
-                  ? "Borzo accepted the API request. The provider status below is the latest status saved by this app."
+                  ? "The app recorded that Borzo accepted the create request. Use the live order section below to check its current provider status."
                   : isFailed
                     ? "The saved result indicates Borzo rejected the request or the request failed."
                     : isUnknown
@@ -125,7 +162,7 @@ export function BorzoOrderDetailsDialog({
               <InfoField label="App order ID" value={order?.orderId || order?._id} />
               <InfoField label="Borzo order ID" value={dispatch?.borzoOrderId} />
               <InfoField label="Dispatch result" value={dispatch?.status || "not recorded"} />
-              <InfoField label="Borzo order status" value={dispatch?.borzoOrderStatus} />
+              <InfoField label="Status when submitted" value={dispatch?.borzoOrderStatus} />
               <InfoField label="Environment" value={dispatch?.environment} />
               <InfoField label="HTTP response" value={dispatch?.httpStatus} />
               <InfoField label="Request method" value={dispatch?.requestMethod} />
@@ -140,6 +177,131 @@ export function BorzoOrderDetailsDialog({
             )}
             {dispatch?.batchOrderIds?.length > 0 && (
               <InfoField label="Orders in Borzo route" value={dispatch.batchOrderIds.join(", ")} />
+            )}
+          </section>
+
+          <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">Current Borzo order</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Read-only status and pricing fetched from Borzo’s test API.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={onRefresh}
+                disabled={refreshing || !dispatch?.borzoOrderId}
+                className="gap-2"
+              >
+                {refreshing
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <RefreshCw className="h-4 w-4" />}
+                {refreshing ? "Refreshing…" : "Refresh from Borzo"}
+              </Button>
+            </div>
+
+            {refreshError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+                {refreshError}
+              </div>
+            )}
+
+            {liveOrder ? (
+              <>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <InfoField label="Current order status" value={liveOrder.status_description || providerStatus} />
+                  <InfoField label="Borzo order ID" value={liveOrder.order_id ?? dispatch?.borzoOrderId} />
+                  <InfoField label="Order type" value={liveOrder.type} />
+                  <InfoField label="Vehicle type ID" value={liveOrder.vehicle_type_id} />
+                  <InfoField label="Created at" value={readableDate(liveOrder.created_datetime)} />
+                  <InfoField label="Finished at" value={readableDate(liveOrder.finish_datetime)} />
+                  <InfoField label="Payment method" value={liveOrder.payment_method} />
+                  <InfoField label="Total weight (kg)" value={liveOrder.total_weight_kg} />
+                  <InfoField label="Last refreshed" value={readableDate(lastRefreshedAt)} />
+                  <InfoField label="Provider HTTP response" value={dispatch?.lastProviderHttpStatus ?? dispatch?.httpStatus} />
+                </div>
+
+                {providerStatus && (
+                  <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+                    ["completed", "active", "available"].includes(providerStatus.toLowerCase())
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : ["canceled", "cancelled"].includes(providerStatus.toLowerCase())
+                        ? "border-red-200 bg-red-50 text-red-800"
+                        : "border-slate-200 bg-slate-50 text-slate-800"
+                  }`}>
+                    Provider status code: {providerStatus}
+                  </div>
+                )}
+
+                <div>
+                  <h4 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-600">Borzo pricing</h4>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {priceFields
+                      .filter(([, value]) => value !== undefined && value !== null)
+                      .map(([label, value]) => (
+                        <InfoField key={label} label={label} value={rupees(value)} />
+                      ))}
+                  </div>
+                </div>
+
+                {Array.isArray(liveOrder.points) && liveOrder.points.length > 0 && (
+                  <div>
+                    <h4 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-600">Pickup and delivery points</h4>
+                    <div className="space-y-2">
+                      {liveOrder.points.map((point: any, index: number) => (
+                        <div key={point.point_id ?? index} className="rounded-lg border border-slate-200 p-3 text-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="font-semibold text-slate-900">
+                              {index === 0 ? "Pickup" : `Stop ${index}`}
+                              {point.delivery?.status ? ` · ${point.delivery.status}` : ""}
+                            </p>
+                            <span className="text-xs text-slate-500">Point ID: {point.point_id ?? "—"}</span>
+                          </div>
+                          <p className="mt-1 text-slate-700">{point.address || "Address unavailable"}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {point.contact_person?.name || "Contact"} · {point.contact_person?.phone || "No phone"}
+                            {point.latitude && point.longitude ? ` · ${point.latitude}, ${point.longitude}` : ""}
+                          </p>
+                          {point.tracking_url && (
+                            <a
+                              className="mt-1 inline-block text-xs font-semibold text-blue-700 underline"
+                              href={point.tracking_url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Track this delivery
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {liveOrder.courier && (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <InfoField
+                      label="Courier"
+                      value={[liveOrder.courier.name, liveOrder.courier.surname].filter(Boolean).join(" ") || "—"}
+                    />
+                    <InfoField label="Courier phone" value={liveOrder.courier.phone} />
+                    <InfoField label="Courier ID" value={liveOrder.courier.courier_id} />
+                    {liveOrder.courier.latitude && liveOrder.courier.longitude && (
+                      <InfoField label="Courier coordinates" value={`${liveOrder.courier.latitude}, ${liveOrder.courier.longitude}`} />
+                    )}
+                  </div>
+                )}
+                <JsonDetails title="Latest full order response from Borzo" value={liveOrder} />
+              </>
+            ) : (
+              <p className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+                {dispatch?.borzoOrderId
+                  ? "No live Borzo details have been loaded yet. Refresh to check the order status and delivery charges."
+                  : "There is no Borzo order ID to look up for this app order."}
+              </p>
             )}
           </section>
 
@@ -171,6 +333,7 @@ export function BorzoOrderDetailsDialog({
               value={dispatch?.requestPayload}
             />
             <JsonDetails title="Borzo response" value={dispatch?.responseBody} />
+            <JsonDetails title="Latest provider lookup response" value={dispatch?.latestProviderOrder} />
             {!dispatch?.requestPayload && !dispatch?.responseBody && (
               <p className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
                 Detailed request and response bodies are not available for this record. They will be saved for future dispatches.
