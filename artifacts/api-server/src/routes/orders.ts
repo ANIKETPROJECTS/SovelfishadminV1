@@ -1203,7 +1203,7 @@ router.post("/", async (req: ScopedRequest, res) => {
       } else {
         const extras = (newCustomerExtras && typeof newCustomerExtras === "object") ? newCustomerExtras : {};
         const firstAddress =
-          dt === "delivery" && deliveryAddressDetail && typeof deliveryAddressDetail === "object"
+          deliveryAddressDetail && typeof deliveryAddressDetail === "object"
             ? { label: "Home", ...deliveryAddressDetail }
             : dt === "delivery" && address
               ? { label: "Home", address: String(address).trim(), area: deliveryArea ?? "" }

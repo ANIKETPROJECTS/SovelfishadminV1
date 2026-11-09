@@ -46,6 +46,7 @@ import { playOrderAlertOnce } from "@/hooks/use-order-alert";
 import { printHtmlWithQZ } from "@/lib/qz-print";
 import { useLocation } from "wouter";
 import { getCurrentAdminScope, logBorzoDispatchResult } from "@/lib/api";
+import { AddressCoordinatePicker } from "@/components/AddressCoordinatePicker";
 import { DayPicker, type Matcher } from "react-day-picker";
 import { format } from "date-fns";
 import "react-day-picker/style.css";
@@ -667,6 +668,26 @@ function validAddressCoordinates(address: any): { latitude: number | null; longi
   return { latitude, longitude };
 }
 
+function PosMapButton({ hasPin, onClick, testId }: { hasPin: boolean; onClick: () => void; testId: string }) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      aria-label={hasPin ? "Map, location pin saved" : "Map"}
+      onClick={onClick}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors ${
+        hasPin
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          : "border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100"
+      }`}
+    >
+      <MapPin className="h-3.5 w-3.5" />
+      Map
+      {hasPin && <span className="text-[10px] font-medium">Pin set</span>}
+    </button>
+  );
+}
+
 function formatAddressLines(a: any): string[] {
   const f = getAddressFields(a);
   if (!f) return [];
@@ -1009,7 +1030,12 @@ export default function Orders() {
   const [newAddress, setNewAddress] = useState({
     label: "Home", name: "", phone: "",
     building: "", street: "", area: "", pincode: "",
+    latitude: null as number | null, longitude: null as number | null,
   });
+  const [posMapOpen, setPosMapOpen] = useState(false);
+  const [posMapTarget, setPosMapTarget] = useState<"saved" | "new" | null>(null);
+  const [posMapDraft, setPosMapDraft] = useState({ latitude: null as number | null, longitude: null as number | null });
+  const [posMapInitial, setPosMapInitial] = useState({ latitude: null as number | null, longitude: null as number | null });
   const [orderNotes, setOrderNotes] = useState("");
   const [posRightTab, setPosRightTab] = useState<"cart" | "details">("cart");
 
@@ -1094,6 +1120,24 @@ export default function Orders() {
   const emptyAddr = { label: "Home", name: "", phone: "", building: "", street: "", area: "", landmark: "", pincode: "", city: "", state: "", latitude: null as number | null, longitude: null as number | null };
   const [originalSavedAddress, setOriginalSavedAddress] = useState(emptyAddr);
 
+  const openPosMap = (target: "saved" | "new") => {
+    const coords = validAddressCoordinates(target === "saved" ? editedSavedAddress : newAddress);
+    setPosMapTarget(target);
+    setPosMapDraft(coords);
+    setPosMapInitial(coords);
+    setPosMapOpen(true);
+  };
+
+  const applyPosMapPin = () => {
+    if (posMapTarget === "saved") {
+      setEditedSavedAddress((address) => ({ ...address, ...posMapDraft }));
+    } else if (posMapTarget === "new") {
+      setNewAddress((address) => ({ ...address, ...posMapDraft }));
+    }
+    setPosMapOpen(false);
+    setPosMapTarget(null);
+  };
+
   const resetCreateForm = useCallback(() => {
     setCustomerMode("existing");
     setCustomerSearch(""); setChosenCustomer(null); setCustomerDropdownOpen(false);
@@ -1104,7 +1148,12 @@ export default function Orders() {
     setNewAddress({
       label: "Home", name: "", phone: "",
       building: "", street: "", area: "", pincode: "",
+      latitude: null, longitude: null,
     });
+    setPosMapOpen(false);
+    setPosMapTarget(null);
+    setPosMapDraft({ latitude: null, longitude: null });
+    setPosMapInitial({ latitude: null, longitude: null });
     setOrderNotes("");
     // Keep hub selection (super + sub) so the user doesn't have to re-pick every time.
     // Clear only the cart and per-order state.
@@ -1184,7 +1233,7 @@ export default function Orders() {
       });
     }
     setCustomerSearch("");
-    setNewAddress((a: any) => ({ ...a, name: c.name || "", phone: c.phone || "" }));
+    setNewAddress((a: any) => ({ ...a, name: c.name || "", phone: c.phone || "", latitude: null, longitude: null }));
     // Fetch fresh customer data in the background to get current coupon usage
     if (c.id) {
       apiFetch(`/api/customers/${c.id}`)
@@ -1822,6 +1871,9 @@ export default function Orders() {
   // Derive whether the user has changed anything vs the last-committed baseline.
   // Save/Cancel only appear when this is true.
   const savedAddrDirty = JSON.stringify(editedSavedAddress) !== JSON.stringify(originalSavedAddress);
+  const posMapDraftChanged =
+    posMapDraft.latitude !== posMapInitial.latitude ||
+    posMapDraft.longitude !== posMapInitial.longitude;
 
   // Sync delivery charge input from pincode-based charge whenever it changes,
   // unless we just restored it from an existing order (skipDeliveryChargeSyncRef).
@@ -2072,6 +2124,7 @@ export default function Orders() {
           street: f.street.trim(),
           area: f.area.trim(),
           pincode: f.pincode.trim(),
+          ...validAddressCoordinates(f),
         };
       }
       if (!address) {
@@ -2094,7 +2147,7 @@ export default function Orders() {
       } else if (newAddress.building.trim()) {
         address = formatAddressOneLine(newAddress);
         deliveryArea = newAddress.area || "";
-        deliveryAddressDetail = { label: newAddress.label, type: (newAddress.label || "Home").toLowerCase(), name: newAddress.name.trim(), phone: newAddress.phone.trim(), building: newAddress.building.trim(), street: newAddress.street.trim(), area: newAddress.area.trim(), pincode: newAddress.pincode.trim() };
+        deliveryAddressDetail = { label: newAddress.label, type: (newAddress.label || "Home").toLowerCase(), name: newAddress.name.trim(), phone: newAddress.phone.trim(), building: newAddress.building.trim(), street: newAddress.street.trim(), area: newAddress.area.trim(), pincode: newAddress.pincode.trim(), ...validAddressCoordinates(newAddress) };
       }
     }
 
@@ -2245,7 +2298,7 @@ export default function Orders() {
       await apiFetch(url, { method, body: stringifyRequestBody(payload) });
 
       // If a saved address was used and may have been edited, sync it back to the customer record
-      if (customerId && orderDeliveryType === "delivery" && orderAddressMode === "saved" && selectedAddressIdx !== null && chosenCustomer) {
+      if (customerId && orderAddressMode === "saved" && selectedAddressIdx !== null && chosenCustomer) {
         try {
           const currentAddresses = Array.isArray(chosenCustomer.addresses) ? [...chosenCustomer.addresses] : [];
           const f = editedSavedAddress;
@@ -3273,6 +3326,7 @@ export default function Orders() {
         street: d.street ?? "",
         area: d.area ?? o.deliveryArea ?? "",
         pincode: d.pincode ?? "",
+        ...validAddressCoordinates(d),
       });
     }
     setOrderNotes(o.notes ?? "");
@@ -5038,6 +5092,13 @@ export default function Orders() {
                             <Input value={editedSavedAddress.area} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, area: e.target.value }))} placeholder="Area *" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
                             <Input value={editedSavedAddress.pincode} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Pincode *" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                           </div>
+                          <div className="flex justify-end pt-2">
+                            <PosMapButton
+                              testId="button-pos-map-saved-delivery"
+                              hasPin={editedSavedAddress.latitude !== null && editedSavedAddress.longitude !== null}
+                              onClick={() => openPosMap("saved")}
+                            />
+                          </div>
                           {/* Save / Cancel — only shown when user has changed something vs the original */}
                           {savedAddrDirty && (
                             <div className="flex gap-2 pt-2">
@@ -5050,7 +5111,7 @@ export default function Orders() {
                                   try {
                                     const currentAddresses = Array.isArray(chosenCustomer.addresses) ? [...chosenCustomer.addresses] : [];
                                     const f = editedSavedAddress;
-                                    currentAddresses[selectedAddressIdx] = { ...(currentAddresses[selectedAddressIdx] ?? {}), label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.area, landmark: f.landmark, pincode: f.pincode, city: f.city, state: f.state };
+                                    currentAddresses[selectedAddressIdx] = { ...(currentAddresses[selectedAddressIdx] ?? {}), label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.area, landmark: f.landmark, pincode: f.pincode, city: f.city, state: f.state, ...validAddressCoordinates(f) };
                                     await apiFetch(`/api/customers/${chosenCustomer.id}`, { method: "PUT", body: JSON.stringify({ addresses: currentAddresses }) });
                                     // Update baseline — makes dirty = false, buttons hide immediately
                                     setOriginalSavedAddress({ ...editedSavedAddress });
@@ -5096,6 +5157,13 @@ export default function Orders() {
                         <Input value={newAddress.area} onChange={(e) => setNewAddress((a) => ({ ...a, area: e.target.value }))} placeholder="Area *" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
                         <Input value={newAddress.pincode} onChange={(e) => setNewAddress((a) => ({ ...a, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Pincode *" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                       </div>
+                      <div className="flex justify-end">
+                        <PosMapButton
+                          testId="button-pos-map-new-delivery"
+                          hasPin={newAddress.latitude !== null && newAddress.longitude !== null}
+                          onClick={() => openPosMap("new")}
+                        />
+                      </div>
                       {/* Save to Profile / Clear buttons for new address — Save hides once saved, reappears on edit */}
                       <div className="flex gap-2 pt-1">
                         {chosenCustomer?.id ? (
@@ -5111,7 +5179,7 @@ export default function Orders() {
                                 try {
                                   const currentAddresses = Array.isArray(chosenCustomer.addresses) ? [...chosenCustomer.addresses] : [];
                                   const resolvedLabel = resolveAddressLabel(newAddress.label || "Home", currentAddresses);
-                                  const entry = { label: resolvedLabel, name: newAddress.name, phone: newAddress.phone, building: newAddress.building, street: newAddress.street, area: newAddress.area, pincode: newAddress.pincode };
+                                   const entry = { label: resolvedLabel, name: newAddress.name, phone: newAddress.phone, building: newAddress.building, street: newAddress.street, area: newAddress.area, pincode: newAddress.pincode, ...validAddressCoordinates(newAddress) };
                                   const updated = [...currentAddresses, entry];
                                   await apiFetch(`/api/customers/${chosenCustomer.id}`, { method: "PUT", body: JSON.stringify({ addresses: updated }) });
                                   setChosenCustomer((c: any) => ({ ...c, addresses: updated }));
@@ -5144,7 +5212,7 @@ export default function Orders() {
                         )}
                         <button
                           type="button"
-                          onClick={() => { setNewAddress({ label: "Home", name: "", phone: "", building: "", street: "", area: "", pincode: "" }); setNewAddressSaved(false); }}
+                          onClick={() => { setNewAddress({ label: "Home", name: "", phone: "", building: "", street: "", area: "", pincode: "", latitude: null, longitude: null }); setNewAddressSaved(false); }}
                           className="flex-1 h-7 rounded-lg border border-gray-200 text-gray-500 text-xs font-semibold hover:bg-gray-50 transition-colors"
                         >
                           Cancel
@@ -5202,6 +5270,13 @@ export default function Orders() {
                             <Input value={editedSavedAddress.area} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, area: e.target.value }))} placeholder="Area" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
                             <Input value={editedSavedAddress.pincode} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Pincode" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                           </div>
+                          <div className="flex justify-end pt-2">
+                            <PosMapButton
+                              testId="button-pos-map-saved-takeaway"
+                              hasPin={editedSavedAddress.latitude !== null && editedSavedAddress.longitude !== null}
+                              onClick={() => openPosMap("saved")}
+                            />
+                          </div>
                           {savedAddrDirty && (
                             <div className="flex gap-2 pt-2">
                               <button
@@ -5213,7 +5288,7 @@ export default function Orders() {
                                   try {
                                     const currentAddresses = Array.isArray(chosenCustomer.addresses) ? [...chosenCustomer.addresses] : [];
                                     const f = editedSavedAddress;
-                                    currentAddresses[selectedAddressIdx] = { ...(currentAddresses[selectedAddressIdx] ?? {}), label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.area, landmark: f.landmark, pincode: f.pincode, city: f.city, state: f.state };
+                                    currentAddresses[selectedAddressIdx] = { ...(currentAddresses[selectedAddressIdx] ?? {}), label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.area, landmark: f.landmark, pincode: f.pincode, city: f.city, state: f.state, ...validAddressCoordinates(f) };
                                     await apiFetch(`/api/customers/${chosenCustomer.id}`, { method: "PUT", body: JSON.stringify({ addresses: currentAddresses }) });
                                     setOriginalSavedAddress({ ...editedSavedAddress });
                                     setChosenCustomer((c: any) => ({ ...c, addresses: currentAddresses }));
@@ -5255,6 +5330,13 @@ export default function Orders() {
                         <Input value={newAddress.area} onChange={(e) => setNewAddress((a) => ({ ...a, area: e.target.value }))} placeholder="Area" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
                         <Input value={newAddress.pincode} onChange={(e) => setNewAddress((a) => ({ ...a, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Pincode" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                       </div>
+                      <div className="flex justify-end">
+                        <PosMapButton
+                          testId="button-pos-map-new-takeaway"
+                          hasPin={newAddress.latitude !== null && newAddress.longitude !== null}
+                          onClick={() => openPosMap("new")}
+                        />
+                      </div>
                       <div className="flex gap-2 pt-1">
                         {chosenCustomer?.id ? (
                           newAddressSaved ? (
@@ -5269,7 +5351,7 @@ export default function Orders() {
                                 try {
                                   const currentAddresses = Array.isArray(chosenCustomer.addresses) ? [...chosenCustomer.addresses] : [];
                                   const resolvedLabel = resolveAddressLabel(newAddress.label || "Home", currentAddresses);
-                                  const entry = { label: resolvedLabel, name: newAddress.name, phone: newAddress.phone, building: newAddress.building, street: newAddress.street, area: newAddress.area, pincode: newAddress.pincode };
+                                   const entry = { label: resolvedLabel, name: newAddress.name, phone: newAddress.phone, building: newAddress.building, street: newAddress.street, area: newAddress.area, pincode: newAddress.pincode, ...validAddressCoordinates(newAddress) };
                                   const updated = [...currentAddresses, entry];
                                   await apiFetch(`/api/customers/${chosenCustomer.id}`, { method: "PUT", body: JSON.stringify({ addresses: updated }) });
                                   setChosenCustomer((c: any) => ({ ...c, addresses: updated }));
@@ -5302,7 +5384,7 @@ export default function Orders() {
                         )}
                         <button
                           type="button"
-                          onClick={() => { setNewAddress({ label: "Home", name: "", phone: "", building: "", street: "", area: "", pincode: "" }); setNewAddressSaved(false); }}
+                          onClick={() => { setNewAddress({ label: "Home", name: "", phone: "", building: "", street: "", area: "", pincode: "", latitude: null, longitude: null }); setNewAddressSaved(false); }}
                           className="flex-1 h-7 rounded-lg border border-gray-200 text-gray-500 text-xs font-semibold hover:bg-gray-50 transition-colors"
                         >
                           Cancel
@@ -5769,6 +5851,48 @@ export default function Orders() {
           </div>{/* end right panel */}
 
         </div>{/* end 3-col body */}
+
+        <Dialog
+          open={posMapOpen}
+          onOpenChange={(open) => {
+            setPosMapOpen(open);
+            if (!open) setPosMapTarget(null);
+          }}
+        >
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Map</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-xs text-gray-600">
+                Set an optional pin for this customer address. The written address remains the delivery address.
+              </p>
+              <AddressCoordinatePicker
+                latitude={posMapDraft.latitude}
+                longitude={posMapDraft.longitude}
+                onChange={(coordinates) => setPosMapDraft({
+                  latitude: coordinates?.latitude ?? null,
+                  longitude: coordinates?.longitude ?? null,
+                })}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                data-testid="button-pos-map-cancel"
+                onClick={() => {
+                  setPosMapOpen(false);
+                  setPosMapTarget(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button data-testid="button-pos-map-save" onClick={applyPosMapPin} disabled={!posMapDraftChanged}>
+                Save pin
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>,
       document.body
       )}
