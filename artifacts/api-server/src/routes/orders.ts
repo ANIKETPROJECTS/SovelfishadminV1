@@ -1939,9 +1939,14 @@ router.post("/borzo-batch", async (req: ScopedRequest, res) => {
       completedAt,
       requestMethod: borzoResult.requestMethod ?? "POST",
       requestUrl: borzoResult.requestUrl,
+      authentication: borzoResult.authentication,
       httpStatus: borzoResult.httpStatus,
       borzoOrderId: borzoResult.borzoOrderId,
       borzoOrderStatus: borzoResult.borzoOrderStatus,
+      requestPayload: borzoResult.requestPayload,
+      responseBody: borzoResult.responseBody,
+      warnings: borzoResult.warnings,
+      error: borzoResult.error,
       errorMessage: borzoResult.error?.message,
       serverRequestId: req.id,
     };
@@ -2554,8 +2559,16 @@ router.put("/:id", async (req: ScopedRequest, res) => {
             environment: "test",
             attemptedAt,
             completedAt: new Date(),
+            requestMethod: borzoResult.requestMethod,
+            requestUrl: borzoResult.requestUrl,
+            authentication: borzoResult.authentication,
             httpStatus: borzoResult.httpStatus,
+            requestPayload: borzoResult.requestPayload,
+            responseBody: borzoResult.responseBody,
+            warnings: borzoResult.warnings,
+            error: borzoResult.error,
             errorMessage: borzoResult.error?.message,
+            serverRequestId: req.id,
           };
           try {
             await conn.db!.collection(COLLECTION).updateOne(

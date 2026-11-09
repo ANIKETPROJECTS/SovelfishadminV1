@@ -47,6 +47,7 @@ import { printHtmlWithQZ } from "@/lib/qz-print";
 import { useLocation } from "wouter";
 import { getCurrentAdminScope, logBorzoDispatchResult } from "@/lib/api";
 import { AddressCoordinatePicker } from "@/components/AddressCoordinatePicker";
+import { BorzoOrderDetailsDialog } from "@/components/BorzoOrderDetailsDialog";
 import { DayPicker, type Matcher } from "react-day-picker";
 import { format } from "date-fns";
 import "react-day-picker/style.css";
@@ -153,6 +154,12 @@ const FTW_PAYMENT_TIMEOUT_MS = 5 * 60 * 1000;
 
 function isFtwOrder(order: any): boolean {
   return String(order?.orderId ?? "").trim().replace(/^#+/, "").toUpperCase().startsWith("FTW");
+}
+
+function isBorzoDispatchOrder(order: any): boolean {
+  const orderId = String(order?.orderId ?? "").trim().replace(/^#+/, "").toUpperCase();
+  const isFishTokriOrder = orderId.startsWith("FTS") || orderId.startsWith("FTW");
+  return isFishTokriOrder && String(order?.deliveryType ?? "delivery").toLowerCase() !== "takeaway";
 }
 
 function isFtwPaymentOnHold(order: any): boolean {
@@ -965,6 +972,7 @@ export default function Orders() {
 
   // Detail modal
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [borzoDetailsOpen, setBorzoDetailsOpen] = useState(false);
   const [editStatus, setEditStatus] = useState("");
   const [savingStatus, setSavingStatus] = useState(false);
 
@@ -5899,7 +5907,7 @@ export default function Orders() {
 
 
       {/* Order Detail Sheet — slides in from the right */}
-      <Sheet open={!!selectedOrder} onOpenChange={(o) => { if (!o) { setSelectedOrder(null); setShowAllPersons(false); } }}>
+      <Sheet open={!!selectedOrder} onOpenChange={(o) => { if (!o) { setSelectedOrder(null); setShowAllPersons(false); setBorzoDetailsOpen(false); } }}>
         <SheetContent
           side="right"
           className="w-full sm:max-w-[560px] p-0 flex flex-col gap-0 bg-white"
@@ -6208,6 +6216,23 @@ export default function Orders() {
                       </div>
                     )}
                   </div>
+                  {isBorzoDispatchOrder(selectedOrder) && (
+                    <div className="mt-5 border-t border-gray-100 pt-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setBorzoDetailsOpen(true)}
+                        className="h-10 w-full justify-center gap-2 rounded-xl border-[#364F9F]/30 font-bold text-[#364F9F] hover:bg-[#EEF1F9]"
+                        data-testid="button-borzo-order-details"
+                      >
+                        <Truck className="h-4 w-4" />
+                        Borzo order details
+                        <span className="ml-auto rounded-full bg-[#EEF1F9] px-2 py-0.5 text-[10px] uppercase">
+                          {selectedOrder.borzoDispatch?.status ?? "not submitted"}
+                        </span>
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 {/* ── 5. DELIVERY TIMELINE ── */}
@@ -6584,6 +6609,12 @@ export default function Orders() {
           )}
         </SheetContent>
       </Sheet>
+
+      <BorzoOrderDetailsDialog
+        open={borzoDetailsOpen}
+        onOpenChange={setBorzoDetailsOpen}
+        order={selectedOrder}
+      />
 
       {/* Payment-on-deliver dialog */}
       <Dialog open={deliverPayOpen} onOpenChange={(open) => { if (!savingStatus) setDeliverPayOpen(open); }}>
