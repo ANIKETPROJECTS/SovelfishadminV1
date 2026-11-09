@@ -62,7 +62,7 @@ export function AddressCoordinatePicker({
     const map = L.map(mapElementRef.current, {
       center,
       zoom: hasCoordinates ? 16 : 12,
-      scrollWheelZoom: false,
+      scrollWheelZoom: true,
     });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
