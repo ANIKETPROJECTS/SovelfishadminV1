@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AddressCoordinatePicker } from "@/components/AddressCoordinatePicker";
+import { AddressCoordinateMapPreview } from "@/components/AddressCoordinateMapPreview";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -1460,6 +1461,13 @@ function AddressCard({ address, index }: { address: any; index: number }) {
   const state = address.state || "";
   const pincode = address.pincode || address.zipCode || address.zip || "";
   const instructions = address.instructions || address.deliveryInstructions || "";
+  const latitude = Number(address.latitude);
+  const longitude = Number(address.longitude);
+  const hasCoordinates =
+    address.latitude !== null && address.latitude !== undefined && String(address.latitude).trim() !== "" &&
+    address.longitude !== null && address.longitude !== undefined && String(address.longitude).trim() !== "" &&
+    Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 &&
+    Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
   const addressLines = [
     [houseNo, building].filter(Boolean).join(", "),
     [street, area].filter(Boolean).join(", "),
@@ -1477,6 +1485,17 @@ function AddressCard({ address, index }: { address: any; index: number }) {
           {phone && <p className="text-xs text-black mt-0.5">{phone}</p>}
           <div className="mt-2 space-y-0.5">{addressLines.map((line, i) => <p key={i} className="text-sm text-black">{line}</p>)}</div>
           {instructions && <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded px-2 py-1 border border-amber-100">Delivery note: {instructions}</p>}
+          {hasCoordinates && (
+            <div className="mt-3">
+              <p className="text-xs font-semibold text-gray-600">
+                Exact pinned location
+                <span className="ml-2 font-normal text-gray-500">
+                  {latitude.toFixed(6)}, {longitude.toFixed(6)}
+                </span>
+              </p>
+              <AddressCoordinateMapPreview latitude={latitude} longitude={longitude} />
+            </div>
+          )}
         </div>
       </div>
     </div>
