@@ -1812,23 +1812,153 @@ router.post("/:id/borzo-refresh", async (req: ScopedRequest, res) => {
     }
 
     const refreshedAt = new Date(result.fetchedAt ?? Date.now());
-    const update = await collection.updateOne(
-      { _id: oid, "borzoDispatch.borzoOrderId": borzoOrderId },
-      {
-        $set: {
-          "borzoDispatch.latestProviderOrder": result.order,
-          "borzoDispatch.lastProviderRefreshAt": refreshedAt,
-          "borzoDispatch.lastProviderHttpStatus": result.httpStatus,
-          "borzoDispatch.lastProviderRefreshError": null,
-        },
-      },
+    const providerCancelled = ["canceled", "cancelled"]
+      .includes(String(result.order.status ?? "").trim().toLowerCase());
+    const linkedOrders = providerCancelled
+      ? await collection.find({
+          "borzoDispatch.borzoOrderId": borzoOrderId,
+          isDeleted: { $ne: true },
+        }).toArray()
+      : [order];
+    const scopedLinkedOrders = linkedOrders.filter((linked: any) =>
+      isOrderInScope(req.scope, linked, req),
     );
-    if (!update.matchedCount) {
-      res.status(409).json({
-        error: "BorzoOrderChanged",
-        message: "The saved Borzo order ID changed while it was being refreshed. Reopen the details and try again.",
-      });
-      return;
+    const cancelledOrderIds: string[] = [];
+    const preservedDeliveredOrderIds: string[] = [];
+
+    for (const linkedOrder of scopedLinkedOrders) {
+      const previousStatus = String(linkedOrder.status ?? "");
+      const shouldCancelLocally = providerCancelled && ACTIVE_ORDER_STATUSES.has(previousStatus);
+      const isAlreadyCancelled = previousStatus === "cancelled";
+      const setFields: Record<string, any> = {
+        "borzoDispatch.latestProviderOrder": result.order,
+        "borzoDispatch.lastProviderRefreshAt": refreshedAt,
+        "borzoDispatch.lastProviderHttpStatus": result.httpStatus,
+        "borzoDispatch.lastProviderRefreshError": null,
+      };
+
+      if (providerCancelled) {
+        setFields["borzoDispatch.providerCancellationSyncedAt"] = refreshedAt;
+      }
+      if (shouldCancelLocally) {
+        setFields.status = "cancelled";
+        setFields.cancellationReason = "Cancelled on Borzo";
+        setFields.updatedAt = refreshedAt;
+      }
+      if (providerCancelled && previousStatus === "delivered") {
+        setFields["borzoDispatch.providerCancellationConflict"] = true;
+      }
+
+      const updateFilter: Record<string, any> = {
+        _id: linkedOrder._id,
+        "borzoDispatch.borzoOrderId": borzoOrderId,
+        isDeleted: { $ne: true },
+      };
+      if (shouldCancelLocally) updateFilter.status = previousStatus;
+
+      const update = await collection.updateOne(updateFilter, { $set: setFields });
+      if (!update.matchedCount) {
+        if (String(linkedOrder._id) === String(oid)) {
+          res.status(409).json({
+            error: "BorzoOrderChanged",
+            message: "The saved Borzo order ID changed while it was being refreshed. Reopen the details and try again.",
+          });
+          return;
+        }
+        continue;
+      }
+
+      if (isAlreadyCancelled) {
+        cancelledOrderIds.push(String(linkedOrder._id));
+      } else if (shouldCancelLocally && update.modifiedCount > 0) {
+        cancelledOrderIds.push(String(linkedOrder._id));
+        const cancelledOrder = {
+          ...linkedOrder,
+          status: "cancelled",
+          cancellationReason: "Cancelled on Borzo",
+          updatedAt: refreshedAt,
+        };
+
+        try {
+          const wasDeducted = linkedOrder.inventoryDeducted === true;
+          const nowDeducted = await applyOrderInventoryOnUpdate(
+            linkedOrder as any,
+            cancelledOrder as any,
+            wasDeducted,
+          );
+          if (wasDeducted !== nowDeducted) {
+            await collection.updateOne(
+              { _id: linkedOrder._id, status: "cancelled" },
+              { $set: { inventoryDeducted: nowDeducted } },
+            );
+            cancelledOrder.inventoryDeducted = nowDeducted;
+          }
+        } catch (inventoryError) {
+          req.log.error({
+            err: inventoryError,
+            appOrderId: linkedOrder.orderId,
+            borzoOrderId,
+          }, "Failed to restore inventory after Borzo cancelled the order");
+        }
+
+        if (linkedOrder.customerId) {
+          try {
+            const walletToRefund = ((linkedOrder as any).payments ?? [])
+              .filter((payment: any) => payment.mode === "wallet")
+              .reduce((sum: number, payment: any) => sum + (Number(payment.amount) || 0), 0);
+            if (walletToRefund > 0) {
+              await pushWalletTx(
+                await getCustomersCollection(),
+                String(linkedOrder.customerId),
+                walletToRefund,
+                "Order cancelled on Borzo — wallet refunded",
+                {
+                  orderId: String(linkedOrder.orderId ?? ""),
+                  orderRef: String(linkedOrder._id),
+                },
+              );
+            }
+          } catch (walletError) {
+            req.log.error({
+              err: walletError,
+              appOrderId: linkedOrder.orderId,
+              borzoOrderId,
+            }, "Failed to refund customer wallet after Borzo cancellation");
+          }
+          try {
+            await syncCustomerCouponsOnStatusChange(
+              await getCustomersCollection(),
+              String(linkedOrder.customerId),
+              String(linkedOrder._id),
+              extractOrderCoupons(linkedOrder),
+              previousStatus,
+              "cancelled",
+              String(linkedOrder.subHubId ?? ""),
+              req.log,
+            );
+          } catch (couponError) {
+            req.log.error({
+              err: couponError,
+              appOrderId: linkedOrder.orderId,
+              borzoOrderId,
+            }, "Failed to update customer coupons after Borzo cancellation");
+          }
+        }
+
+        (async () => {
+          try {
+            await sendOrderCancelled(cancelledOrder, req.log);
+          } catch (notificationError) {
+            req.log.error({
+              err: notificationError,
+              appOrderId: linkedOrder.orderId,
+              borzoOrderId,
+            }, "Failed to send cancellation notification after Borzo cancellation");
+          }
+        })();
+      } else if (providerCancelled && previousStatus === "delivered") {
+        preservedDeliveredOrderIds.push(String(linkedOrder._id));
+      }
     }
 
     req.log.info({
@@ -1836,6 +1966,7 @@ router.post("/:id/borzo-refresh", async (req: ScopedRequest, res) => {
       borzoOrderId,
       borzoStatus: result.order.status,
       httpStatus: result.httpStatus,
+      locallyCancelledOrderCount: cancelledOrderIds.length,
     }, "Fetched live Borzo order details");
     res.json({
       success: true,
@@ -1845,6 +1976,13 @@ router.post("/:id/borzo-refresh", async (req: ScopedRequest, res) => {
       requestMethod: result.requestMethod,
       requestUrl: result.requestUrl,
       authentication: result.authentication,
+      localCancellation: providerCancelled
+        ? {
+            synced: cancelledOrderIds.length > 0,
+            cancelledOrderIds,
+            preservedDeliveredOrderIds,
+          }
+        : null,
     });
   } catch (err) {
     req.log.error({ err, appOrderId: req.params.id }, "Failed to refresh live Borzo order details");

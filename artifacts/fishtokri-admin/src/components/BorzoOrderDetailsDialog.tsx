@@ -72,6 +72,7 @@ export function BorzoOrderDetailsDialog({
   onOpenChange,
   order,
   providerOrder,
+  localCancellation,
   refreshing,
   refreshError,
   lastRefreshedAt,
@@ -81,6 +82,7 @@ export function BorzoOrderDetailsDialog({
   onOpenChange: (open: boolean) => void;
   order: any;
   providerOrder: any;
+  localCancellation: any;
   refreshing: boolean;
   refreshError: string;
   lastRefreshedAt: string | Date | null;
@@ -160,6 +162,7 @@ export function BorzoOrderDetailsDialog({
             <h3 className="text-xs font-bold uppercase tracking-widest text-slate-600">Submission summary</h3>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <InfoField label="App order ID" value={order?.orderId || order?._id} />
+              <InfoField label="FishTokri order status" value={order?.status} />
               <InfoField label="Borzo order ID" value={dispatch?.borzoOrderId} />
               <InfoField label="Dispatch result" value={dispatch?.status || "not recorded"} />
               <InfoField label="Status when submitted" value={dispatch?.borzoOrderStatus} />
@@ -206,6 +209,20 @@ export function BorzoOrderDetailsDialog({
             {refreshError && (
               <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
                 {refreshError}
+              </div>
+            )}
+
+            {localCancellation?.cancelledOrderIds?.length > 0 && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">
+                Borzo cancellation synced to {localCancellation.cancelledOrderIds.length} app order
+                {localCancellation.cancelledOrderIds.length === 1 ? "" : "s"}.
+              </div>
+            )}
+            {localCancellation?.preservedDeliveredOrderIds?.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+                Borzo reports cancellation, but {localCancellation.preservedDeliveredOrderIds.length} app order
+                {localCancellation.preservedDeliveredOrderIds.length === 1 ? "" : "s"} already marked delivered
+                were left unchanged.
               </div>
             )}
 

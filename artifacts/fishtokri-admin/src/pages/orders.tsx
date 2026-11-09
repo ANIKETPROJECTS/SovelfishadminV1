@@ -974,6 +974,7 @@ export default function Orders() {
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [borzoDetailsOpen, setBorzoDetailsOpen] = useState(false);
   const [borzoProviderOrder, setBorzoProviderOrder] = useState<any>(null);
+  const [borzoLocalCancellation, setBorzoLocalCancellation] = useState<any>(null);
   const [borzoRefreshing, setBorzoRefreshing] = useState(false);
   const [borzoRefreshError, setBorzoRefreshError] = useState("");
   const [borzoLastRefreshedAt, setBorzoLastRefreshedAt] = useState<string | Date | null>(null);
@@ -990,6 +991,7 @@ export default function Orders() {
       });
       setBorzoProviderOrder(result.order ?? null);
       setBorzoLastRefreshedAt(result.fetchedAt ?? null);
+      setBorzoLocalCancellation(result.localCancellation ?? null);
       const updatedDispatch = {
         ...(targetOrder.borzoDispatch ?? {}),
         latestProviderOrder: result.order,
@@ -997,14 +999,30 @@ export default function Orders() {
         lastProviderHttpStatus: result.httpStatus,
         lastProviderRefreshError: null,
       };
+      const locallyCancelledIds = new Set<string>(
+        (result.localCancellation?.cancelledOrderIds ?? []).map((id: unknown) => String(id)),
+      );
       setSelectedOrder((current: any) =>
         current?._id === targetOrder._id
-          ? { ...current, borzoDispatch: updatedDispatch }
+          ? {
+              ...current,
+              ...(locallyCancelledIds.has(String(current._id))
+                ? { status: "cancelled", cancellationReason: "Cancelled on Borzo" }
+                : {}),
+              borzoDispatch: updatedDispatch,
+            }
           : current,
       );
       setOrders((current) => current.map((entry) =>
-        entry?._id === targetOrder._id
-          ? { ...entry, borzoDispatch: updatedDispatch }
+        locallyCancelledIds.has(String(entry?._id))
+          ? {
+              ...entry,
+              status: "cancelled",
+              cancellationReason: entry.cancellationReason || "Cancelled on Borzo",
+              ...(entry?._id === targetOrder._id ? { borzoDispatch: updatedDispatch } : {}),
+            }
+          : entry?._id === targetOrder._id
+            ? { ...entry, borzoDispatch: updatedDispatch }
           : entry,
       ));
     } catch (error: any) {
@@ -1018,6 +1036,7 @@ export default function Orders() {
     if (!borzoDetailsOpen || !selectedOrder) return;
     const savedDispatch = selectedOrder.borzoDispatch ?? {};
     setBorzoProviderOrder(savedDispatch.latestProviderOrder ?? null);
+    setBorzoLocalCancellation(null);
     setBorzoLastRefreshedAt(savedDispatch.lastProviderRefreshAt ?? null);
     setBorzoRefreshError("");
     if (savedDispatch.borzoOrderId) void refreshBorzoDetails(selectedOrder);
@@ -6667,6 +6686,7 @@ export default function Orders() {
         onOpenChange={setBorzoDetailsOpen}
         order={selectedOrder}
         providerOrder={borzoProviderOrder}
+        localCancellation={borzoLocalCancellation}
         refreshing={borzoRefreshing}
         refreshError={borzoRefreshError}
         lastRefreshedAt={borzoLastRefreshedAt}
