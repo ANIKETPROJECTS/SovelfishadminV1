@@ -5218,19 +5218,19 @@ export default function Orders() {
               {/* Delivery Address */}
               {orderDeliveryType === "delivery" && (
                 <div className="px-4 pt-3 pb-3 border-b border-gray-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-normal text-gray-900 flex items-center gap-1.5"><img src="/icon-address.png" className="w-4 h-4 object-contain" alt="" />Address</p>
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-blue-200 text-blue-700 bg-blue-50" data-testid="badge-area-city-charge">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-normal text-gray-900 flex items-center gap-1.5"><img src="/icon-address.png" className="w-4 h-4 object-contain" alt="" />Address</p>
+                      <span className="mt-1 inline-flex max-w-full px-2 py-0.5 rounded-full text-[10px] font-semibold border border-blue-200 text-blue-700 bg-blue-50 whitespace-nowrap" data-testid="badge-area-city-charge">
                         {selectedAreaEntry ? `Area charge +₹${selectedAreaCharge}/product` : "Select area/city"}
                       </span>
-                      {chosenCustomer && Array.isArray(chosenCustomer.addresses) && chosenCustomer.addresses.length > 0 && (
-                        <div className="flex items-center gap-0.5 bg-gray-100 rounded-full p-0.5">
-                          <button onClick={() => setOrderAddressMode("saved")} className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${orderAddressMode === "saved" ? "bg-[#1A56DB] text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Saved</button>
-                          <button onClick={() => setOrderAddressMode("new")} className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${orderAddressMode === "new" ? "bg-[#1A56DB] text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>New</button>
-                        </div>
-                      )}
                     </div>
+                    {chosenCustomer && Array.isArray(chosenCustomer.addresses) && chosenCustomer.addresses.length > 0 && (
+                      <div className="flex items-center gap-0.5 bg-gray-100 rounded-full p-0.5 flex-shrink-0">
+                        <button onClick={() => setOrderAddressMode("saved")} className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${orderAddressMode === "saved" ? "bg-[#1A56DB] text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Saved</button>
+                        <button onClick={() => setOrderAddressMode("new")} className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${orderAddressMode === "new" ? "bg-[#1A56DB] text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>New</button>
+                      </div>
+                    )}
                   </div>
                   {chosenCustomer && orderAddressMode === "saved" && Array.isArray(chosenCustomer.addresses) && chosenCustomer.addresses.length > 0 ? (
                     <div className="space-y-2">
