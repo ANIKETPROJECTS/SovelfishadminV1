@@ -666,6 +666,7 @@ function getAddressFields(a: any) {
     building: a.building || a.buildingName || a.society || "",
     street: a.street || a.streetName || a.road || a.addressLine1 || "",
     area: a.area || a.locality || a.neighbourhood || "",
+    cityArea: a.cityArea || a.city || a.area || "",
     landmark: a.landmark || "",
     city: a.city || "",
     state: a.state || "",
@@ -1123,10 +1124,10 @@ export default function Orders() {
   const [orderDeliveryType, setOrderDeliveryType] = useState<"delivery" | "takeaway">("delivery");
   const [orderAddressMode, setOrderAddressMode] = useState<"saved" | "new">("saved");
   const [selectedAddressIdx, setSelectedAddressIdx] = useState<number | null>(null);
-  const [editedSavedAddress, setEditedSavedAddress] = useState({ label: "Home", name: "", phone: "", building: "", street: "", area: "", landmark: "", pincode: "", city: "", state: "", latitude: null as number | null, longitude: null as number | null });
+  const [editedSavedAddress, setEditedSavedAddress] = useState({ label: "Home", name: "", phone: "", building: "", street: "", area: "", cityArea: "", landmark: "", pincode: "", city: "", state: "", latitude: null as number | null, longitude: null as number | null });
   const [newAddress, setNewAddress] = useState({
     label: "Home", name: "", phone: "",
-    building: "", street: "", area: "", pincode: "",
+    building: "", street: "", area: "", cityArea: "", city: "", pincode: "",
     latitude: null as number | null, longitude: null as number | null,
   });
   const [posMapOpen, setPosMapOpen] = useState(false);
@@ -1143,7 +1144,7 @@ export default function Orders() {
   const [subHubs, setSubHubs] = useState<any[]>([]);
   const [loadingSubHubs, setLoadingSubHubs] = useState(false);
   const [selectedSubHubId, setSelectedSubHubId] = useState<string>("");
-  const [subHubPincodes, setSubHubPincodes] = useState<any[]>([]);
+  const [subHubCityAreas, setSubHubCityAreas] = useState<any[]>([]);
   const [subHubProducts, setSubHubProducts] = useState<any[]>([]);
   const [subHubCombos, setSubHubCombos] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -1178,7 +1179,6 @@ export default function Orders() {
   const [nextDayOrder, setNextDayOrder] = useState(() => isAfterFivePMIST());
   const [nextDayAutoEnabled, setNextDayAutoEnabled] = useState(() => isAfterFivePMIST());
   const [showPreorderDatePicker, setShowPreorderDatePicker] = useState(false);
-  const [isOutstationDelivery, setIsOutstationDelivery] = useState(false);
   const [isExpressOrder, setIsExpressOrder] = useState(false);
 
   // Delivery charge override + extra discount
@@ -1206,9 +1206,6 @@ export default function Orders() {
   // When populating from an existing order, skip the payment-recompute effect once
   // so the saved payment entries aren't overwritten by the derived logic.
   const skipPaymentRecomputeRef = useRef(false);
-  // Prevents the pincodeDeliveryCharge sync effect from overwriting a value
-  // that was manually restored when loading an existing order for editing.
-  const skipDeliveryChargeSyncRef = useRef(false);
   const [savingAddress, setSavingAddress] = useState(false);
   // Track whether the new address form has been saved so the Save button hides
   // until the user makes a new change.
@@ -1216,7 +1213,7 @@ export default function Orders() {
   // Stores the last-committed version of the saved address. Save/Cancel only
   // appear when editedSavedAddress differs from this baseline (i.e. user has
   // made a change). After saving, the baseline is updated so buttons hide.
-  const emptyAddr = { label: "Home", name: "", phone: "", building: "", street: "", area: "", landmark: "", pincode: "", city: "", state: "", latitude: null as number | null, longitude: null as number | null };
+  const emptyAddr = { label: "Home", name: "", phone: "", building: "", street: "", area: "", cityArea: "", landmark: "", pincode: "", city: "", state: "", latitude: null as number | null, longitude: null as number | null };
   const [originalSavedAddress, setOriginalSavedAddress] = useState(emptyAddr);
 
   const openPosMap = (target: "saved" | "new") => {
@@ -1246,7 +1243,7 @@ export default function Orders() {
     setOrderAddressMode("saved"); setSelectedAddressIdx(null);
     setNewAddress({
       label: "Home", name: "", phone: "",
-      building: "", street: "", area: "", pincode: "",
+      building: "", street: "", area: "", cityArea: "", city: "", pincode: "",
       latitude: null, longitude: null,
     });
     setPosMapOpen(false);
@@ -1266,7 +1263,6 @@ export default function Orders() {
     setNextDayOrder(autoNextDay);
     setNextDayAutoEnabled(autoNextDay);
     setOrderDate(autoNextDay ? getTomorrowIST() : getTodayIST());
-    setIsOutstationDelivery(false);
     setIsExpressOrder(false);
     setDeliveryChargeInput("");
     setExtraDiscount("");
@@ -1357,6 +1353,7 @@ export default function Orders() {
         building: [f.houseNo, f.building].filter(Boolean).join(", ") || "",
         street: f.street || "",
         area: f.area || "",
+        cityArea: f.cityArea || f.city || f.area || "",
         landmark: f.landmark || "",
         pincode: f.pincode || "",
         city: f.city || "",
@@ -1462,7 +1459,7 @@ export default function Orders() {
   useEffect(() => {
     if (!selectedSubHubId) {
       setSubHubProducts([]); setSubHubCombos([]); setCoupons([]); setTimeslots([]);
-      setSubHubPincodes([]);
+      setSubHubCityAreas([]);
       setAppliedCouponIds([]); setSelectedTimeslotId("");
       return;
     }
@@ -1490,16 +1487,15 @@ export default function Orders() {
     setSelectedTimeslotId("");
   }, [selectedSubHubId]);
 
-  // Service areas live in the sub-hub database. The legacy subHubs[].pincodes
-  // field may be stale or absent after the database-backed migration.
+  // Area/city charges are managed per sub-hub in MongoDB.
   useEffect(() => {
     if (!selectedSubHubId) {
-      setSubHubPincodes([]);
+      setSubHubCityAreas([]);
       return;
     }
-    apiFetch(`/api/sub-hubs/${selectedSubHubId}/menu/pincodes`)
-      .then((d) => setSubHubPincodes(Array.isArray(d.pincodes) ? d.pincodes : []))
-      .catch(() => setSubHubPincodes([]));
+    apiFetch(`/api/sub-hubs/${selectedSubHubId}/menu/city-areas`)
+      .then((d) => setSubHubCityAreas(Array.isArray(d.cityAreas) ? d.cityAreas : []))
+      .catch(() => setSubHubCityAreas([]));
   }, [selectedSubHubId]);
 
   // Reload slot availability whenever the delivery date changes. The API
@@ -1537,6 +1533,7 @@ export default function Orders() {
       building: [f.houseNo, f.building].filter(Boolean).join(", ") || "",
       street: f.street || "",
       area: f.area || "",
+      cityArea: f.cityArea || f.city || f.area || "",
       landmark: f.landmark || "",
       pincode: f.pincode || "",
       city: f.city || "",
@@ -1904,11 +1901,30 @@ export default function Orders() {
     return phoneMatches.length === 0;
   }, [customerSearch, allCustomers]);
 
+  const selectedAreaName = useMemo(() => {
+    if (orderDeliveryType !== "delivery") return "";
+    if (orderAddressMode === "saved" && chosenCustomer && selectedAddressIdx !== null) {
+      return String(editedSavedAddress.cityArea || editedSavedAddress.city || editedSavedAddress.area || "").trim();
+    }
+    return String(newAddress.cityArea || newAddress.city || newAddress.area || "").trim();
+  }, [orderDeliveryType, orderAddressMode, chosenCustomer, selectedAddressIdx, editedSavedAddress, newAddress]);
+
+  const selectedAreaEntry = useMemo(
+    () => subHubCityAreas.find((entry: any) => String(entry?.name ?? "").trim() === selectedAreaName) ?? null,
+    [subHubCityAreas, selectedAreaName],
+  );
+  const selectedAreaCharge = orderDeliveryType === "delivery"
+    ? Math.max(0, Number(selectedAreaEntry?.charge) || 0)
+    : 0;
+
   const itemsSubtotal = useMemo(() => {
     const customSum = orderItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
-    const productSum = selectedProducts.reduce((s, p) => s + (Number(p.price) || 0) * (Number(p.quantity) || 0), 0);
+    const productSum = selectedProducts.reduce(
+      (s, p) => s + ((Number(p.price) || 0) + selectedAreaCharge) * (Number(p.quantity) || 0),
+      0,
+    );
     return customSum + productSum;
-  }, [orderItems, selectedProducts]);
+  }, [orderItems, selectedProducts, selectedAreaCharge]);
 
   const totalItemCount = useMemo(() => {
     const cust = orderItems.filter((it) => it.name.trim() && Number(it.quantity) > 0).length;
@@ -1963,40 +1979,6 @@ export default function Orders() {
     [selectedTimeslot],
   );
 
-  const deliveryPincode = useMemo(() => {
-    if (orderDeliveryType !== "delivery") return "";
-    if (orderAddressMode === "saved" && chosenCustomer && selectedAddressIdx !== null) {
-      return editedSavedAddress.pincode || "";
-    }
-    return newAddress.pincode || "";
-  }, [orderDeliveryType, orderAddressMode, chosenCustomer, selectedAddressIdx, editedSavedAddress.pincode, newAddress.pincode]);
-
-  const pincodeEntry = useMemo(() => {
-    if (!deliveryPincode || !selectedSubHubId) return null;
-    const normalizedPincode = String(deliveryPincode).trim();
-    return subHubPincodes.find((p: any) => String(p?.pincode ?? "").trim() === normalizedPincode) || null;
-  }, [deliveryPincode, selectedSubHubId, subHubPincodes]);
-
-  const pincodeDeliveryCharge = useMemo(() => {
-    if (orderDeliveryType !== "delivery") return 0;
-    return Number(pincodeEntry?.charge) || 0;
-  }, [pincodeEntry, orderDeliveryType]);
-
-  const pincodeTimeDelay = useMemo(() => {
-    if (orderDeliveryType !== "delivery") return 0;
-    return Number(pincodeEntry?.timeDelay) || 0;
-  }, [pincodeEntry, orderDeliveryType]);
-
-  const isOutstationNeeded = useMemo(() =>
-    orderDeliveryType === "delivery" && deliveryPincode.length === 6 && pincodeEntry === null,
-    [orderDeliveryType, deliveryPincode, pincodeEntry]
-  );
-
-  // Auto-reset outstation toggle when pincode becomes serviceable or is cleared
-  useEffect(() => {
-    if (!isOutstationNeeded) setIsOutstationDelivery(false);
-  }, [isOutstationNeeded]);
-
   // Reset new-address "saved" flag whenever the user edits any field.
   useEffect(() => { setNewAddressSaved(false); }, [newAddress]);
 
@@ -2007,21 +1989,11 @@ export default function Orders() {
     posMapDraft.latitude !== posMapInitial.latitude ||
     posMapDraft.longitude !== posMapInitial.longitude;
 
-  // Sync delivery charge input from pincode-based charge whenever it changes,
-  // unless we just restored it from an existing order (skipDeliveryChargeSyncRef).
-  useEffect(() => {
-    if (skipDeliveryChargeSyncRef.current) {
-      skipDeliveryChargeSyncRef.current = false;
-      return;
-    }
-    setDeliveryChargeInput(pincodeDeliveryCharge > 0 ? String(pincodeDeliveryCharge) : "");
-  }, [pincodeDeliveryCharge]);
-
   const effectiveDeliveryCharge = useMemo(() => {
-    if (orderDeliveryType !== "delivery") return 0;
+    if (orderDeliveryType !== "delivery" || !isExpressOrder) return 0;
     const v = Number(deliveryChargeInput);
     return isNaN(v) || v < 0 ? 0 : v;
-  }, [deliveryChargeInput, orderDeliveryType]);
+  }, [deliveryChargeInput, orderDeliveryType, isExpressOrder]);
 
   const extraDiscountAmount = useMemo(() => {
     const v = Number(extraDiscount);
@@ -2181,7 +2153,10 @@ export default function Orders() {
       .map((p) => ({
         productId: p.productId,
         name: p.name,
-        price: p.price,
+        basePrice: Number(p.price) || 0,
+        price: (Number(p.price) || 0) + selectedAreaCharge,
+        cityAreaCharge: selectedAreaCharge,
+        ...(selectedAreaName ? { cityArea: selectedAreaName } : {}),
         quantity: p.quantity,
         unit: p.unit,
         ...(p.inventoryBatchId ? {
@@ -2212,6 +2187,10 @@ export default function Orders() {
     if (orderDeliveryType === "delivery") {
       if (chosenCustomer && orderAddressMode === "saved" && selectedAddressIdx !== null) {
         const f = editedSavedAddress;
+        if (!selectedAreaEntry) {
+          toast({ title: "Area/City required", description: "Choose an Area/City from this sub-hub's list.", variant: "destructive" });
+          return;
+        }
         if (!f.building.trim()) {
           toast({ title: "Building / Flat No required", description: "Enter the building or flat number for the delivery address.", variant: "destructive" });
           return;
@@ -2220,9 +2199,9 @@ export default function Orders() {
           toast({ title: "Pincode required", description: "Enter a valid 6-digit pincode for the delivery address.", variant: "destructive" });
           return;
         }
-        address = [f.building, f.street, f.area, f.landmark, f.city, f.state, f.pincode].filter(Boolean).join(", ");
-        deliveryArea = f.area || f.city || "";
-        deliveryAddressDetail = { label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.area, landmark: f.landmark, pincode: f.pincode, city: f.city, state: f.state, ...validAddressCoordinates(f) };
+        address = [f.building, f.street, selectedAreaName, f.landmark, f.pincode].filter(Boolean).join(", ");
+        deliveryArea = selectedAreaName;
+        deliveryAddressDetail = { label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: selectedAreaName, cityArea: selectedAreaName, city: selectedAreaName, landmark: f.landmark, pincode: f.pincode, state: f.state, ...validAddressCoordinates(f) };
       } else {
         const f = newAddress;
         if (!f.name.trim()) {
@@ -2237,16 +2216,16 @@ export default function Orders() {
           toast({ title: "Building / Flat No required", description: "Enter the building or flat number for the delivery address.", variant: "destructive" });
           return;
         }
-        if (!f.area.trim()) {
-          toast({ title: "Area / Suburb required", description: "Enter the area or suburb for the delivery address.", variant: "destructive" });
+        if (!selectedAreaEntry) {
+          toast({ title: "Area/City required", description: "Choose an Area/City from this sub-hub's list.", variant: "destructive" });
           return;
         }
         if (!f.pincode || !/^\d{6}$/.test(f.pincode)) {
           toast({ title: "Pincode required", description: "Enter a valid 6-digit pincode for the delivery address.", variant: "destructive" });
           return;
         }
-        address = formatAddressOneLine(f);
-        deliveryArea = f.area || "";
+        address = [f.building.trim(), f.street.trim(), selectedAreaName, f.pincode.trim()].filter(Boolean).join(", ");
+        deliveryArea = selectedAreaName;
         deliveryAddressDetail = {
           label: f.label,
           type: (f.label || "Home").toLowerCase(),
@@ -2254,17 +2233,15 @@ export default function Orders() {
           phone: f.phone.trim(),
           building: f.building.trim(),
           street: f.street.trim(),
-          area: f.area.trim(),
+          area: selectedAreaName,
+          cityArea: selectedAreaName,
+          city: selectedAreaName,
           pincode: f.pincode.trim(),
           ...validAddressCoordinates(f),
         };
       }
       if (!address) {
         toast({ title: "Delivery address required", variant: "destructive" });
-        return;
-      }
-      if (isOutstationNeeded && !isOutstationDelivery) {
-        toast({ title: "Pincode not serviceable", description: `Pincode ${deliveryPincode} is outside our service area. Enable "Outstation Delivery" in the address section to proceed.`, variant: "destructive" });
         return;
       }
     } else if (orderDeliveryType === "takeaway") {
@@ -2337,6 +2314,8 @@ export default function Orders() {
         deliveryType: orderDeliveryType,
         address,
         deliveryArea,
+        cityArea: orderDeliveryType === "delivery" ? selectedAreaName : "",
+        cityAreaCharge: orderDeliveryType === "delivery" ? selectedAreaCharge : 0,
         deliveryAddressDetail,
         superHubId: selectedSuperHubId,
         superHubName: superHub?.name ?? "",
@@ -3469,7 +3448,9 @@ export default function Orders() {
         phone: d.phone ?? o.phone ?? "",
         building: [d.houseNo, d.building].filter(Boolean).join(", ") || d.building || "",
         street: d.street ?? "",
-        area: d.area ?? o.deliveryArea ?? "",
+        area: d.cityArea ?? d.city ?? d.area ?? o.cityArea ?? o.deliveryArea ?? "",
+        cityArea: d.cityArea ?? d.city ?? o.cityArea ?? d.area ?? o.deliveryArea ?? "",
+        city: d.city ?? d.cityArea ?? o.cityArea ?? "",
         pincode: d.pincode ?? "",
         ...validAddressCoordinates(d),
       });
@@ -3518,9 +3499,7 @@ export default function Orders() {
     setIsExpressOrder(!DIRECT_ORDER_ONLY && (!!o.isExpress || o.scheduleType === "express"));
     if (o.deliveryDate) setOrderDate(String(o.deliveryDate).slice(0, 10));
     setSelectedTimeslotId(!DIRECT_ORDER_ONLY && o.timeslotId ? String(o.timeslotId) : "");
-    // Restore delivery charge override + extra discount from saved order.
-    // Set the skip ref so the pincodeDeliveryCharge sync effect doesn't overwrite it.
-    skipDeliveryChargeSyncRef.current = true;
+    // Restore any Express/Porter charge override + extra discount.
     const savedDeliveryCharge = Number(o.deliveryCharge);
     setDeliveryChargeInput(savedDeliveryCharge > 0 ? String(savedDeliveryCharge) : "");
     const savedExtraDiscount = Number(o.extraDiscount);
@@ -5086,7 +5065,7 @@ export default function Orders() {
                                 ? <p className="text-[10px] font-semibold text-amber-600">Needs weight + price</p>
                                 : p.posFishWeightKg == null && p.posBulkWeightKg == null
                                   ? <p className="text-[10px] font-medium text-gray-400">No fish in stock</p>
-                                  : <p className="text-sm font-semibold text-[#1A56DB]">₹{Number(p.price).toLocaleString("en-IN")}</p>}
+                                  : <p className="text-sm font-semibold text-[#1A56DB]">₹{(Number(p.price) + selectedAreaCharge).toLocaleString("en-IN")}</p>}
                               {lowStock && !outOfStock && <p className="text-[10px] font-medium text-amber-500 leading-none">Only {stock} left</p>}
                               {outOfStock && <p className="text-[10px] font-bold text-red-500 leading-none">Out of stock</p>}
                             </div>
@@ -5242,15 +5221,9 @@ export default function Orders() {
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-sm font-normal text-gray-900 flex items-center gap-1.5"><img src="/icon-address.png" className="w-4 h-4 object-contain" alt="" />Address</p>
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={!isOutstationNeeded}
-                        onClick={() => setIsOutstationDelivery((v) => !v)}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all select-none ${!isOutstationNeeded ? "opacity-35 cursor-not-allowed border-gray-200 text-gray-400 bg-white" : isOutstationDelivery ? "bg-orange-500 border-orange-500 text-white cursor-pointer" : "bg-white border-gray-300 text-gray-500 cursor-pointer hover:border-orange-400"}`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isOutstationDelivery ? "bg-white" : "bg-gray-400"}`} />
-                        Outstation
-                      </button>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-blue-200 text-blue-700 bg-blue-50" data-testid="badge-area-city-charge">
+                        {selectedAreaEntry ? `Area charge +₹${selectedAreaCharge}/product` : "Select area/city"}
+                      </span>
                       {chosenCustomer && Array.isArray(chosenCustomer.addresses) && chosenCustomer.addresses.length > 0 && (
                         <div className="flex items-center gap-0.5 bg-gray-100 rounded-full p-0.5">
                           <button onClick={() => setOrderAddressMode("saved")} className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${orderAddressMode === "saved" ? "bg-[#1A56DB] text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Saved</button>
@@ -5287,7 +5260,17 @@ export default function Orders() {
                             <Input value={editedSavedAddress.phone} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))} placeholder="Phone" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                             <Input value={editedSavedAddress.building} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, building: e.target.value }))} placeholder="Building / Flat *" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
                             <Input value={editedSavedAddress.street} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, street: e.target.value }))} placeholder="Street / Landmark" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
-                            <Input value={editedSavedAddress.area} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, area: e.target.value }))} placeholder="Area *" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
+                            <Select
+                              value={subHubCityAreas.some((entry: any) => entry.name === editedSavedAddress.cityArea) ? editedSavedAddress.cityArea : ""}
+                              onValueChange={(cityArea) => setEditedSavedAddress((a) => ({ ...a, area: cityArea, cityArea, city: cityArea }))}
+                            >
+                              <SelectTrigger className="h-8 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none px-0 text-sm" data-testid="select-pos-saved-area-city">
+                                <SelectValue placeholder={subHubCityAreas.length ? "Area/City *" : "No area/cities configured"} />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-64">
+                                {subHubCityAreas.map((entry: any) => <SelectItem key={entry.name} value={entry.name}>{entry.name}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
                             <Input value={editedSavedAddress.pincode} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Pincode *" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                           </div>
                           <div className="flex justify-end pt-2">
@@ -5309,7 +5292,7 @@ export default function Orders() {
                                   try {
                                     const currentAddresses = Array.isArray(chosenCustomer.addresses) ? [...chosenCustomer.addresses] : [];
                                     const f = editedSavedAddress;
-                                    currentAddresses[selectedAddressIdx] = { ...(currentAddresses[selectedAddressIdx] ?? {}), label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.area, landmark: f.landmark, pincode: f.pincode, city: f.city, state: f.state, ...validAddressCoordinates(f) };
+                                    currentAddresses[selectedAddressIdx] = { ...(currentAddresses[selectedAddressIdx] ?? {}), label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.cityArea || f.area, cityArea: f.cityArea || f.area, landmark: f.landmark, pincode: f.pincode, city: f.cityArea || f.city || f.area, state: f.state, ...validAddressCoordinates(f) };
                                     await apiFetch(`/api/customers/${chosenCustomer.id}`, { method: "PUT", body: JSON.stringify({ addresses: currentAddresses }) });
                                     // Update baseline — makes dirty = false, buttons hide immediately
                                     setOriginalSavedAddress({ ...editedSavedAddress });
@@ -5352,7 +5335,17 @@ export default function Orders() {
                         <Input value={newAddress.phone} onChange={(e) => setNewAddress((a) => ({ ...a, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))} placeholder="Phone *" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                         <Input value={newAddress.building} onChange={(e) => setNewAddress((a) => ({ ...a, building: e.target.value }))} placeholder="Building / Flat *" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
                         <Input value={newAddress.street} onChange={(e) => setNewAddress((a) => ({ ...a, street: e.target.value }))} placeholder="Street / Landmark" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
-                        <Input value={newAddress.area} onChange={(e) => setNewAddress((a) => ({ ...a, area: e.target.value }))} placeholder="Area *" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
+                            <Select
+                              value={subHubCityAreas.some((entry: any) => entry.name === newAddress.cityArea) ? newAddress.cityArea : ""}
+                              onValueChange={(cityArea) => setNewAddress((a) => ({ ...a, area: cityArea, cityArea, city: cityArea }))}
+                            >
+                              <SelectTrigger className="h-8 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none px-0 text-sm" data-testid="select-pos-new-area-city">
+                                <SelectValue placeholder={subHubCityAreas.length ? "Area/City *" : "No area/cities configured"} />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-64">
+                                {subHubCityAreas.map((entry: any) => <SelectItem key={entry.name} value={entry.name}>{entry.name}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
                         <Input value={newAddress.pincode} onChange={(e) => setNewAddress((a) => ({ ...a, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Pincode *" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                       </div>
                       <div className="flex justify-end">
@@ -5377,7 +5370,7 @@ export default function Orders() {
                                 try {
                                   const currentAddresses = Array.isArray(chosenCustomer.addresses) ? [...chosenCustomer.addresses] : [];
                                   const resolvedLabel = resolveAddressLabel(newAddress.label || "Home", currentAddresses);
-                                   const entry = { label: resolvedLabel, name: newAddress.name, phone: newAddress.phone, building: newAddress.building, street: newAddress.street, area: newAddress.area, pincode: newAddress.pincode, ...validAddressCoordinates(newAddress) };
+                                   const entry = { label: resolvedLabel, name: newAddress.name, phone: newAddress.phone, building: newAddress.building, street: newAddress.street, area: newAddress.cityArea || newAddress.area, cityArea: newAddress.cityArea || newAddress.area, city: newAddress.cityArea || newAddress.city, pincode: newAddress.pincode, ...validAddressCoordinates(newAddress) };
                                   const updated = [...currentAddresses, entry];
                                   await apiFetch(`/api/customers/${chosenCustomer.id}`, { method: "PUT", body: JSON.stringify({ addresses: updated }) });
                                   setChosenCustomer((c: any) => ({ ...c, addresses: updated }));
@@ -5410,21 +5403,12 @@ export default function Orders() {
                         )}
                         <button
                           type="button"
-                          onClick={() => { setNewAddress({ label: "Home", name: "", phone: "", building: "", street: "", area: "", pincode: "", latitude: null, longitude: null }); setNewAddressSaved(false); }}
+                          onClick={() => { setNewAddress({ label: "Home", name: "", phone: "", building: "", street: "", area: "", cityArea: "", city: "", pincode: "", latitude: null, longitude: null }); setNewAddressSaved(false); }}
                           className="flex-1 h-7 rounded-lg border border-gray-200 text-gray-500 text-xs font-semibold hover:bg-gray-50 transition-colors"
                         >
                           Cancel
                         </button>
                       </div>
-                    </div>
-                  )}
-                  {isOutstationNeeded && (
-                    <div className={`mt-2 flex items-start gap-2 px-3 py-2 rounded-lg border text-xs font-medium ${isOutstationDelivery ? "bg-orange-50 border-orange-200 text-orange-700" : "bg-red-50 border-red-200 text-red-600"}`}>
-                      <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                      <span>
-                        Pincode <strong>{deliveryPincode}</strong> is not in the service area.
-                        {isOutstationDelivery ? " Outstation delivery enabled — order can be placed." : " Enable \"Outstation Delivery\" above to proceed."}
-                      </span>
                     </div>
                   )}
                 </div>
@@ -5465,7 +5449,10 @@ export default function Orders() {
                             <Input value={editedSavedAddress.phone} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))} placeholder="Phone" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                             <Input value={editedSavedAddress.building} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, building: e.target.value }))} placeholder="Building / Flat" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
                             <Input value={editedSavedAddress.street} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, street: e.target.value }))} placeholder="Street / Landmark" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
-                            <Input value={editedSavedAddress.area} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, area: e.target.value }))} placeholder="Area" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
+                            <Select value={subHubCityAreas.some((entry: any) => entry.name === editedSavedAddress.cityArea) ? editedSavedAddress.cityArea : ""} onValueChange={(cityArea) => setEditedSavedAddress((a) => ({ ...a, area: cityArea, cityArea, city: cityArea }))}>
+                              <SelectTrigger className="h-8 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none px-0 text-sm" data-testid="select-pos-saved-takeaway-area-city"><SelectValue placeholder="Area/City" /></SelectTrigger>
+                              <SelectContent className="max-h-64">{subHubCityAreas.map((entry: any) => <SelectItem key={entry.name} value={entry.name}>{entry.name}</SelectItem>)}</SelectContent>
+                            </Select>
                             <Input value={editedSavedAddress.pincode} onChange={(e) => setEditedSavedAddress((a) => ({ ...a, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Pincode" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                           </div>
                           <div className="flex justify-end pt-2">
@@ -5486,7 +5473,7 @@ export default function Orders() {
                                   try {
                                     const currentAddresses = Array.isArray(chosenCustomer.addresses) ? [...chosenCustomer.addresses] : [];
                                     const f = editedSavedAddress;
-                                    currentAddresses[selectedAddressIdx] = { ...(currentAddresses[selectedAddressIdx] ?? {}), label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.area, landmark: f.landmark, pincode: f.pincode, city: f.city, state: f.state, ...validAddressCoordinates(f) };
+                                    currentAddresses[selectedAddressIdx] = { ...(currentAddresses[selectedAddressIdx] ?? {}), label: f.label, name: f.name, phone: f.phone, building: f.building, street: f.street, area: f.cityArea || f.area, cityArea: f.cityArea || f.area, landmark: f.landmark, pincode: f.pincode, city: f.cityArea || f.city || f.area, state: f.state, ...validAddressCoordinates(f) };
                                     await apiFetch(`/api/customers/${chosenCustomer.id}`, { method: "PUT", body: JSON.stringify({ addresses: currentAddresses }) });
                                     setOriginalSavedAddress({ ...editedSavedAddress });
                                     setChosenCustomer((c: any) => ({ ...c, addresses: currentAddresses }));
@@ -5525,7 +5512,10 @@ export default function Orders() {
                         <Input value={newAddress.phone} onChange={(e) => setNewAddress((a) => ({ ...a, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))} placeholder="Phone" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                         <Input value={newAddress.building} onChange={(e) => setNewAddress((a) => ({ ...a, building: e.target.value }))} placeholder="Building / Flat" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
                         <Input value={newAddress.street} onChange={(e) => setNewAddress((a) => ({ ...a, street: e.target.value }))} placeholder="Street / Landmark" className="h-8 text-sm col-span-2 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
-                        <Input value={newAddress.area} onChange={(e) => setNewAddress((a) => ({ ...a, area: e.target.value }))} placeholder="Area" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" />
+                        <Select value={subHubCityAreas.some((entry: any) => entry.name === newAddress.cityArea) ? newAddress.cityArea : ""} onValueChange={(cityArea) => setNewAddress((a) => ({ ...a, area: cityArea, cityArea, city: cityArea }))}>
+                          <SelectTrigger className="h-8 border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none px-0 text-sm" data-testid="select-pos-new-takeaway-area-city"><SelectValue placeholder="Area/City" /></SelectTrigger>
+                          <SelectContent className="max-h-64">{subHubCityAreas.map((entry: any) => <SelectItem key={entry.name} value={entry.name}>{entry.name}</SelectItem>)}</SelectContent>
+                        </Select>
                         <Input value={newAddress.pincode} onChange={(e) => setNewAddress((a) => ({ ...a, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Pincode" className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0" inputMode="numeric" />
                       </div>
                       <div className="flex justify-end">
@@ -5549,7 +5539,7 @@ export default function Orders() {
                                 try {
                                   const currentAddresses = Array.isArray(chosenCustomer.addresses) ? [...chosenCustomer.addresses] : [];
                                   const resolvedLabel = resolveAddressLabel(newAddress.label || "Home", currentAddresses);
-                                   const entry = { label: resolvedLabel, name: newAddress.name, phone: newAddress.phone, building: newAddress.building, street: newAddress.street, area: newAddress.area, pincode: newAddress.pincode, ...validAddressCoordinates(newAddress) };
+                                   const entry = { label: resolvedLabel, name: newAddress.name, phone: newAddress.phone, building: newAddress.building, street: newAddress.street, area: newAddress.cityArea || newAddress.area, cityArea: newAddress.cityArea || newAddress.area, city: newAddress.cityArea || newAddress.city, pincode: newAddress.pincode, ...validAddressCoordinates(newAddress) };
                                   const updated = [...currentAddresses, entry];
                                   await apiFetch(`/api/customers/${chosenCustomer.id}`, { method: "PUT", body: JSON.stringify({ addresses: updated }) });
                                   setChosenCustomer((c: any) => ({ ...c, addresses: updated }));
@@ -5582,7 +5572,7 @@ export default function Orders() {
                         )}
                         <button
                           type="button"
-                          onClick={() => { setNewAddress({ label: "Home", name: "", phone: "", building: "", street: "", area: "", pincode: "", latitude: null, longitude: null }); setNewAddressSaved(false); }}
+                          onClick={() => { setNewAddress({ label: "Home", name: "", phone: "", building: "", street: "", area: "", cityArea: "", city: "", pincode: "", latitude: null, longitude: null }); setNewAddressSaved(false); }}
                           className="flex-1 h-7 rounded-lg border border-gray-200 text-gray-500 text-xs font-semibold hover:bg-gray-50 transition-colors"
                         >
                           Cancel
@@ -5699,7 +5689,7 @@ export default function Orders() {
                               const isSelected = selectedTimeslotId === id;
                               const extra = Number(t.extraCharge) || 0;
                               const displayStart = t.startTime ?? "";
-                              const displayEnd = addMinutesToTimeStr(t.endTime, pincodeTimeDelay);
+                              const displayEnd = t.endTime ?? "";
                               return (
                                 <button key={id} type="button" onClick={() => setSelectedTimeslotId(id)}
                                   className={`flex items-center justify-between px-3 py-2 rounded-lg border text-left transition-all ${isSelected ? "border-[#1A56DB] bg-blue-50" : "border-gray-200 bg-white hover:border-gray-300"}`}
@@ -5758,14 +5748,14 @@ export default function Orders() {
                         <div key={lineKey} className="flex items-center gap-2 py-2 border-b border-gray-100 last:border-0">
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-[#162B4D] leading-tight truncate">{p.name}</p>
-                            <p className="text-[11px] text-gray-400">₹{Number(p.price).toLocaleString("en-IN")}{p.unit ? ` / ${p.unit}` : ""}</p>
+                            <p className="text-[11px] text-gray-400">₹{(Number(p.price) + selectedAreaCharge).toLocaleString("en-IN")}{p.unit ? ` / ${p.unit}` : ""}</p>
                           </div>
                           <div className="flex items-center bg-white rounded-md border border-gray-200 overflow-hidden flex-shrink-0">
                             <button onClick={() => setSelectedProducts((arr) => p.quantity <= 1 ? arr.filter((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) !== lineKey) : arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) === lineKey ? { ...x, quantity: x.quantity - 1 } : x))} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold">−</button>
                             <span className="text-xs font-bold text-gray-700 min-w-[18px] text-center">{p.quantity}</span>
                             <button disabled={atMax} onClick={() => { if (!atMax) setSelectedProducts((arr) => arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) === lineKey ? { ...x, quantity: x.quantity + 1 } : x)); }} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold disabled:opacity-30">+</button>
                           </div>
-                          <span className="text-xs font-bold text-[#162B4D] w-12 text-right flex-shrink-0">₹{(p.price * p.quantity).toLocaleString("en-IN")}</span>
+                          <span className="text-xs font-bold text-[#162B4D] w-12 text-right flex-shrink-0">₹{((Number(p.price) + selectedAreaCharge) * p.quantity).toLocaleString("en-IN")}</span>
                         </div>
                       );
                     })}
@@ -5971,23 +5961,28 @@ export default function Orders() {
                 {/* Editable delivery charge */}
                 {orderDeliveryType === "delivery" && (
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-orange-600 font-medium whitespace-nowrap">
-                      {isExpressOrder ? "Porter charge" : `Delivery charge${deliveryPincode ? ` (${deliveryPincode})` : ""}`}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-orange-600 font-medium">+₹</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={deliveryChargeInput}
-                        placeholder="0"
-                        onChange={(e) => {
-                          const val = e.target.value.replace(/[^0-9]/g, "");
-                          setDeliveryChargeInput(val);
-                        }}
-                        className="w-16 text-right text-xs font-semibold text-orange-600 border-0 border-b border-orange-300 bg-transparent outline-none focus:border-orange-500 py-0.5 px-0"
-                      />
-                    </div>
+                    {isExpressOrder ? (
+                      <>
+                        <span className="text-xs text-orange-600 font-medium whitespace-nowrap">Porter charge</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-orange-600 font-medium">+₹</span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={deliveryChargeInput}
+                            placeholder="0"
+                            onChange={(e) => setDeliveryChargeInput(e.target.value.replace(/[^0-9]/g, ""))}
+                            className="w-16 text-right text-xs font-semibold text-orange-600 border-0 border-b border-orange-300 bg-transparent outline-none focus:border-orange-500 py-0.5 px-0"
+                            data-testid="input-porter-charge"
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-xs text-gray-500 font-medium">Delivery fee</span>
+                        <span className="text-xs font-semibold text-emerald-600" data-testid="text-delivery-fee-free">Free</span>
+                      </>
+                    )}
                   </div>
                 )}
                 {useWallet && (() => { const sc = editingOrderId && editingOrderCustomerId && String(chosenCustomer?.id) === editingOrderCustomerId; return (Number(chosenCustomer?.walletBalance) || 0) + (sc ? editingOrderWalletUsed : 0); })() > 0 && (() => {

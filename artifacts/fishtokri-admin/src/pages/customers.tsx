@@ -126,6 +126,15 @@ async function fetchAllCustomers(params: { search?: string; sort?: string }): Pr
   return results;
 }
 
+async function fetchCityAreaOptions(): Promise<string[]> {
+  const res = await fetch(`${getBase()}/api/sub-hubs/city-area-options`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (!res.ok) throw new Error("Failed to load area/city options");
+  const data = await res.json();
+  return Array.isArray(data.cityAreas) ? data.cityAreas.map((value: unknown) => String(value)) : [];
+}
+
 async function verifyCustomerExportPassword(password: string): Promise<void> {
   const res = await fetch(`${getBase()}/api/customers/verify-export-password`, {
     method: "POST",
@@ -1993,13 +2002,13 @@ function OrderCard({ order, index }: { order: any; index: number }) {
 
 type AddressDraft = {
   label: string; type: string; name: string; phone: string;
-  building: string; street: string; area: string;
+  building: string; street: string; area: string; cityArea: string; city: string;
   pincode: string; instructions: string; isDefault: boolean;
   latitude: number | null; longitude: number | null;
 };
 
 function emptyAddress(): AddressDraft {
-  return { label: "Home", type: "house", name: "", phone: "", building: "", street: "", area: "", pincode: "", instructions: "", isDefault: false, latitude: null, longitude: null };
+  return { label: "Home", type: "house", name: "", phone: "", building: "", street: "", area: "", cityArea: "", city: "", pincode: "", instructions: "", isDefault: false, latitude: null, longitude: null };
 }
 
 function addressFromExisting(a: any): AddressDraft {
@@ -2019,6 +2028,8 @@ function addressFromExisting(a: any): AddressDraft {
     building: [existingHouse, existingBuilding].filter(Boolean).join(", "),
     street: a?.street ?? a?.streetName ?? a?.road ?? a?.addressLine1 ?? "",
     area: a?.area ?? a?.locality ?? a?.neighbourhood ?? "",
+    cityArea: a?.cityArea ?? a?.area ?? a?.city ?? "",
+    city: a?.city ?? a?.cityArea ?? "",
     pincode: a?.pincode ?? a?.zipCode ?? a?.zip ?? "",
     instructions: a?.instructions ?? a?.deliveryInstructions ?? "",
     isDefault: !!a?.isDefault,
@@ -2032,6 +2043,12 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
 }) {
   const isEditing = !!customer;
   const { toast } = useToast();
+  const { data: cityAreaOptions = [], isLoading: loadingCityAreas } = useQuery({
+    queryKey: ["city-area-options"],
+    queryFn: fetchCityAreaOptions,
+    enabled: isOpen,
+    staleTime: 30_000,
+  });
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -2076,14 +2093,15 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = "Invalid email format";
     if (dob.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(dob.trim())) e.dob = "Use YYYY-MM-DD format";
     addresses.forEach((a, i) => {
-      const hasAny = a.name || a.phone || a.building || a.street || a.area || a.pincode ||
+      const hasAny = a.name || a.phone || a.building || a.street || a.area || a.cityArea || a.pincode ||
         a.latitude !== null || a.longitude !== null;
       if (hasAny) {
         if (!a.name.trim()) e[`addr_${i}_name`] = "Full name is required";
         if (!a.phone.trim()) e[`addr_${i}_phone`] = "Phone is required";
         else if (!/^\d{10}$/.test(a.phone.trim())) e[`addr_${i}_phone`] = "Phone must be 10 digits";
         if (!a.building.trim()) e[`addr_${i}_building`] = "Building / Flat No is required";
-        if (!a.area.trim()) e[`addr_${i}_area`] = "Area / Suburb is required";
+        if (!a.cityArea.trim()) e[`addr_${i}_area`] = "Area/City is required";
+        else if (!cityAreaOptions.includes(a.cityArea)) e[`addr_${i}_area`] = "Choose an area/city from the list";
         if (!a.pincode.trim()) e[`addr_${i}_pincode`] = "Pincode required";
         else if (!/^\d{6}$/.test(a.pincode.trim())) e[`addr_${i}_pincode`] = "Pincode must be 6 digits";
       }
@@ -2116,6 +2134,11 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
             out[k] = v;
           }
         });
+        if (a.cityArea.trim()) {
+          out.area = a.cityArea.trim();
+          out.cityArea = a.cityArea.trim();
+          out.city = a.cityArea.trim();
+        }
         return out;
       })
       .filter((a) => Object.keys(a).some((k) => !["label", "type", "isDefault"].includes(k)));
@@ -2229,8 +2252,21 @@ function CustomerModal({ isOpen, onClose, customer, onSuccess }: {
                       <Field label="Street / Locality">
                         <Input value={a.street} onChange={(e) => updateAddress(i, { street: e.target.value })} placeholder="Street name or society" />
                       </Field>
-                      <Field label="Area / Suburb" required={!!(a.name || a.phone || a.building || a.street || a.area || a.pincode)} error={errors[`addr_${i}_area`]}>
-                        <Input value={a.area} onChange={(e) => updateAddress(i, { area: e.target.value })} placeholder="e.g. Airoli" className={errors[`addr_${i}_area`] ? "border-red-400" : ""} />
+                      <Field label="Area/City" required={!!(a.name || a.phone || a.building || a.street || a.area || a.cityArea || a.pincode)} error={errors[`addr_${i}_area`]}>
+                        <Select
+                          value={cityAreaOptions.includes(a.cityArea) ? a.cityArea : ""}
+                          onValueChange={(cityArea) => updateAddress(i, { cityArea, area: cityArea, city: cityArea })}
+                          disabled={loadingCityAreas || cityAreaOptions.length === 0}
+                        >
+                          <SelectTrigger className={errors[`addr_${i}_area`] ? "border-red-400" : ""} data-testid={`select-customer-area-city-${i}`}>
+                            <SelectValue placeholder={loadingCityAreas ? "Loading area/cities..." : "Select area/city"} />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[280px]">
+                            {cityAreaOptions.map((cityArea) => (
+                              <SelectItem key={cityArea} value={cityArea}>{cityArea}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </Field>
                       <Field label="Pincode" required={!!(a.name || a.phone || a.building || a.street || a.area || a.pincode)} error={errors[`addr_${i}_pincode`]}>
                         <Input value={a.pincode} onChange={(e) => updateAddress(i, { pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="6-digit pincode" className={errors[`addr_${i}_pincode`] ? "border-red-400" : ""} />

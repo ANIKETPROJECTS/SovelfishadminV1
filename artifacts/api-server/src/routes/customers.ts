@@ -172,7 +172,7 @@ function sanitizeAddresses(addresses: any): any[] {
         "label", "type", "name", "phone",
         "houseNo", "flatNo", "building", "society", "apartment",
         "street", "addressLine1", "addressLine2", "area", "locality",
-        "landmark", "city", "state", "pincode", "zipCode",
+        "landmark", "city", "cityArea", "state", "pincode", "zipCode",
         "instructions", "deliveryInstructions",
         "isDefault",
       ];

@@ -5,6 +5,7 @@ import { getSubHubDbConnection } from "../db/sub-hub-connections.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { loadScope, type ScopedRequest } from "../middlewares/scope.js";
 import { TIMESLOT_FEATURE_ENABLED } from "../lib/feature-flags.js";
+import { ensureCityAreasInitialized } from "../services/city-areas.mjs";
 import {
   formatBulkPortionRangeLabel,
   formatBulkPortionWeightLabel,
@@ -133,17 +134,18 @@ router.get("/stats", async (req, res) => {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);
     if (!ctx) return;
     const db = ctx.conn.db;
-    const [products, categories, coupons, combos, carousels, pincodes, sections, timeslots] = await Promise.all([
+    await ensureCityAreasInitialized(db);
+    const [products, categories, coupons, combos, carousels, cityAreas, sections, timeslots] = await Promise.all([
       db.collection("products").countDocuments({ isDailyWholeFish: { $ne: true } }),
       db.collection("categories").countDocuments(),
       db.collection("coupons").countDocuments(),
       db.collection("combos").countDocuments(),
       db.collection("carousels").countDocuments(),
-      db.collection("pincodes").countDocuments(),
+      db.collection("city_areas").countDocuments(),
       db.collection("sections").countDocuments(),
       db.collection("timeslots").countDocuments(),
     ]);
-    res.json({ stats: { products, categories, coupons, combos, carousels, pincodes, sections, timeslots, dbName: ctx.sub.dbName } });
+    res.json({ stats: { products, categories, coupons, combos, carousels, cityAreas, sections, timeslots, dbName: ctx.sub.dbName } });
   } catch (err) {
     req.log.error({ err }, "Failed to get sub hub menu stats");
     res.status(500).json({ error: "InternalError", message: "Failed to get stats" });
@@ -1430,6 +1432,81 @@ router.delete("/sections/:sectionId", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to delete section");
     res.status(500).json({ error: "InternalError", message: "Failed to delete section" });
+  }
+});
+
+// ─── CITY / AREA SERVICE ZONES ────────────────────────────────────────────────
+router.get("/city-areas", async (req, res) => {
+  try {
+    const ctx = await getSubHubDb(String((req.params as any).id ?? ""), res, req as ScopedRequest);
+    if (!ctx) return;
+    await ensureCityAreasInitialized(ctx.conn.db!);
+    const cityAreas = await ctx.conn.db!.collection("city_areas")
+      .find({ isActive: { $ne: false } })
+      .sort({ name: 1 })
+      .toArray();
+    res.json({ cityAreas, total: cityAreas.length });
+  } catch (err) {
+    req.log.error({ err }, "Failed to get city/area service zones");
+    res.status(500).json({ error: "InternalError", message: "Failed to fetch city/area service zones" });
+  }
+});
+
+router.put("/city-areas", async (req, res) => {
+  try {
+    const ctx = await getSubHubDb(String((req.params as any).id ?? ""), res, req as ScopedRequest);
+    if (!ctx) return;
+    await ensureCityAreasInitialized(ctx.conn.db!);
+    if (!Array.isArray(req.body?.cityAreas)) {
+      res.status(400).json({ error: "ValidationError", message: "City/area entries must be an array" });
+      return;
+    }
+
+    const seen = new Set<string>();
+    const cityAreas: Array<{ name: string; nameKey: string; charge: number }> = [];
+    for (const item of req.body.cityAreas) {
+      const name = String(item?.name ?? "").trim();
+      const charge = Number(item?.charge);
+      const nameKey = name.toLocaleLowerCase("en-IN");
+      if (!name) {
+        res.status(400).json({ error: "ValidationError", message: "Every city/area must have a name" });
+        return;
+      }
+      if (!Number.isFinite(charge) || charge < 0) {
+        res.status(400).json({ error: "ValidationError", message: `Charge for ${name} must be a non-negative number` });
+        return;
+      }
+      if (seen.has(nameKey)) {
+        res.status(400).json({ error: "Duplicate", message: `${name} appears more than once` });
+        return;
+      }
+      seen.add(nameKey);
+      cityAreas.push({ name, nameKey, charge });
+    }
+
+    const collection = ctx.conn.db!.collection("city_areas");
+    const now = new Date();
+    if (cityAreas.length > 0) {
+      await collection.bulkWrite(cityAreas.map((entry) => ({
+        updateOne: {
+          filter: { nameKey: entry.nameKey },
+          update: {
+            $set: { ...entry, isActive: true, updatedAt: now },
+            $setOnInsert: { createdAt: now },
+          },
+          upsert: true,
+        },
+      })), { ordered: true });
+      await collection.deleteMany({ nameKey: { $nin: cityAreas.map((entry) => entry.nameKey) } });
+    } else {
+      await collection.deleteMany({});
+    }
+
+    const saved = await collection.find({ isActive: { $ne: false } }).sort({ name: 1 }).toArray();
+    res.json({ cityAreas: saved, total: saved.length });
+  } catch (err) {
+    req.log.error({ err }, "Failed to save city/area service zones");
+    res.status(500).json({ error: "InternalError", message: "Failed to save city/area service zones" });
   }
 });
 

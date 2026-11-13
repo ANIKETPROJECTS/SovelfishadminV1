@@ -164,7 +164,7 @@ async function apiFetch(path: string, options?: RequestInit) {
   return res.json();
 }
 
-type Tab = "products" | "categories" | "combos" | "coupons" | "carousels" | "sections" | "timeslots" | "pincodes";
+type Tab = "products" | "categories" | "combos" | "coupons" | "carousels" | "sections" | "timeslots" | "cityAreas";
 type Layout = "list" | "grid";
 
 type BatchForm = {
@@ -205,7 +205,7 @@ function generateNextBatchNumber(productName: string, existingBatches: { batchNu
 
 // The timeslot manager is retained for future reactivation; keep it out of the
 // current sub-hub interface while scheduling is disabled.
-const TABS: { key: Tab; label: string; icon: any }[] = [
+const TABS = ([
   { key: "products", label: "Products", icon: Package },
   { key: "categories", label: "Categories", icon: Tag },
   { key: "combos", label: "Combos", icon: ShoppingBag },
@@ -213,8 +213,8 @@ const TABS: { key: Tab; label: string; icon: any }[] = [
   { key: "carousels", label: "Banners", icon: Image },
   { key: "sections", label: "Sections", icon: LayoutList },
   { key: "timeslots", label: "Time Slots", icon: Clock },
-  { key: "pincodes", label: "Pincodes", icon: Database },
-].filter((tab) => tab.key !== "timeslots" || TIMESLOT_FEATURE_ENABLED);
+  { key: "cityAreas", label: "Area/City", icon: Database },
+] as { key: Tab; label: string; icon: any }[]).filter((tab) => tab.key !== "timeslots" || TIMESLOT_FEATURE_ENABLED);
 
 // ─── SHARED TOOLBAR ───────────────────────────────────────────────────────────
 interface SortOption { value: string; label: string }
@@ -567,7 +567,7 @@ export default function SubHubMenuAdmin() {
   const [statsError, setStatsError] = useState("");
   const [excelBar, setExcelBar] = useState<ExcelBarConfig>(null);
 
-  const [pincodesCount, setPincodesCount] = useState(0);
+  const [cityAreasCount, setCityAreasCount] = useState(0);
 
   const loadStats = useCallback(async (silent = false) => {
     if (!silent) { setLoadingStats(true); setStatsError(""); }
@@ -575,7 +575,7 @@ export default function SubHubMenuAdmin() {
       const data = await apiFetch(`/api/sub-hubs/${subHubId}/menu/stats`);
       setStats(data.stats);
       setDbName(data.stats.dbName ?? "");
-      setPincodesCount(Number(data.stats.pincodes) || 0);
+      setCityAreasCount(Number(data.stats.cityAreas) || 0);
     } catch (err: any) {
       if (!silent) setStatsError(err.message);
     } finally {
@@ -607,7 +607,7 @@ export default function SubHubMenuAdmin() {
     { label: "Banners", value: stats?.carousels ?? 0, img: iconMenuBanners },
     { label: "Sections", value: stats?.sections ?? 0, img: iconMenuSections },
     ...(TIMESLOT_FEATURE_ENABLED ? [{ label: "Time Slots", value: stats?.timeslots ?? 0, img: iconMenuTimeslots }] : []),
-    { label: "Pincodes", value: pincodesCount, img: iconPin },
+    { label: "Area/City", value: cityAreasCount, img: iconPin },
   ];
 
   const headerSlot = document.getElementById("page-header-slot");
@@ -686,128 +686,131 @@ export default function SubHubMenuAdmin() {
           {!statsError && tab === "carousels" && <CarouselsTab subHubId={subHubId} />}
           {!statsError && tab === "sections" && <SectionsTab subHubId={subHubId} onSetExcel={setExcelBar} />}
           {TIMESLOT_FEATURE_ENABLED && !statsError && tab === "timeslots" && <TimeSlotsTab subHubId={subHubId} onSetExcel={setExcelBar} />}
-          {tab === "pincodes" && <PincodesTab subHubId={subHubId} onCountChange={setPincodesCount} />}
-          {statsError && tab !== "pincodes" && <div className="py-12 text-center text-gray-400 text-sm">Fix the database connection to manage this sub hub's menu.</div>}
+          {tab === "cityAreas" && <CityAreasTab subHubId={subHubId} onCountChange={setCityAreasCount} />}
+          {statsError && tab !== "cityAreas" && <div className="py-12 text-center text-gray-400 text-sm">Fix the database connection to manage this sub hub's menu.</div>}
         </div>
       </div>
     </div>
   );
 }
 
-// ─── PINCODES TAB ──────────────────────────────────────────────────────────────
-function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountChange: (n: number) => void }) {
+// ─── AREA / CITY TAB ───────────────────────────────────────────────────────────
+function CityAreasTab({ subHubId, onCountChange }: { subHubId: string; onCountChange: (n: number) => void }) {
   const { toast } = useToast();
-  type PincodeEntry = { _id?: string; pincode: string; charge: number; timeDelay: number };
-  const [pincodes, setPincodes] = useState<PincodeEntry[]>([]);
-  const [pinInput, setPinInput] = useState("");
-  const [pinCharge, setPinCharge] = useState("0");
+  type CityAreaEntry = { _id?: string; name: string; charge: number };
+  const [cityAreas, setCityAreas] = useState<CityAreaEntry[]>([]);
+  const [cityInput, setCityInput] = useState("");
+  const [cityCharge, setCityCharge] = useState("0");
+  const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [loadAttempt, setLoadAttempt] = useState(0);
-  const [editingPincode, setEditingPincode] = useState<string | null>(null);
-  const [editPinInput, setEditPinInput] = useState("");
-  const [editPinCharge, setEditPinCharge] = useState("0");
+  const [editingCity, setEditingCity] = useState<string | null>(null);
+  const [editCityInput, setEditCityInput] = useState("");
+  const [editCityCharge, setEditCityCharge] = useState("0");
 
   useEffect(() => {
     setLoading(true);
     setLoadError("");
     setDirty(false);
     onCountChange(0);
-    apiFetch(`/api/sub-hubs/${subHubId}/menu/pincodes`)
+    apiFetch(`/api/sub-hubs/${subHubId}/menu/city-areas`)
       .then((d) => {
-        const pins: PincodeEntry[] = Array.isArray(d.pincodes)
-          ? d.pincodes.map((p: any) => ({
+        const entries: CityAreaEntry[] = Array.isArray(d.cityAreas)
+          ? d.cityAreas.map((p: any) => ({
               _id: p?._id ? String(p._id) : undefined,
-              pincode: String(p?.pincode ?? ""),
+              name: String(p?.name ?? ""),
               charge: Number(p?.charge) || 0,
-              timeDelay: Number(p?.timeDelay) || 0,
             }))
           : [];
-        setPincodes(pins);
-        onCountChange(pins.length);
+        setCityAreas(entries);
+        onCountChange(entries.length);
       })
       .catch((err: any) => {
-        setPincodes([]);
+        setCityAreas([]);
         onCountChange(0);
-        setLoadError(err?.message || "Failed to load service areas.");
+        setLoadError(err?.message || "Failed to load city/area charges.");
       })
       .finally(() => setLoading(false));
   }, [subHubId, loadAttempt, onCountChange]);
 
-  const addPin = () => {
-    const val = pinInput.trim();
+  const addCity = () => {
+    const val = cityInput.trim();
     if (!val) return;
-    if (pincodes.some((p) => p.pincode === val)) {
-      toast({ title: "Pincode already added", variant: "destructive" });
+    if (cityAreas.some((p) => p.name.toLocaleLowerCase("en-IN") === val.toLocaleLowerCase("en-IN"))) {
+      toast({ title: "Area/city already added", variant: "destructive" });
       return;
     }
-    const next = [...pincodes, { pincode: val, charge: Number(pinCharge) || 0, timeDelay: 0 }];
-    setPincodes(next);
-    setPinInput("");
-    setPinCharge("0");
+    const next = [...cityAreas, { name: val, charge: Math.max(0, Number(cityCharge) || 0) }]
+      .sort((a, b) => a.name.localeCompare(b.name, "en-IN"));
+    setCityAreas(next);
+    setCityInput("");
+    setCityCharge("0");
     setDirty(true);
     onCountChange(next.length);
   };
 
-  const removePin = (pin: string) => {
-    const next = pincodes.filter((p) => p.pincode !== pin);
-    setPincodes(next);
+  const removeCity = (name: string) => {
+    const next = cityAreas.filter((p) => p.name !== name);
+    setCityAreas(next);
     setDirty(true);
     onCountChange(next.length);
   };
 
-  const startEditPin = (pin: PincodeEntry) => {
-    setEditingPincode(pin.pincode);
-    setEditPinInput(pin.pincode);
-    setEditPinCharge(String(pin.charge ?? 0));
+  const startEditCity = (entry: CityAreaEntry) => {
+    setEditingCity(entry.name);
+    setEditCityInput(entry.name);
+    setEditCityCharge(String(entry.charge ?? 0));
   };
 
-  const cancelEditPin = () => {
-    setEditingPincode(null);
+  const cancelEditCity = () => {
+    setEditingCity(null);
   };
 
-  const saveEditPin = () => {
-    if (!editingPincode) return;
-    const val = editPinInput.trim();
+  const saveEditCity = () => {
+    if (!editingCity) return;
+    const val = editCityInput.trim();
     if (!val) {
-      toast({ title: "Pincode is required", variant: "destructive" });
+      toast({ title: "Area/city is required", variant: "destructive" });
       return;
     }
-    if (pincodes.some((p) => p.pincode === val && p.pincode !== editingPincode)) {
-      toast({ title: "Pincode already added", variant: "destructive" });
+    if (cityAreas.some((p) =>
+      p.name.toLocaleLowerCase("en-IN") === val.toLocaleLowerCase("en-IN") &&
+      p.name !== editingCity
+    )) {
+      toast({ title: "Area/city already added", variant: "destructive" });
       return;
     }
-    const next = pincodes.map((p) =>
-      p.pincode === editingPincode
-        ? { ...p, pincode: val, charge: Number(editPinCharge) || 0 }
+    const next = cityAreas.map((p) =>
+      p.name === editingCity
+        ? { ...p, name: val, charge: Math.max(0, Number(editCityCharge) || 0) }
         : p
-    );
-    setPincodes(next);
-    setEditingPincode(null);
+    ).sort((a, b) => a.name.localeCompare(b.name, "en-IN"));
+    setCityAreas(next);
+    setEditingCity(null);
     setDirty(true);
   };
 
   const save = async () => {
     setSaving(true);
     try {
-      const data = await apiFetch(`/api/sub-hubs/${subHubId}/menu/pincodes`, {
+      const data = await apiFetch(`/api/sub-hubs/${subHubId}/menu/city-areas`, {
         method: "PUT",
-        body: JSON.stringify({ pincodes }),
+        body: JSON.stringify({ cityAreas }),
       });
-      const savedPins: PincodeEntry[] = Array.isArray(data.pincodes)
-        ? data.pincodes.map((p: any) => ({
+      const savedAreas: CityAreaEntry[] = Array.isArray(data.cityAreas)
+        ? data.cityAreas.map((p: any) => ({
             _id: p?._id ? String(p._id) : undefined,
-            pincode: String(p?.pincode ?? ""),
+            name: String(p?.name ?? ""),
             charge: Number(p?.charge) || 0,
-            timeDelay: Number(p?.timeDelay) || 0,
           }))
-        : pincodes;
-      setPincodes(savedPins);
-      onCountChange(savedPins.length);
+        : cityAreas;
+      setCityAreas(savedAreas);
+      onCountChange(savedAreas.length);
       setDirty(false);
-      toast({ title: "Service areas saved" });
+      toast({ title: "Area/city charges saved" });
     } catch (err: any) {
       toast({ title: "Failed to save", description: err.message, variant: "destructive" });
     } finally {
@@ -838,8 +841,8 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Service Areas</p>
-          <p className="text-xs text-gray-400 mt-1">Set an extra delivery charge for each serviceable pincode.</p>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Area/City Charges</p>
+          <p className="text-xs text-gray-400 mt-1">This amount is added to each product unit for customers in that area.</p>
         </div>
         {dirty && (
           <Button
@@ -857,70 +860,77 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
-            <Label className="text-xs font-semibold text-gray-600">Pincode</Label>
+            <Label className="text-xs font-semibold text-gray-600">Area/City</Label>
             <Input
-              value={pinInput}
-              onChange={(e) => setPinInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPin(); } }}
-              placeholder="e.g. 400601"
+              value={cityInput}
+              onChange={(e) => setCityInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCity(); } }}
+              placeholder="e.g. Thane"
               className="h-9 text-black"
+              data-testid="input-city-area-name"
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs font-semibold text-gray-600">Extra Charge (₹)</Label>
+            <Label className="text-xs font-semibold text-gray-600">Charge (₹ per product)</Label>
             <Input
               type="number"
               min="0"
-              value={pinCharge}
-              onChange={(e) => setPinCharge(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPin(); } }}
+              step="1"
+              value={cityCharge}
+              onChange={(e) => setCityCharge(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCity(); } }}
               placeholder="0"
               className="h-9 text-black"
+              data-testid="input-city-area-charge"
             />
           </div>
         </div>
-        <Button type="button" variant="secondary" onClick={addPin} className="h-9 px-4 text-sm">
-          Add Pincode
+        <Button type="button" variant="secondary" onClick={addCity} className="h-9 px-4 text-sm" data-testid="button-add-city-area">
+          Add Area/City
         </Button>
 
-        {pincodes.length > 0 ? (
+        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search areas/cities..." className="h-9" data-testid="input-search-city-areas" />
+        {cityAreas.length > 0 ? (
           <div className="mt-1 rounded-lg border border-gray-100 overflow-hidden">
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="px-3 py-2 text-left font-semibold text-gray-500">Pincode</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-500">Extra Charge</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-500">Area/City</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-500">Charge per product</th>
                   <th className="px-3 py-2 text-right font-semibold text-gray-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {pincodes.map((p) => (
-                    <tr key={p.pincode} className="hover:bg-gray-50 transition-colors">
-                      {editingPincode === p.pincode ? (
+                {cityAreas.filter((p) => p.name.toLowerCase().includes(search.trim().toLowerCase())).map((p) => (
+                    <tr key={p.name} className="hover:bg-gray-50 transition-colors">
+                      {editingCity === p.name ? (
                         <>
                           <td className="px-3 py-1.5">
                             <Input
-                              value={editPinInput}
-                              onChange={(e) => setEditPinInput(e.target.value)}
+                              value={editCityInput}
+                              onChange={(e) => setEditCityInput(e.target.value)}
                               className="h-8 text-xs text-black"
                               autoFocus
+                              data-testid={`input-edit-city-area-name-${p.name}`}
                             />
                           </td>
                           <td className="px-3 py-1.5">
                             <Input
                               type="number"
                               min="0"
-                              value={editPinCharge}
-                              onChange={(e) => setEditPinCharge(e.target.value)}
+                              step="1"
+                              value={editCityCharge}
+                              onChange={(e) => setEditCityCharge(e.target.value)}
                               className="h-8 text-xs text-black"
+                              data-testid={`input-edit-city-area-charge-${p.name}`}
                             />
                           </td>
                           <td className="px-3 py-1.5 text-right">
                             <div className="inline-flex items-center gap-1">
                               <button
                                 type="button"
-                                title="Save Pincode"
-                                onClick={saveEditPin}
+                                title="Save Area/City"
+                                onClick={saveEditCity}
                                 className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-emerald-50 text-emerald-600 transition-colors"
                               >
                                 <Check className="w-3.5 h-3.5" />
@@ -928,7 +938,7 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
                               <button
                                 type="button"
                                 title="Cancel Edit"
-                                onClick={cancelEditPin}
+                                onClick={cancelEditCity}
                                 className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
                               >
                                 <X className="w-3.5 h-3.5" />
@@ -938,22 +948,22 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
                         </>
                       ) : (
                         <>
-                          <td className="px-3 py-2 font-semibold text-blue-700">{p.pincode}</td>
-                          <td className="px-3 py-2 text-gray-700">₹{p.charge}</td>
+                          <td className="px-3 py-2 font-semibold text-blue-700">{p.name}</td>
+                          <td className="px-3 py-2 text-gray-700">{p.charge === 0 ? "Free" : `₹${p.charge}`}</td>
                           <td className="px-3 py-2 text-right">
                             <div className="inline-flex items-center gap-1">
                               <button
                                 type="button"
-                                title="Edit Pincode"
-                                onClick={() => startEditPin(p)}
+                                title="Edit Area/City"
+                                onClick={() => startEditCity(p)}
                                 className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 type="button"
-                                title="Remove Pincode"
-                                onClick={() => removePin(p.pincode)}
+                                title="Remove Area/City"
+                                onClick={() => removeCity(p.name)}
                                 className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                               >
                                 <X className="w-3 h-3" />
@@ -968,7 +978,7 @@ function PincodesTab({ subHubId, onCountChange }: { subHubId: string; onCountCha
             </table>
           </div>
         ) : (
-          <p className="text-xs text-gray-400">No pincodes added yet. Add pincodes to define the service area.</p>
+          <p className="text-xs text-gray-400">No areas/cities added yet. Add an area and its per-product charge.</p>
         )}
       </div>
     </div>

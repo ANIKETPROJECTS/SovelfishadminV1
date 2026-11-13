@@ -2,6 +2,7 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import crypto from "node:crypto";
 import { getSubHubDbConnection } from "../db/sub-hub-connections.js";
+import { SubHub } from "../db/models/sub-hub.js";
 import { getCustomersConnection } from "../db/customers-connection.js";
 import { syncOrderBankPayments } from "./banking.js";
 import {
@@ -33,6 +34,7 @@ import {
   isFtwPaymentOnHold,
 } from "../services/ftw-order-lifecycle.js";
 import { DIRECT_ORDER_ONLY, TIMESLOT_FEATURE_ENABLED } from "../lib/feature-flags.js";
+import { ensureCityAreasInitialized } from "../services/city-areas.mjs";
 
 const router = Router();
 router.use(requireAuth as any);
@@ -1084,6 +1086,7 @@ router.post("/", async (req: ScopedRequest, res) => {
       deliveryType,
       address,
       deliveryArea,
+      cityArea,
       notes,
       status,
       subHubId,
@@ -1093,13 +1096,11 @@ router.post("/", async (req: ScopedRequest, res) => {
       createCustomerIfMissing,
       newCustomerExtras,
       deliveryAddressDetail,
-      subtotal,
       discount,
       slotCharge,
       deliveryCharge,
       extraDiscount,
       extraDiscountType,
-      total: totalIn,
       couponId,
       couponCode,
       couponTitle,
@@ -1165,10 +1166,11 @@ router.post("/", async (req: ScopedRequest, res) => {
       }
     }
 
-    const cleanItems = items.map((it: any) => ({
+    const cleanItems: any[] = items.map((it: any) => ({
       productId: it.productId ? String(it.productId) : undefined,
       name: String(it.name ?? "").trim(),
       price: Number(it.price) || 0,
+      basePrice: Number(it.basePrice ?? it.price) || 0,
       quantity: Number(it.quantity) || 1,
       unit: it.unit ?? "",
       ...(it.inventoryBatchId ? {
@@ -1196,6 +1198,49 @@ router.post("/", async (req: ScopedRequest, res) => {
       if (!reqSub || !req.scope.subHubIds.includes(reqSub)) {
         res.status(403).json({ error: "Forbidden", message: "You can only create orders for your assigned sub hubs." });
         return;
+      }
+    }
+
+    let selectedCityArea = "";
+    let cityAreaCharge = 0;
+    if (dt === "delivery") {
+      selectedCityArea = String(
+        cityArea ?? deliveryAddressDetail?.cityArea ?? deliveryArea ?? deliveryAddressDetail?.city ?? "",
+      ).trim();
+      if (!selectedCityArea) {
+        res.status(400).json({ error: "ValidationError", message: "A valid Area/City selection is required for delivery." });
+        return;
+      }
+      if (!subHubId || !mongoose.isValidObjectId(String(subHubId))) {
+        res.status(400).json({ error: "ValidationError", message: "A valid sub hub is required to validate Area/City." });
+        return;
+      }
+      const selectedSubHub = await SubHub.findById(String(subHubId)).select("dbName").lean() as any;
+      if (!selectedSubHub?.dbName) {
+        res.status(400).json({ error: "ValidationError", message: "The selected sub hub has no service-area database." });
+        return;
+      }
+      const areaDb = await getSubHubDbConnection(String(selectedSubHub.dbName));
+      await ensureCityAreasInitialized(areaDb.db!);
+      const areaEntry = await areaDb.db!.collection("city_areas").findOne({
+        nameKey: selectedCityArea.toLocaleLowerCase("en-IN"),
+        isActive: { $ne: false },
+      });
+      if (!areaEntry) {
+        res.status(400).json({ error: "ValidationError", message: "The selected Area/City is not available for this sub hub." });
+        return;
+      }
+      cityAreaCharge = Math.max(0, Number(areaEntry.charge) || 0);
+      for (const item of cleanItems) {
+        if (!item.productId) continue;
+        item.price = item.basePrice + cityAreaCharge;
+        item.cityAreaCharge = cityAreaCharge;
+        item.cityArea = selectedCityArea;
+      }
+      if (deliveryAddressDetail && typeof deliveryAddressDetail === "object") {
+        deliveryAddressDetail.area = selectedCityArea;
+        deliveryAddressDetail.cityArea = selectedCityArea;
+        deliveryAddressDetail.city = selectedCityArea;
       }
     }
 
@@ -1238,18 +1283,14 @@ router.post("/", async (req: ScopedRequest, res) => {
     }
 
     const computedSubtotal = cleanItems.reduce((s: number, i: any) => s + i.price * i.quantity, 0);
-    const sub = Number(subtotal);
-    const subTotalNum = Number.isFinite(sub) && sub > 0 ? sub : computedSubtotal;
+    const subTotalNum = computedSubtotal;
     const discountNum = Math.max(0, Number(discount) || 0);
     const slotChargeNum = DIRECT_ORDER_ONLY ? 0 : Math.max(0, Number(slotCharge) || 0);
-    const deliveryChargeNum = Math.max(0, Number(deliveryCharge) || 0);
+    const deliveryChargeNum = !DIRECT_ORDER_ONLY && isExpress
+      ? Math.max(0, Number(deliveryCharge) || 0)
+      : 0;
     const extraDiscountNum = Math.max(0, Number(extraDiscount) || 0);
-    const hasIncomingTotal = totalIn !== undefined && totalIn !== null && totalIn !== "";
-    const totalNum = DIRECT_ORDER_ONLY
-      ? Math.max(0, subTotalNum - discountNum + deliveryChargeNum)
-      : hasIncomingTotal && Number.isFinite(Number(totalIn))
-        ? Math.max(0, Number(totalIn))
-        : Math.max(0, subTotalNum - discountNum + slotChargeNum + deliveryChargeNum);
+    const totalNum = Math.max(0, subTotalNum - discountNum + slotChargeNum + deliveryChargeNum);
 
     const orderDoc: any = {
       customerId: resolvedCustomerId ?? undefined,
@@ -1267,7 +1308,9 @@ router.post("/", async (req: ScopedRequest, res) => {
       deliveryType: dt,
       orderType: normalizedOrderType,
       address: dt === "delivery" ? String(address ?? "").trim() : "",
-      deliveryArea: dt === "delivery" ? String(deliveryArea ?? "").trim() : "",
+      deliveryArea: dt === "delivery" ? selectedCityArea : "",
+      cityArea: dt === "delivery" ? selectedCityArea : "",
+      cityAreaCharge: dt === "delivery" ? cityAreaCharge : 0,
       deliveryAddressDetail: dt === "delivery" && deliveryAddressDetail ? deliveryAddressDetail : undefined,
       pickupLocation: dt === "takeaway" ? (subHubName || "FishTokri Store") : "",
       notes: notes ? String(notes).trim() : "",
@@ -2309,7 +2352,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
     const {
       status, notes,
       assignedDeliveryPersonId, assignedDeliveryPersonName,
-      customerName, phone, email, address, deliveryArea, deliveryAddressDetail,
+      customerName, phone, email, address, deliveryArea, cityArea, deliveryAddressDetail,
       paymentStatus, payments, paidAmount, paymentMode, upiVariant,
       razorpayPaymentId, razorpayOrderId, upiTransactionId, gatewayTransactionId,
       items, deliveryType,
@@ -2339,6 +2382,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
     if (email !== undefined) update.email = email;
     if (address !== undefined) update.address = address;
     if (deliveryArea !== undefined) update.deliveryArea = deliveryArea;
+    if (cityArea !== undefined) update.cityArea = String(cityArea ?? "").trim();
     if (deliveryAddressDetail !== undefined) update.deliveryAddressDetail = deliveryAddressDetail;
     if (deliveryType !== undefined) update.deliveryType = deliveryType;
     if (orderType !== undefined) {
@@ -2377,7 +2421,11 @@ router.put("/:id", async (req: ScopedRequest, res) => {
     if (subtotal !== undefined) update.subtotal = Number(subtotal) || 0;
     if (discount !== undefined) update.discount = Number(discount) || 0;
     if (slotCharge !== undefined) update.slotCharge = DIRECT_ORDER_ONLY ? 0 : Number(slotCharge) || 0;
-    if (deliveryCharge !== undefined) update.deliveryCharge = Number(deliveryCharge) || 0;
+    if (deliveryCharge !== undefined) {
+      update.deliveryCharge = !DIRECT_ORDER_ONLY && isExpress
+        ? Math.max(0, Number(deliveryCharge) || 0)
+        : 0;
+    }
     if (extraDiscount !== undefined) update.extraDiscount = Number(extraDiscount) || 0;
     if (extraDiscountType !== undefined) update.extraDiscountType = String(extraDiscountType);
     if (total !== undefined) update.total = Number(total) || 0;
@@ -2385,10 +2433,70 @@ router.put("/:id", async (req: ScopedRequest, res) => {
       update.cancellationReason = cancellationReason ? String(cancellationReason).trim().slice(0, 500) : "";
     }
     if (Array.isArray(items)) {
-      update.items = items.map((it: any) => ({
+      const ordersConn = await getOrdersDb();
+      const existingForPricing = await ordersConn.db!.collection(COLLECTION).findOne(
+        { _id: oid },
+        { projection: { deliveryType: 1, subHubId: 1, cityArea: 1, deliveryArea: 1, deliveryAddressDetail: 1, discount: 1, slotCharge: 1, deliveryCharge: 1 } },
+      );
+      if (!existingForPricing) {
+        res.status(404).json({ error: "NotFound", message: "Order not found" });
+        return;
+      }
+      const effectiveDeliveryType = deliveryType ?? existingForPricing.deliveryType ?? "delivery";
+      const selectedArea = String(
+        cityArea ??
+        deliveryAddressDetail?.cityArea ??
+        deliveryArea ??
+        existingForPricing.cityArea ??
+        existingForPricing.deliveryAddressDetail?.cityArea ??
+        existingForPricing.deliveryArea ??
+        "",
+      ).trim();
+      let areaCharge = 0;
+      if (effectiveDeliveryType !== "takeaway") {
+        const effectiveSubHubId = String(subHubId ?? existingForPricing.subHubId ?? "");
+        if (!selectedArea || !mongoose.isValidObjectId(effectiveSubHubId)) {
+          res.status(400).json({ error: "ValidationError", message: "A valid Area/City and sub hub are required to update delivery items." });
+          return;
+        }
+        const selectedSubHub = await SubHub.findById(effectiveSubHubId).select("dbName").lean() as any;
+        if (!selectedSubHub?.dbName) {
+          res.status(400).json({ error: "ValidationError", message: "The selected sub hub has no service-area database." });
+          return;
+        }
+        const areaDb = await getSubHubDbConnection(String(selectedSubHub.dbName));
+        await ensureCityAreasInitialized(areaDb.db!);
+        const areaEntry = await areaDb.db!.collection("city_areas").findOne({
+          nameKey: selectedArea.toLocaleLowerCase("en-IN"),
+          isActive: { $ne: false },
+        });
+        if (!areaEntry) {
+          res.status(400).json({ error: "ValidationError", message: "The selected Area/City is not available for this sub hub." });
+          return;
+        }
+        areaCharge = Math.max(0, Number(areaEntry.charge) || 0);
+        update.cityArea = selectedArea;
+        update.cityAreaCharge = areaCharge;
+        update.deliveryArea = selectedArea;
+        if (deliveryAddressDetail && typeof deliveryAddressDetail === "object") {
+          update.deliveryAddressDetail = { ...deliveryAddressDetail, area: selectedArea, cityArea: selectedArea, city: selectedArea };
+        }
+      } else {
+        update.cityArea = "";
+        update.cityAreaCharge = 0;
+      }
+
+      update.items = items.map((it: any) => {
+        const basePrice = Math.max(0, Number(it?.basePrice ?? it?.price) || 0);
+        const productId = it?.productId ? String(it.productId) : undefined;
+        const itemCharge = productId && effectiveDeliveryType !== "takeaway" ? areaCharge : 0;
+        return {
         productId: it?.productId ? String(it.productId) : undefined,
         name: String(it?.name ?? "").trim(),
-        price: Number(it?.price) || 0,
+        basePrice,
+        price: basePrice + itemCharge,
+        cityAreaCharge: itemCharge,
+        ...(itemCharge > 0 || selectedArea ? { cityArea: selectedArea } : {}),
         quantity: Number(it?.quantity) || 0,
         unit: String(it?.unit ?? "").trim(),
         ...(it?.inventoryBatchId ? {
@@ -2397,7 +2505,20 @@ router.put("/:id", async (req: ScopedRequest, res) => {
           fishWeightKg: Number(it.fishWeightKg) || undefined,
         } : {}),
         ...(Number(it?.bulkWeightKg) > 0 ? { bulkWeightKg: Number(it.bulkWeightKg) } : {}),
-      })).filter((it: any) => it.name && it.quantity > 0);
+        };
+      }).filter((it: any) => it.name && it.quantity > 0);
+      const computedSubtotal = update.items.reduce(
+        (sum: number, item: any) => sum + item.price * item.quantity,
+        0,
+      );
+      update.subtotal = computedSubtotal;
+      const effectiveDiscount = Math.max(0, Number(discount ?? existingForPricing.discount) || 0);
+      const effectiveSlotCharge = DIRECT_ORDER_ONLY ? 0 : Math.max(0, Number(slotCharge ?? existingForPricing.slotCharge) || 0);
+      const effectiveDeliveryCharge = !DIRECT_ORDER_ONLY && isExpress
+        ? Math.max(0, Number(deliveryCharge ?? existingForPricing.deliveryCharge) || 0)
+        : 0;
+      update.deliveryCharge = effectiveDeliveryCharge;
+      update.total = Math.max(0, computedSubtotal - effectiveDiscount + effectiveSlotCharge + effectiveDeliveryCharge);
     }
 
     if (paymentStatus !== undefined && ["paid", "completed", "failed", "partial", "unpaid"].includes(String(paymentStatus).trim().toLowerCase())) {

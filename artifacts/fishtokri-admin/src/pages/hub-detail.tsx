@@ -55,7 +55,7 @@ function MaskIcon({ src, color = "#1A56DB", className = "w-4 h-4" }: { src: stri
   );
 }
 
-type SortOption = "name_asc" | "name_desc" | "pincodes_asc" | "pincodes_desc" | "status";
+type SortOption = "name_asc" | "name_desc" | "status";
 
 function getAdminRole() {
   try {
@@ -95,7 +95,6 @@ export default function HubDetail() {
   const stats = {
     total: subHubs.length,
     active: subHubs.filter((s) => s.status === "Active").length,
-    totalPins: subHubs.reduce((acc, s) => acc + ((s as any).pincodes?.length ?? 0), 0),
   };
 
   const filtered = subHubs
@@ -104,16 +103,13 @@ export default function HubDetail() {
       const matchesSearch =
         !q ||
         s.name.toLowerCase().includes(q) ||
-        (s.location || "").toLowerCase().includes(q) ||
-        ((s as any).pincodes || []).some((p: any) => (p.pincode ?? p).toLowerCase().includes(q));
+        (s.location || "").toLowerCase().includes(q);
       const matchesStatus = statusFilter === "all" || s.status === statusFilter;
       return matchesSearch && matchesStatus;
     })
     .sort((a, b) => {
       if (sort === "name_asc") return a.name.localeCompare(b.name);
       if (sort === "name_desc") return b.name.localeCompare(a.name);
-      if (sort === "pincodes_asc") return ((a as any).pincodes?.length ?? 0) - ((b as any).pincodes?.length ?? 0);
-      if (sort === "pincodes_desc") return ((b as any).pincodes?.length ?? 0) - ((a as any).pincodes?.length ?? 0);
       if (sort === "status") return a.status.localeCompare(b.status);
       return 0;
     });
@@ -189,11 +185,10 @@ export default function HubDetail() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-2 gap-4 mb-5">
         {[
           { label: "Total Sub Hubs", value: stats.total, color: "text-[#162B4D]" },
           { label: "Active", value: stats.active, color: "text-green-600" },
-          { label: "Total Pincodes", value: stats.totalPins, color: "text-[#1A56DB]" },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-white px-5 py-4 rounded-xl border border-gray-100 shadow-sm">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
@@ -207,7 +202,7 @@ export default function HubDetail() {
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input
-            placeholder="Search by name, location or pincode..."
+            placeholder="Search by name or location..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 bg-white border-gray-200 h-9 text-sm text-black"
@@ -239,8 +234,6 @@ export default function HubDetail() {
           <SelectContent>
             <SelectItem value="name_asc">Name (A → Z)</SelectItem>
             <SelectItem value="name_desc">Name (Z → A)</SelectItem>
-            <SelectItem value="pincodes_desc">Pincodes (Most)</SelectItem>
-            <SelectItem value="pincodes_asc">Pincodes (Least)</SelectItem>
             <SelectItem value="status">Status</SelectItem>
           </SelectContent>
         </Select>
@@ -309,7 +302,6 @@ export default function HubDetail() {
               <tr className="border-b border-gray-200 text-xs font-semibold text-black uppercase tracking-wide">
                 <th className="px-3 py-4 text-left">Sub Hub</th>
                 <th className="px-3 py-4 text-left">Location</th>
-                <th className="px-3 py-4 text-left">Pincodes</th>
                 <th className="px-3 py-4 text-center">Status</th>
                 <th className="px-3 py-4 text-center">Active</th>
                 <th className="px-3 py-4 text-right">Actions</th>
@@ -382,17 +374,6 @@ function SubHubCard({ sub, onEdit, onDelete }: { sub: any; onEdit: () => void; o
           </div>
         )}
 
-        {sub.pincodes?.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {sub.pincodes.slice(0, 4).map((p: any) => (
-              <span key={p.pincode} title={`₹${p.charge} extra delivery charge`} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">{p.pincode}</span>
-            ))}
-            {sub.pincodes.length > 4 && (
-              <span className="text-[10px] text-gray-400 px-1 py-0.5">+{sub.pincodes.length - 4} more</span>
-            )}
-          </div>
-        )}
-
         <div className="mt-auto pt-3 border-t border-gray-100 space-y-2">
           <Button
             onClick={() => {
@@ -462,17 +443,6 @@ function SubHubTableRow({ sub, onEdit, onDelete }: { sub: any; onEdit: () => voi
           {sub.location || <span className="text-gray-400">—</span>}
         </div>
       </td>
-      <td className="px-3 py-4">
-        <div className="flex flex-wrap gap-1 max-w-[200px]">
-          {(sub.pincodes || []).slice(0, 3).map((p: any) => (
-            <span key={p.pincode} title={`₹${p.charge} extra delivery charge`} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">{p.pincode}</span>
-          ))}
-          {(sub.pincodes || []).length > 3 && (
-            <span className="text-[10px] text-gray-400">+{sub.pincodes.length - 3}</span>
-          )}
-          {(sub.pincodes || []).length === 0 && <span className="text-sm text-gray-400">—</span>}
-        </div>
-      </td>
       <td className="px-3 py-4 text-center">
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${sub.status === "Active" ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${sub.status === "Active" ? "bg-green-500" : "bg-gray-400"}`} />
@@ -522,10 +492,6 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
   const [name, setName] = useState(subHub?.name || "");
   const [location, setLocation] = useState(subHub?.location || "");
   const [imageUrl, setImageUrl] = useState(subHub?.imageUrl || "");
-  type PincodeEntry = { pincode: string; charge: number; timeDelay: number };
-  const [pincodes, setPincodes] = useState<PincodeEntry[]>(subHub?.pincodes || []);
-  const [pinInput, setPinInput] = useState("");
-  const [pinCharge, setPinCharge] = useState("0");
   const [isActive, setIsActive] = useState(subHub ? subHub.status === "Active" : true);
   const [dbName, setDbName] = useState(subHub?.dbName || "");
 
@@ -533,19 +499,10 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
     return n.trim().replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g, "");
   }
 
-  const addPin = () => {
-    const val = pinInput.trim();
-    if (val && !pincodes.some((p) => p.pincode === val)) {
-      setPincodes([...pincodes, { pincode: val, charge: Number(pinCharge) || 0, timeDelay: 0 }]);
-      setPinInput("");
-      setPinCharge("0");
-    }
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const payload = {
-      name, location, imageUrl, pincodes,
+      name, location, imageUrl,
       status: isActive ? "Active" : ("Inactive" as const),
       ...(isEditing ? { dbName } : {}),
     };
@@ -636,77 +593,6 @@ function SubHubForm({ subHub, superHubId, superHubName, onBack }: {
             </div>
           </div>
         )}
-
-        {/* Pincodes */}
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Service Areas</p>
-            <p className="text-xs text-gray-400 mt-1">Set an extra delivery charge for each serviceable pincode.</p>
-          </div>
-
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold text-gray-600">Pincode</Label>
-                <Input
-                  value={pinInput}
-                  onChange={(e) => setPinInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPin(); } }}
-                  placeholder="e.g. 400601"
-                  className="h-9 text-black"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold text-gray-600">Extra Charge (₹)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={pinCharge}
-                  onChange={(e) => setPinCharge(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPin(); } }}
-                  placeholder="0"
-                  className="h-9 text-black"
-                />
-              </div>
-            </div>
-            <Button type="button" variant="secondary" onClick={addPin} className="h-9 px-4 text-sm">
-              Add Pincode
-            </Button>
-
-            {pincodes.length > 0 ? (
-              <div className="mt-1 rounded-lg border border-gray-100 overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100">
-                      <th className="px-3 py-2 text-left font-semibold text-gray-500">Pincode</th>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-500">Extra Charge</th>
-                      <th className="px-3 py-2 text-right font-semibold text-gray-500">Remove</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {pincodes.map((p) => (
-                      <tr key={p.pincode} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-3 py-2 font-semibold text-blue-700">{p.pincode}</td>
-                        <td className="px-3 py-2 text-gray-700">₹{p.charge}</td>
-                        <td className="px-3 py-2 text-right">
-                          <button
-                            type="button"
-                            onClick={() => setPincodes(pincodes.filter((x) => x.pincode !== p.pincode))}
-                            className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-xs text-gray-400">No pincodes added yet. Add pincodes to define the service area.</p>
-            )}
-          </div>
-        </div>
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 pt-2 pb-8">

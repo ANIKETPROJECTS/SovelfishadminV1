@@ -10,6 +10,8 @@ import {
   type ScopedRequest,
 } from "../middlewares/scope.js";
 import { dropSubHubDb } from "../db/sub-hub-connections.js";
+import { getSubHubDbConnection } from "../db/sub-hub-connections.js";
+import { ensureCityAreasInitialized } from "../services/city-areas.mjs";
 
 const router: IRouter = Router();
 router.use(requireAuth as any);
@@ -46,6 +48,34 @@ router.get("/", async (req: ScopedRequest, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to get all sub hubs");
     res.status(500).json({ error: "InternalError", message: "Failed to fetch sub hubs" });
+  }
+});
+
+router.get("/city-area-options", async (req: ScopedRequest, res) => {
+  try {
+    const scope = req.scope!;
+    const filter: any = { status: "Active", dbName: { $ne: "" } };
+    if (!scope.isMaster) filter._id = { $in: toObjectIds(scope.subHubIds) };
+    const subs = await SubHub.find(filter).select("_id dbName").lean();
+    const values = await Promise.all(subs.map(async (sub: any) => {
+      try {
+        const conn = await getSubHubDbConnection(String(sub.dbName));
+        await ensureCityAreasInitialized(conn.db!);
+        return await conn.db!.collection("city_areas")
+          .find({ isActive: { $ne: false } })
+          .project({ name: 1 })
+          .toArray();
+      } catch (err) {
+        req.log.warn({ err, subHubId: String(sub._id) }, "Could not load city/area options for sub-hub");
+        return [];
+      }
+    }));
+    const cityAreas = [...new Set(values.flat().map((item: any) => String(item.name ?? "").trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "en-IN"));
+    res.json({ cityAreas });
+  } catch (err) {
+    req.log.error({ err }, "Failed to load city/area options");
+    res.status(500).json({ error: "InternalError", message: "Failed to load city/area options" });
   }
 });
 
