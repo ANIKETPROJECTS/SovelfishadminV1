@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { InvoiceModal } from "@/components/InvoiceModal";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -4872,15 +4873,15 @@ export default function Orders() {
               Takeaway
             </button>
           </div>
-          <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${
-            nextDayOrder ? "bg-white text-[#364F9F]" : "bg-white/10 text-white"
-          } ${orderDeliveryType === "takeaway" || posProductMode === "preorder" ? "opacity-50" : ""}`}>
+          <div className={`flex h-8 flex-shrink-0 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-colors ${
+            nextDayOrder
+              ? "border-[#69D84F]/50 bg-[#69D84F]/15 text-white"
+              : "border-white/15 bg-white/10 text-white"
+          } ${orderDeliveryType === "takeaway" || posProductMode === "preorder" ? "opacity-60" : ""}`}>
             <span className="whitespace-nowrap">Next day</span>
-            <button
-              type="button"
-              role="switch"
+            <Switch
               aria-label="Next day order"
-              aria-checked={nextDayOrder}
+              checked={nextDayOrder}
               disabled={orderDeliveryType === "takeaway" || posProductMode === "preorder" || (!editingOrderId && nextDayAutoEnabled)}
               title={
                 orderDeliveryType === "takeaway"
@@ -4891,21 +4892,14 @@ export default function Orders() {
                       ? "Automatically enabled from 5 PM to midnight India time."
                       : "Mark this delivery for tomorrow."
               }
-              onClick={() => {
+              onCheckedChange={(nextValue) => {
                 if (!editingOrderId && nextDayAutoEnabled) return;
-                const nextValue = !nextDayOrder;
                 setNextDayOrder(nextValue);
                 setOrderDate(nextValue ? getTomorrowIST() : getTodayIST());
                 setSelectedTimeslotId("");
               }}
-              className={`relative h-5 w-9 rounded-full transition-colors disabled:cursor-not-allowed ${
-                nextDayOrder ? "bg-[#69D84F]" : "bg-white/40"
-              }`}
-            >
-              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                nextDayOrder ? "translate-x-4" : "translate-x-0.5"
-              }`} />
-            </button>
+              className="h-5 w-9 border-0 bg-white/35 shadow-none data-[state=checked]:bg-[#69D84F] data-[state=unchecked]:bg-white/35 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#364F9F] disabled:cursor-not-allowed disabled:opacity-100"
+            />
           </div>
           {nextDayOrder && (
             <span className="hidden xl:inline text-[11px] font-semibold text-white/90 whitespace-nowrap">
