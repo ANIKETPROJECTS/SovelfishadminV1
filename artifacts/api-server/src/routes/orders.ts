@@ -17,6 +17,12 @@ import { HubUser } from "../db/models/hub-user.js";
 import { sendOrderConfirmed, sendOutForDelivery, sendOrderCancelled } from "../services/whatsapp.js";
 import { createBorzoBatchOrder, createBorzoOrder, getBorzoOrderDetails } from "../services/borzo.mjs";
 import {
+  getTodayISODateIST,
+  getTomorrowISODateIST,
+  isAfterFivePMIST,
+  isFutureNextDayOrder,
+} from "../lib/next-day-order.mjs";
+import {
   ensureFtwPendingPaymentExpiryDates,
   isFtwOrder,
   isFtwPaymentOnHold,
@@ -467,23 +473,12 @@ function getTodayIST(): string {
 
 /** Returns today's date in YYYY-MM-DD format (IST), matching the deliveryDate field. */
 function getTodayISODate(): string {
-  const now = new Date();
-  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
-  const y = ist.getUTCFullYear();
-  const m = String(ist.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(ist.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return getTodayISODateIST();
 }
 
 /** Returns tomorrow's date in YYYY-MM-DD format (IST), matching the deliveryDate field. */
 function getTomorrowISODate(): string {
-  const now = new Date();
-  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
-  ist.setUTCDate(ist.getUTCDate() + 1);
-  const y = ist.getUTCFullYear();
-  const m = String(ist.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(ist.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return getTomorrowISODateIST();
 }
 
 /**
@@ -1118,6 +1113,7 @@ router.post("/", async (req: ScopedRequest, res) => {
       timeslotEnd,
       isExpress,
       orderType,
+      nextDayOrder,
     } = req.body ?? {};
 
     // Fall back to the name stored in the delivery address if the account has no name
@@ -1137,6 +1133,10 @@ router.post("/", async (req: ScopedRequest, res) => {
       return;
     }
     const dt = deliveryType === "takeaway" ? "takeaway" : "delivery";
+    if (nextDayOrder === true && dt !== "delivery") {
+      res.status(400).json({ error: "ValidationError", message: "Next Day Orders must use delivery." });
+      return;
+    }
     if (dt === "delivery" && !String(address ?? "").trim()) {
       res.status(400).json({ error: "ValidationError", message: "Delivery address is required" });
       return;
@@ -1144,6 +1144,10 @@ router.post("/", async (req: ScopedRequest, res) => {
     const normalizedOrderType = DIRECT_ORDER_ONLY
       ? "normal"
       : orderType === "preorder" ? "preorder" : "normal";
+    const resolvedNextDayOrder = dt === "delivery" && (
+      nextDayOrder === true ||
+      (isAfterFivePMIST() && normalizedOrderType !== "preorder")
+    );
     if (!DIRECT_ORDER_ONLY && normalizedOrderType === "preorder") {
       const preorderDate = String(deliveryDate ?? "").trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(preorderDate) || preorderDate <= getTodayISODate()) {
@@ -1298,9 +1302,12 @@ router.post("/", async (req: ScopedRequest, res) => {
       // Schedule
       scheduleType: DIRECT_ORDER_ONLY ? "instant" : scheduleType === "instant" ? "instant" : scheduleType === "express" ? "express" : "slot",
       isExpress: DIRECT_ORDER_ONLY ? false : !!isExpress,
-      deliveryDate: DIRECT_ORDER_ONLY
-        ? getTodayISODate()
-        : deliveryDate ? String(deliveryDate) : undefined,
+      deliveryDate: resolvedNextDayOrder
+        ? getTomorrowISODate()
+        : DIRECT_ORDER_ONLY
+          ? getTodayISODate()
+          : deliveryDate ? String(deliveryDate) : undefined,
+      ...(resolvedNextDayOrder ? { nextDayOrder: true } : {}),
       timeslotId: TIMESLOT_FEATURE_ENABLED && timeslotId ? String(timeslotId) : undefined,
       timeslotLabel: TIMESLOT_FEATURE_ENABLED ? timeslotLabel ?? undefined : undefined,
       timeslotStart: TIMESLOT_FEATURE_ENABLED ? timeslotStart ?? undefined : undefined,
@@ -2080,6 +2087,9 @@ router.post("/borzo-batch", async (req: ScopedRequest, res) => {
       if (String(order?.deliveryType ?? "delivery").toLowerCase() !== "delivery") {
         return `${orderNumber} is not a delivery order.`;
       }
+      if (isFutureNextDayOrder(order)) {
+        return `${orderNumber} is a Next Day Order and cannot be sent to Borzo before its delivery date.`;
+      }
       if (order?.isExpress || String(order?.scheduleType ?? "").toLowerCase() === "express") {
         return `${orderNumber} is an express order; express orders cannot be batched.`;
       }
@@ -2304,6 +2314,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
       walletAdjustment,
       isExpress,
       orderType,
+      nextDayOrder,
     } = req.body;
     if (status !== undefined && !VALID_ORDER_STATUSES.has(String(status))) {
       res.status(400).json({ error: "ValidationError", message: `Invalid order status: ${status}` });
@@ -2458,6 +2469,35 @@ router.put("/:id", async (req: ScopedRequest, res) => {
       res.status(404).json({ error: "NotFound", message: "Order not found" }); return;
     }
     const ftwPaymentHold = isFtwPaymentOnHold(prev);
+    if (nextDayOrder !== undefined) {
+      const wantsNextDayOrder = nextDayOrder === true;
+      const effectiveDeliveryType = update.deliveryType ?? prev.deliveryType ?? "delivery";
+      if (wantsNextDayOrder && effectiveDeliveryType === "takeaway") {
+        res.status(400).json({ error: "ValidationError", message: "Next Day Orders must use delivery." });
+        return;
+      }
+      update.nextDayOrder = wantsNextDayOrder;
+      if (wantsNextDayOrder) update.deliveryDate = getTomorrowISODate();
+      else if (prev.nextDayOrder === true) update.deliveryDate = getTodayISODate();
+    }
+    const statusDeliveryDate = String(update.deliveryDate ?? prev.deliveryDate ?? "").trim().slice(0, 10);
+    const statusIsNextDayOrder = nextDayOrder === undefined
+      ? prev.nextDayOrder === true
+      : nextDayOrder === true;
+    if (
+      status === "confirmed" &&
+      (
+        isFutureNextDayOrder(prev, getTodayISODate()) ||
+        (statusIsNextDayOrder &&
+          isFutureNextDayOrder({ nextDayOrder: true, deliveryDate: statusDeliveryDate }, getTodayISODate()))
+      )
+    ) {
+      res.status(409).json({
+        error: "NextDayOrderNotReady",
+        message: "This Next Day Order cannot be accepted until its delivery date begins.",
+      });
+      return;
+    }
     const successfulFtwSettlement =
       isFtwOrder(prev) &&
       String(prev.paymentStatus ?? "").trim().toLowerCase() === "pending" &&

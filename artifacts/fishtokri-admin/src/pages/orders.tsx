@@ -200,6 +200,7 @@ function borzoBatchIneligibility(order: any): string {
   if (!sourceId.startsWith("FTS") && !sourceId.startsWith("FTW")) return "Only FTS/FTW orders can be batched.";
   if (String(order?.status ?? "").toLowerCase() !== "pending") return "Only pending orders can be batched.";
   if (String(order?.deliveryType ?? "delivery").toLowerCase() !== "delivery") return "Takeaway orders cannot be batched.";
+  if (isFutureNextDayOrder(order)) return "Next Day Orders cannot be sent to Borzo before their delivery date.";
   if (order?.isExpress || String(order?.scheduleType ?? "").toLowerCase() === "express") return "Express orders cannot be batched.";
   if (isFtwPaymentOnHold(order)) return "Waiting for FTW payment.";
   if (!String(order?.subHubId ?? "").trim() || !borzoBatchGroupKey(order).split("|")[1]) return "A sub-hub and delivery date are required.";
@@ -425,6 +426,22 @@ function getTomorrowIST() {
   const mo = String(ist.getUTCMonth() + 1).padStart(2, "0");
   const d = String(ist.getUTCDate()).padStart(2, "0");
   return `${y}-${mo}-${d}`;
+}
+
+function isAfterFivePMIST() {
+  const hour = Number(new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date()));
+  return hour >= 17;
+}
+
+function isFutureNextDayOrder(order: any) {
+  const deliveryDate = String(order?.deliveryDate ?? "").trim().slice(0, 10);
+  return order?.nextDayOrder === true &&
+    /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate) &&
+    deliveryDate > getTodayIST();
 }
 
 const _DAY_NAMES_DOW = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -966,7 +983,7 @@ export default function Orders() {
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [statsData, setStatsData] = useState<Record<string, number>>({});
-  const [statsTotals, setStatsTotals] = useState<{ total?: number; currentTotal?: number; historyTotal?: number; todayTotal?: number; deletedTotal?: number }>({});
+  const [statsTotals, setStatsTotals] = useState<{ total?: number; currentTotal?: number; historyTotal?: number; todayTotal?: number; otherDayTotal?: number; deletedTotal?: number }>({});
 
   // Order alert is now handled globally in Layout (useGlobalOrderAlert)
 
@@ -1156,7 +1173,9 @@ export default function Orders() {
   const [loadingTimeslots, setLoadingTimeslots] = useState(false);
   const [selectedTimeslotId, setSelectedTimeslotId] = useState<string>("");
   const [orderScheduleType, setOrderScheduleType] = useState<"instant" | "slot">("instant");
-  const [orderDate, setOrderDate] = useState<string>(() => getTodayIST());
+  const [orderDate, setOrderDate] = useState<string>(() => isAfterFivePMIST() ? getTomorrowIST() : getTodayIST());
+  const [nextDayOrder, setNextDayOrder] = useState(() => isAfterFivePMIST());
+  const [nextDayAutoEnabled, setNextDayAutoEnabled] = useState(() => isAfterFivePMIST());
   const [showPreorderDatePicker, setShowPreorderDatePicker] = useState(false);
   const [isOutstationDelivery, setIsOutstationDelivery] = useState(false);
   const [isExpressOrder, setIsExpressOrder] = useState(false);
@@ -1242,7 +1261,10 @@ export default function Orders() {
     setAppliedCouponIds([]); setCouponCode(""); setCouponError("");
     setSelectedTimeslotId("");
     setOrderScheduleType("instant");
-    setOrderDate(getTodayIST());
+    const autoNextDay = isAfterFivePMIST();
+    setNextDayOrder(autoNextDay);
+    setNextDayAutoEnabled(autoNextDay);
+    setOrderDate(autoNextDay ? getTomorrowIST() : getTodayIST());
     setIsOutstationDelivery(false);
     setIsExpressOrder(false);
     setDeliveryChargeInput("");
@@ -1258,6 +1280,36 @@ export default function Orders() {
     setEditingOrderCustomerId("");
     setEditingOrderId("");
   }, []);
+
+  // POS next-day mode turns on at 5 PM IST and resets at midnight. Date-based
+  // Orders filters then move those orders into Current Orders automatically.
+  useEffect(() => {
+    if (!isCreatePage || editingOrderId) return;
+    let lastIstDate = getTodayIST();
+    const syncNextDayWindow = () => {
+      const today = getTodayIST();
+      const autoEnabled = isAfterFivePMIST() &&
+        orderDeliveryType === "delivery" &&
+        posProductMode === "normal";
+      setNextDayAutoEnabled(autoEnabled);
+      if (today !== lastIstDate) {
+        lastIstDate = today;
+        setNextDayOrder(autoEnabled);
+        setOrderDate(autoEnabled ? getTomorrowIST() : today);
+        setSelectedTimeslotId("");
+      } else if (autoEnabled) {
+        setNextDayOrder(true);
+        setOrderDate(getTomorrowIST());
+        setSelectedTimeslotId("");
+      } else if (orderDeliveryType === "takeaway") {
+        setNextDayOrder(false);
+        setOrderDate(today);
+      }
+    };
+    syncNextDayWindow();
+    const intervalId = setInterval(syncNextDayWindow, 30_000);
+    return () => clearInterval(intervalId);
+  }, [isCreatePage, editingOrderId, orderDeliveryType, posProductMode]);
 
   useEffect(() => {
     if (!isCreatePage) return;
@@ -2280,6 +2332,7 @@ export default function Orders() {
         customerName, phone, email,
         items: cleanItems,
         orderType: DIRECT_ORDER_ONLY ? "normal" : posProductMode === "preorder" ? "preorder" : "normal",
+        nextDayOrder: orderDeliveryType === "delivery" && nextDayOrder,
         deliveryType: orderDeliveryType,
         address,
         deliveryArea,
@@ -2359,7 +2412,7 @@ export default function Orders() {
         isExpress: DIRECT_ORDER_ONLY ? false : isExpressOrder,
         scheduleType: DIRECT_ORDER_ONLY ? "instant" : orderDeliveryType === "takeaway" ? "instant" : isExpressOrder ? "express" : orderScheduleType,
         deliveryDate: DIRECT_ORDER_ONLY
-          ? (editingOrderId ? orderDate || getTodayIST() : getTodayIST())
+          ? (orderDeliveryType === "delivery" && nextDayOrder ? getTomorrowIST() : editingOrderId ? orderDate || getTodayIST() : getTodayIST())
           : orderDeliveryType === "takeaway"
           ? getTodayIST()
           : orderDate,
@@ -2787,6 +2840,7 @@ export default function Orders() {
         currentTotal: data.currentTotal,
         historyTotal: data.historyTotal,
         todayTotal: data.todayTotal,
+        otherDayTotal: data.otherDayTotal,
         deletedTotal: data.deletedTotal ?? 0,
       });
     } catch { }
@@ -3019,6 +3073,14 @@ export default function Orders() {
   };
 
   const acceptOrder = async (order: any, overrideSubHubId?: string, overrideSubHubName?: string) => {
+    if (isFutureNextDayOrder(order)) {
+      toast({
+        title: "Next Day Order",
+        description: "This order can be accepted after its delivery date begins.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (isFtwPaymentOnHold(order)) return;
     // If the order has no sub-hub yet, pause and show the sub-hub picker.
     const resolvedSubHubId = overrideSubHubId ?? order.subHubId ?? "";
@@ -3325,6 +3387,9 @@ export default function Orders() {
     // default is "normal", which previously caused preorder edits to be saved
     // back as normal orders.
     setPosProductMode(!DIRECT_ORDER_ONLY && String(o.orderType ?? "").toLowerCase() === "preorder" ? "preorder" : "normal");
+    const savedNextDayOrder = o.nextDayOrder === true && String(o.deliveryDate ?? "").slice(0, 10) > getTodayIST();
+    setNextDayOrder(savedNextDayOrder);
+    setNextDayAutoEnabled(false);
     // Customer — if the order has a customerId, treat it as existing even if the
     // full customer list hasn't loaded yet (we'll re-resolve when it does).
     if (o.customerId) {
@@ -3607,6 +3672,7 @@ export default function Orders() {
   const totalDeleted = statsTotals.deletedTotal ?? 0;
   const TABS = [
     { key: "current" as const, label: "Current Orders", count: totalToday, icon: Clock, color: "text-blue-600" },
+    { key: "otherday" as const, label: "Next Day Orders", count: statsTotals.otherDayTotal ?? 0, icon: Calendar, color: "text-orange-600" },
     { key: "history" as const, label: "History", count: totalHistory, icon: CheckCircle2, color: "text-green-600" },
     { key: "all" as const, label: "All Orders", count: totalAll, icon: ClipboardList, color: "text-gray-600" },
     { key: "invoices" as const, label: "Order Invoices", count: invoiceCount, icon: FileText, color: "text-violet-600" },
@@ -4131,14 +4197,19 @@ export default function Orders() {
                             <span className="text-[10px] text-gray-500">Waiting for payment</span>
                           </div>
                         ) : o.status === "pending" ? (
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex flex-col items-start gap-1">
+                            {isFutureNextDayOrder(o) && (
+                              <span className="text-[10px] font-semibold text-orange-700">Next day · not ready</span>
+                            )}
+                            <div className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              disabled={acceptingId === String(o._id)}
+                              disabled={acceptingId === String(o._id) || isFutureNextDayOrder(o)}
+                              title={isFutureNextDayOrder(o) ? "This order can be accepted when its delivery date begins." : "Accept order"}
                               onClick={() => acceptOrder(o)}
-                              className="inline-flex items-center justify-center h-7 px-3 rounded-full text-xs font-semibold bg-green-600 hover:bg-green-700 text-white disabled:opacity-60"
+                              className="inline-flex items-center justify-center h-7 px-3 rounded-full text-xs font-semibold bg-green-600 hover:bg-green-700 text-white disabled:opacity-40 disabled:cursor-not-allowed"
                             >
-                              Accept
+                              {isFutureNextDayOrder(o) ? "Next day" : "Accept"}
                             </button>
                             <button
                               type="button"
@@ -4148,6 +4219,7 @@ export default function Orders() {
                             >
                               Reject
                             </button>
+                            </div>
                           </div>
                         ) : o.status === "cancelled" ? (
                           <div className="flex flex-col">
@@ -4757,6 +4829,7 @@ export default function Orders() {
               type="button"
               onClick={() => {
                 setPosProductMode("preorder");
+                setNextDayOrder(false);
                 setOrderDeliveryType("delivery");
                 setOrderDate(getTomorrowIST());
                 setSelectedProducts([]);
@@ -4773,7 +4846,14 @@ export default function Orders() {
           <div className="flex items-center gap-1 flex-shrink-0 bg-white/10 rounded-full p-0.5">
             <button
               type="button"
-              onClick={() => setOrderDeliveryType("delivery")}
+              onClick={() => {
+                setOrderDeliveryType("delivery");
+                if (!editingOrderId && posProductMode === "normal" && isAfterFivePMIST()) {
+                  setNextDayOrder(true);
+                  setNextDayAutoEnabled(true);
+                  setOrderDate(getTomorrowIST());
+                }
+              }}
               className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${orderDeliveryType === "delivery" ? "bg-[#F05B4E] text-white shadow-sm" : "text-white"}`}
             >
               Delivery
@@ -4781,12 +4861,57 @@ export default function Orders() {
             <button
               type="button"
               disabled={posProductMode === "preorder"}
-              onClick={() => setOrderDeliveryType("takeaway")}
+              onClick={() => {
+                setOrderDeliveryType("takeaway");
+                setNextDayOrder(false);
+                setNextDayAutoEnabled(false);
+                setOrderDate(getTodayIST());
+              }}
               className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${posProductMode === "preorder" ? "text-white/30 cursor-not-allowed" : orderDeliveryType === "takeaway" ? "bg-[#F05B4E] text-white shadow-sm" : "text-white"}`}
             >
               Takeaway
             </button>
           </div>
+          <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${
+            nextDayOrder ? "bg-white text-[#364F9F]" : "bg-white/10 text-white"
+          } ${orderDeliveryType === "takeaway" || posProductMode === "preorder" ? "opacity-50" : ""}`}>
+            <span className="whitespace-nowrap">Next day</span>
+            <button
+              type="button"
+              role="switch"
+              aria-label="Next day order"
+              aria-checked={nextDayOrder}
+              disabled={orderDeliveryType === "takeaway" || posProductMode === "preorder" || (!editingOrderId && nextDayAutoEnabled)}
+              title={
+                orderDeliveryType === "takeaway"
+                  ? "Next day is only available for delivery orders."
+                  : posProductMode === "preorder"
+                    ? "Preorders use their own delivery date."
+                    : nextDayAutoEnabled && !editingOrderId
+                      ? "Automatically enabled from 5 PM to midnight India time."
+                      : "Mark this delivery for tomorrow."
+              }
+              onClick={() => {
+                if (!editingOrderId && nextDayAutoEnabled) return;
+                const nextValue = !nextDayOrder;
+                setNextDayOrder(nextValue);
+                setOrderDate(nextValue ? getTomorrowIST() : getTodayIST());
+                setSelectedTimeslotId("");
+              }}
+              className={`relative h-5 w-9 rounded-full transition-colors disabled:cursor-not-allowed ${
+                nextDayOrder ? "bg-[#69D84F]" : "bg-white/40"
+              }`}
+            >
+              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                nextDayOrder ? "translate-x-4" : "translate-x-0.5"
+              }`} />
+            </button>
+          </div>
+          {nextDayOrder && (
+            <span className="hidden xl:inline text-[11px] font-semibold text-white/90 whitespace-nowrap">
+              Delivery: {formatDeliveryDate(getTomorrowIST())}
+            </span>
+          )}
         </div>
 
         {/* ══ MAIN BODY — 3 columns ══ */}
@@ -5532,6 +5657,15 @@ export default function Orders() {
                           </Popover>
                           <p className="text-[11px] text-orange-700 mt-1.5">
                             Choose a delivery slot available for the selected date.
+                          </p>
+                        </div>
+                      ) : nextDayOrder ? (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5">
+                          <p className="text-xs font-semibold text-blue-800">
+                            Next Day Order · delivery on {formatDeliveryDate(getTomorrowIST())}
+                          </p>
+                          <p className="mt-1 text-[11px] text-blue-700">
+                            It will appear under Current Orders after midnight India time.
                           </p>
                         </div>
                       ) : (
@@ -6614,6 +6748,7 @@ export default function Orders() {
                     {(() => {
                       const isTakeaway = selectedOrder.deliveryType === "takeaway";
                       const isPreorder = String(selectedOrder.orderType ?? "").toLowerCase() === "preorder";
+                      const nextDayBlocked = isFutureNextDayOrder(selectedOrder);
                       // Normal next-day orders cannot be dispatched or marked delivered
                       // until the delivery day arrives. Preorders are intentionally
                       // exempt because they may be fulfilled on any actual date.
@@ -6623,7 +6758,9 @@ export default function Orders() {
                         selectedOrder.deliveryDate !== "" &&
                         selectedOrder.deliveryDate === getTomorrowIST()
                       );
-                      const otherDayBlocked = new Set(["out_for_delivery", "delivered"]);
+                      const otherDayBlocked = new Set(nextDayBlocked
+                        ? ["confirmed", "out_for_delivery", "delivered"]
+                        : ["out_for_delivery", "delivered"]);
                       const statusOptions = isTakeaway
                         ? ["takeaway", "cancelled"]
                         : ALL_STATUSES.filter((s) => s !== "takeaway" && !(isOtherDay && otherDayBlocked.has(s)));
@@ -6655,7 +6792,7 @@ export default function Orders() {
                           </div>
                           {isOtherDay && (
                             <p className="text-sm font-semibold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2.5">
-                              This order is scheduled for <strong>{selectedOrder.deliveryDate}</strong>. Out for Delivery and Delivered are only available on the delivery day.
+                              This order is scheduled for <strong>{selectedOrder.deliveryDate}</strong>. {nextDayBlocked ? "It cannot be accepted or dispatched before the delivery day." : "Out for Delivery and Delivered are only available on the delivery day."}
                             </p>
                           )}
                         </>

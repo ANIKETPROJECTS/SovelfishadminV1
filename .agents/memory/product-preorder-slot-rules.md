@@ -27,8 +27,8 @@ The direct-order flag must disable scheduling only; it must not skip delivery-ad
 
 **How to apply:** Keep delivery address resolution independent of scheduling mode, and validate that both saved and new delivery addresses reach the order API.
 
-Orders Management should not show dedicated Preorders or Next Day Orders tabs. Keep existing orders available through All Orders and preserve their stored records.
+In the POS, delivery orders created from 5 PM through midnight India time must automatically be marked for the next day. Staff can mark an order for the next day earlier with the POS toggle. Keep those orders in a dedicated Next Day Orders tab and do not allow acceptance or Borzo dispatch until their delivery date begins; after midnight, date-based filtering should show them under Current Orders.
 
-**Why:** The user no longer needs those sections, but existing order history should remain accessible.
+**Why:** The user needs evening orders staged for the next day so they are not dispatched to Borzo early.
 
-**How to apply:** Remove those entries from the Orders Management navigation without deleting orders or removing legacy filtering and scheduling code unless explicitly requested.
+**How to apply:** Preserve the India-time cutoff, the explicit next-day designation, server-side acceptance and batch-dispatch protection, and automatic tab movement at the IST date rollover. Keep next-day handling separate from preorder product availability and time-slot rules.
