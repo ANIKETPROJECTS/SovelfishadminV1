@@ -9,6 +9,12 @@ For COD, Borzo requires both `is_cod_cash_voucher_required: true` and `taking_am
 
 The configured Borzo test account currently returns `cod_agreement_required` when the COD voucher flag is set. The request fields are then valid, but the account's COD agreement must be enabled before COD orders can be accepted.
 
+Borzo production may return HTTP 400 with `errors: ["insufficient_balance"]` when the account cannot fund a delivery. This is a definitive rejection; no Borzo order was created. Add funds before retrying.
+
+**Why:** A production confirmation was rejected with this provider error after authentication succeeded.
+
+**How to apply:** Treat it as an account-balance issue, not a payload or auth problem. Do not retry until the Borzo production account has sufficient funds.
+
 Send the merchandise subtotal as Borzo's `insurance_amount` (a two-decimal money string), falling back to the sum of item prices when the subtotal is absent. This is the declared/insured goods value, not Borzo's delivery price, and may incur insurance fees.
 
 The recipient stop must use the customer delivery address snapshot on the order, never the configured pickup address or a newly changed profile default. Preserve both full-string addresses and structured/legacy address fields.

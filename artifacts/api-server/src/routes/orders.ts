@@ -2897,7 +2897,35 @@ router.put("/:id", async (req: ScopedRequest, res) => {
             );
           } else {
             req.log.error(
-              { orderId: sourceOrderId, borzoStatus: dispatchStatus, httpStatus: borzoResult.httpStatus, error: borzoResult.error },
+              {
+                orderId: sourceOrderId,
+                environment: borzoEnvironment,
+                borzoStatus: dispatchStatus,
+                requestMethod: borzoResult.requestMethod,
+                requestUrl: borzoResult.requestUrl,
+                authentication: borzoResult.authentication,
+                httpStatus: borzoResult.httpStatus,
+                requestSummary: {
+                  type: borzoResult.requestPayload?.type,
+                  totalWeightKg: borzoResult.requestPayload?.total_weight_kg,
+                  declaredGoodsValue: borzoResult.requestPayload?.insurance_amount,
+                  pointCount: Array.isArray(borzoResult.requestPayload?.points)
+                    ? borzoResult.requestPayload.points.length
+                    : undefined,
+                  codAmounts: Array.isArray(borzoResult.requestPayload?.points)
+                    ? borzoResult.requestPayload.points
+                        .map((point: any) => point?.taking_amount)
+                        .filter(Boolean)
+                    : [],
+                },
+                providerErrorCodes: borzoResult.error?.providerErrorCodes ??
+                  borzoResult.responseBody?.errors ?? [],
+                parameterErrors: borzoResult.error?.parameterErrors ??
+                  borzoResult.responseBody?.parameter_errors ?? null,
+                recommendedAction: borzoResult.error?.recommendedAction,
+                error: borzoResult.error,
+                serverRequestId: req.id,
+              },
               `Borzo ${borzoEnvironment} API order submission failed`,
             );
           }

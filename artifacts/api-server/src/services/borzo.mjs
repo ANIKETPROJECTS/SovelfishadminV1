@@ -247,6 +247,16 @@ export function buildBorzoOrderPayload(order, env = process.env) {
   const pickupName = asText(env.BORZO_PICKUP_NAME);
   const pickupPhone = normalizeIndianPhone(env.BORZO_PICKUP_MOBILE);
   const pickupNote = asText(env.BORZO_PICKUP_INSTRUCTIONS);
+  const pickupLatitudeText = asText(env.BORZO_PICKUP_LATITUDE);
+  const pickupLongitudeText = asText(env.BORZO_PICKUP_LONGITUDE);
+  const hasAnyPickupCoordinate = pickupLatitudeText !== "" || pickupLongitudeText !== "";
+  const pickupLatitude = Number(pickupLatitudeText);
+  const pickupLongitude = Number(pickupLongitudeText);
+  const pickupCoordinates = pickupLatitudeText !== "" && pickupLongitudeText !== "" &&
+    Number.isFinite(pickupLatitude) && pickupLatitude >= -90 && pickupLatitude <= 90 &&
+    Number.isFinite(pickupLongitude) && pickupLongitude >= -180 && pickupLongitude <= 180
+    ? { latitude: pickupLatitude.toFixed(7), longitude: pickupLongitude.toFixed(7) }
+    : null;
 
   const items = (Array.isArray(order?.items) ? order.items : [])
     .filter((item) => asText(item?.name))
@@ -277,6 +287,7 @@ export function buildBorzoOrderPayload(order, env = process.env) {
           name: pickupName || null,
           phone: pickupPhone,
         },
+        ...(pickupCoordinates ?? {}),
         ...(pickupNote ? { note: pickupNote } : {}),
       },
       {
@@ -320,6 +331,9 @@ export function buildBorzoOrderPayload(order, env = process.env) {
         : []),
       ...(hasAnyCoordinate && !receiverCoordinates
         ? ["Incomplete or invalid customer coordinates were omitted; the required address will still be sent."]
+        : []),
+      ...(hasAnyPickupCoordinate && !pickupCoordinates
+        ? ["Incomplete or invalid pickup coordinates were omitted; the pickup address will still be sent."]
         : []),
     ],
   };
@@ -545,7 +559,30 @@ async function submitBorzoPayload({ payload, missingFields, warnings }) {
       const detail = Array.isArray(response.body?.errors)
         ? response.body.errors.join(", ")
         : "";
+      const providerErrorCodes = Array.isArray(response.body?.errors)
+        ? response.body.errors.map(asText).filter(Boolean)
+        : [];
+      const primaryErrorCode = providerErrorCodes[0];
       const parameterDetails = summarizeParameterErrors(response.body?.parameter_errors);
+      const accountLabel = environment === "production" ? "Borzo production account" : "Borzo test account";
+      const errorGuidance = primaryErrorCode === "insufficient_balance"
+        ? {
+            category: "account_balance",
+            recommendedAction: `Add sufficient funds to the ${environment} Borzo account, then retry the order.`,
+            message: `${accountLabel} has insufficient balance. Add funds to the account before retrying.`,
+          }
+        : primaryErrorCode === "invalid_auth_token"
+          ? {
+              category: "authentication",
+              recommendedAction: `Check that BORZO_API_TOKEN is the active token for the ${environment} Borzo account.`,
+              message: `${apiName} rejected the authentication token.`,
+            }
+          : null;
+      const errorMessage = errorGuidance?.message || [
+        detail ? `${apiName} rejected the request (${detail}).` : "",
+        ...parameterDetails,
+      ].filter(Boolean).join(" ") ||
+        `${apiName} returned HTTP ${response.status} without a confirmed order ID.`;
       return {
         success: false,
         status: outcomeMayBeUnknown ? "unknown" : "failed",
@@ -558,11 +595,13 @@ async function submitBorzoPayload({ payload, missingFields, warnings }) {
         httpStatus: response.status,
         responseBody,
         error: {
-          message: [
-            detail ? `${apiName} rejected the request (${detail}).` : "",
-            ...parameterDetails,
-          ].filter(Boolean).join(" ") ||
-            `${apiName} returned HTTP ${response.status} without a confirmed order ID.`,
+          message: errorMessage,
+          code: primaryErrorCode,
+          category: errorGuidance?.category ?? (parameterDetails.length > 0 ? "request_parameters" : "provider"),
+          providerErrorCodes,
+          parameterErrors: response.body?.parameter_errors ?? null,
+          recommendedAction: errorGuidance?.recommendedAction,
+          retrySafe: !outcomeMayBeUnknown,
           httpStatus: response.status,
           responseBody,
           outcomeMayBeUnknown,

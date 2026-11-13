@@ -87,10 +87,31 @@ export function logBorzoDispatchResult(orderId: string, borzo: any) {
     );
   }
   if (borzo.error) {
+    if (borzo.error.code) console.error("Borzo provider error code:", borzo.error.code);
+    if (borzo.error.category) console.info("Error category:", borzo.error.category);
+    if (Array.isArray(borzo.error.providerErrorCodes)) {
+      console.error("All Borzo error codes:", borzo.error.providerErrorCodes);
+    }
+    if (borzo.error.parameterErrors !== undefined) {
+      console.error("Borzo parameter errors:", borzo.error.parameterErrors);
+    }
+    if (borzo.error.recommendedAction) {
+      console.info("Recommended next step:", borzo.error.recommendedAction);
+    }
+    if (borzo.error.retrySafe !== undefined) {
+      console.info("Retry safe after resolving the error:", borzo.error.retrySafe);
+    }
     console.error(
       "Borzo error details (full JSON):\n" +
       JSON.stringify(borzo.error, null, 2),
     );
+  }
+  if (borzo.status === "failed") {
+    console.info("Borzo order created:", "No — Borzo rejected the request.");
+  } else if (borzo.status === "unknown") {
+    console.warn("Borzo order created:", "Unknown — check the matching Borzo account before retrying.");
+  } else if (borzo.status === "sent") {
+    console.info("Borzo order created:", "Yes.");
   }
   console.groupEnd();
 }

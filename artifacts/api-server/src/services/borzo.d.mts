@@ -22,6 +22,12 @@ export interface BorzoDispatchResult {
   batchOrderIds?: string[];
   error?: {
     message: string;
+    code?: string;
+    category?: string;
+    providerErrorCodes?: string[];
+    parameterErrors?: any;
+    recommendedAction?: string;
+    retrySafe?: boolean;
     missingFields?: string[];
     httpStatus?: number;
     responseBody?: any;

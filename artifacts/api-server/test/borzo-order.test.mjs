@@ -118,6 +118,37 @@ test("builds Borzo test points, required contacts, item summary, and COD amount"
   assert.equal(result.payload.total_weight_kg, 1);
 });
 
+test("includes configured pickup coordinates with the pickup address", () => {
+  const result = buildBorzoOrderPayload(ftwOrder, {
+    ...pickupEnv,
+    BORZO_PICKUP_ADDRESS_LINE_1: "RH 18, Sairaj Society",
+    BORZO_PICKUP_ADDRESS_LINE_2: "Plot 22, Sector 6",
+    BORZO_PICKUP_CITY: "Airoli, Navi Mumbai",
+    BORZO_PICKUP_PINCODE: "400708",
+    BORZO_PICKUP_LATITUDE: "19.1458863",
+    BORZO_PICKUP_LONGITUDE: "72.9986587",
+  });
+
+  assert.match(result.payload.points[0].address, /RH 18, Sairaj Society/);
+  assert.match(result.payload.points[0].address, /Plot 22, Sector 6/);
+  assert.match(result.payload.points[0].address, /Airoli, Navi Mumbai/);
+  assert.match(result.payload.points[0].address, /400708/);
+  assert.equal(result.payload.points[0].latitude, "19.1458863");
+  assert.equal(result.payload.points[0].longitude, "72.9986587");
+});
+
+test("omits incomplete pickup coordinates while keeping the address", () => {
+  const result = buildBorzoOrderPayload(ftwOrder, {
+    ...pickupEnv,
+    BORZO_PICKUP_LATITUDE: "19.1458863",
+  });
+
+  assert.match(result.payload.points[0].address, /Test pickup/);
+  assert.equal(result.payload.points[0].latitude, undefined);
+  assert.equal(result.payload.points[0].longitude, undefined);
+  assert.ok(result.warnings.some((warning) => warning.includes("pickup coordinates were omitted")));
+});
+
 test("does not request cash collection for a settled online payment", () => {
   const result = buildBorzoOrderPayload({
     ...ftwOrder,
@@ -425,6 +456,46 @@ test("includes Borzo's exact field path when the API rejects request parameters"
     assert.equal(result.success, false);
     assert.equal(result.status, "failed");
     assert.match(result.error.message, /points\[1\]\.taking_amount: not_allowed/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    for (const [key, value] of Object.entries(previousPickup)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("classifies insufficient production balance and gives a safe retry instruction", async () => {
+  const envKeys = ["BORZO_API_TOKEN", "BORZO_ENVIRONMENT"];
+  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  process.env.BORZO_API_TOKEN = "production-token";
+  process.env.BORZO_ENVIRONMENT = "production";
+  const pickupKeys = Object.keys(pickupEnv).filter((key) => key.startsWith("BORZO_PICKUP_"));
+  const previousPickup = Object.fromEntries(pickupKeys.map((key) => [key, process.env[key]]));
+  for (const key of pickupKeys) process.env[key] = pickupEnv[key];
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    is_successful: false,
+    errors: ["insufficient_balance"],
+    parameter_errors: null,
+  }), { status: 400 });
+
+  try {
+    const result = await createBorzoOrder(ftwOrder);
+    assert.equal(result.success, false);
+    assert.equal(result.status, "failed");
+    assert.equal(result.environment, "production");
+    assert.equal(result.error.code, "insufficient_balance");
+    assert.equal(result.error.category, "account_balance");
+    assert.deepEqual(result.error.providerErrorCodes, ["insufficient_balance"]);
+    assert.match(result.error.message, /production account has insufficient balance/i);
+    assert.match(result.error.recommendedAction, /Add sufficient funds/);
+    assert.equal(result.error.retrySafe, true);
+    assert.equal(result.error.outcomeMayBeUnknown, false);
   } finally {
     globalThis.fetch = originalFetch;
     for (const [key, value] of Object.entries(previousEnv)) {
