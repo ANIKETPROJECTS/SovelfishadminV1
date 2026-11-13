@@ -49,10 +49,15 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
 
 export function logBorzoDispatchResult(orderId: string, borzo: any) {
   if (!borzo) return;
-  const title = `[Borzo test] ${orderId}: ${String(borzo.status ?? "unknown").toUpperCase()}`;
+  const environment = borzo.environment === "production"
+    ? "production"
+    : borzo.environment === "test"
+      ? "test"
+      : "unknown environment";
+  const title = `[Borzo ${environment}] ${orderId}: ${String(borzo.status ?? "unknown").toUpperCase()}`;
   console.group(title);
   console.info("Submission result:", borzo.success ? "success" : "not successful");
-  console.info("Environment: Borzo test");
+  console.info("Environment:", environment);
   if (borzo.requestMethod || borzo.requestUrl) {
     console.info("Borzo endpoint:", borzo.requestMethod ?? "POST", borzo.requestUrl ?? "(not configured)");
   }

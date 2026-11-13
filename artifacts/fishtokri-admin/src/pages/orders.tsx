@@ -2937,7 +2937,7 @@ export default function Orders() {
       const updateResult = await apiFetch(`/api/orders/${selectedOrder._id}`, { method: "PUT", body: JSON.stringify({ status: editStatus }) });
       logBorzoDispatchResult(String(selectedOrder.orderId || selectedOrder._id), updateResult.borzo);
       if (updateResult.borzo && !updateResult.borzo.success) {
-        console.error(`[Borzo test] ${selectedOrder.orderId || selectedOrder._id} was confirmed locally, but Borzo did not accept the order.`);
+        console.error(`[Borzo] ${selectedOrder.orderId || selectedOrder._id} was confirmed locally, but Borzo did not accept the order.`);
       }
       const movedOutOfDelivered =
         selectedOrder.status === "delivered" &&
@@ -2946,11 +2946,11 @@ export default function Orders() {
       const borzoFailed = updateResult.borzo && !updateResult.borzo.success;
       const borzoWasSent = updateResult.borzo?.status === "sent";
       toast({
-        title: borzoFailed ? "Order confirmed; Borzo test submission failed" : "Order status updated",
+        title: borzoFailed ? "Order confirmed; Borzo submission failed" : "Order status updated",
         description: borzoFailed
-          ? updateResult.borzo.error?.message ?? updateResult.borzo.message ?? "Check the browser console for Borzo test details."
+          ? updateResult.borzo.error?.message ?? updateResult.borzo.message ?? "Check the browser console for Borzo details."
           : borzoWasSent
-            ? `Borzo test accepted order ${updateResult.borzo.borzoOrderId ?? ""} (status: ${updateResult.borzo.borzoOrderStatus ?? "new"}).`
+            ? `Borzo accepted order ${updateResult.borzo.borzoOrderId ?? ""} (status: ${updateResult.borzo.borzoOrderStatus ?? "new"}).`
             : movedOutOfDelivered
               ? "Previous payment info was cleared. Re-record payment when delivered again."
               : undefined,
@@ -2977,7 +2977,7 @@ export default function Orders() {
     } catch (err: any) {
       if (editStatus === "confirmed") {
         console.error(
-          `[Borzo test] Confirmation request for ${selectedOrder.orderId || selectedOrder._id} failed before a result was received. Check the order and Borzo test cabinet before retrying.`,
+          `[Borzo] Confirmation request for ${selectedOrder.orderId || selectedOrder._id} failed before a result was received. Check the order and matching Borzo account before retrying.`,
           err,
         );
       }
@@ -3134,16 +3134,16 @@ export default function Orders() {
       const updateResult = await apiFetch(`/api/orders/${orderId}`, { method: "PUT", body: JSON.stringify(payload) });
       logBorzoDispatchResult(String(order.orderId || orderId), updateResult.borzo);
       if (updateResult.borzo && !updateResult.borzo.success) {
-        console.error(`[Borzo test] ${order.orderId || orderId} was confirmed locally, but Borzo did not accept the order.`);
+        console.error(`[Borzo] ${order.orderId || orderId} was confirmed locally, but Borzo did not accept the order.`);
       }
       const borzoFailed = updateResult.borzo && !updateResult.borzo.success;
       const borzoWasSent = updateResult.borzo?.status === "sent";
       toast({
-        title: borzoFailed ? "Order confirmed; Borzo test submission failed" : "Order accepted",
+        title: borzoFailed ? "Order confirmed; Borzo submission failed" : "Order accepted",
         description: borzoFailed
-          ? updateResult.borzo.error?.message ?? updateResult.borzo.message ?? "Check the browser console for Borzo test details."
+          ? updateResult.borzo.error?.message ?? updateResult.borzo.message ?? "Check the browser console for Borzo details."
           : borzoWasSent
-            ? `Borzo test accepted order ${updateResult.borzo.borzoOrderId ?? ""} (status: ${updateResult.borzo.borzoOrderStatus ?? "new"}).`
+            ? `Borzo accepted order ${updateResult.borzo.borzoOrderId ?? ""} (status: ${updateResult.borzo.borzoOrderStatus ?? "new"}).`
             : isPorter
               ? "Status set to Confirmed and assigned to Porter Delivery."
               : "Status set to Confirmed.",
@@ -3157,7 +3157,7 @@ export default function Orders() {
       loadStats();
     } catch (err: any) {
       console.error(
-        `[Borzo test] Confirmation request for ${order.orderId || orderId} failed before a result was received. Check the order and Borzo test cabinet before retrying.`,
+        `[Borzo] Confirmation request for ${order.orderId || orderId} failed before a result was received. Check the order and matching Borzo account before retrying.`,
         err,
       );
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -3233,7 +3233,7 @@ export default function Orders() {
         toast({
           title: uncertain ? "Borzo result is uncertain" : "Borzo did not accept the batch",
           description: uncertain
-            ? "Check the Borzo test cabinet before retrying. The selected orders remain unconfirmed."
+            ? "Check the matching Borzo account before retrying. The selected orders remain unconfirmed."
             : result.borzo?.error?.message ?? "The orders remain pending; check the browser console for details.",
           variant: "destructive",
         });

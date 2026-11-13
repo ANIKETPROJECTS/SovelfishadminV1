@@ -192,13 +192,13 @@ export function useNewOrderPopup(): NewOrderPopupState {
       logBorzoDispatchResult(String(queueEntry?.order?.orderId || id), updateResult.borzo);
       if (updateResult.borzo && !updateResult.borzo.success) {
         console.error(
-          `[Borzo test] ${queueEntry?.order?.orderId || id} was confirmed locally, but Borzo did not accept the order.`,
+          `[Borzo] ${queueEntry?.order?.orderId || id} was confirmed locally, but Borzo did not accept the order.`,
         );
       }
     } catch (error) {
       // Best-effort — popup still closes
       console.error(
-        `[Borzo test] Confirmation request for ${queueEntry?.order?.orderId || id} failed before a result was received. Check the order and Borzo test cabinet before retrying.`,
+        `[Borzo] Confirmation request for ${queueEntry?.order?.orderId || id} failed before a result was received. Check the order and matching Borzo account before retrying.`,
         error,
       );
     }

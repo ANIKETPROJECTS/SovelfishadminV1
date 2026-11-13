@@ -188,7 +188,7 @@ export function BorzoOrderDetailsDialog({
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">Current Borzo order</h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  Read-only status and pricing fetched from Borzo’s test API.
+                  Read-only status and pricing fetched from the Borzo environment used for this dispatch.
                 </p>
               </div>
               <Button

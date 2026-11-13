@@ -15,7 +15,12 @@ import { requireAuth } from "../middlewares/auth.js";
 import { loadScope, type ScopedRequest } from "../middlewares/scope.js";
 import { HubUser } from "../db/models/hub-user.js";
 import { sendOrderConfirmed, sendOutForDelivery, sendOrderCancelled } from "../services/whatsapp.js";
-import { createBorzoBatchOrder, createBorzoOrder, getBorzoOrderDetails } from "../services/borzo.mjs";
+import {
+  createBorzoBatchOrder,
+  createBorzoOrder,
+  getBorzoEnvironment,
+  getBorzoOrderDetails,
+} from "../services/borzo.mjs";
 import {
   getTodayISODateIST,
   getTomorrowISODateIST,
@@ -1772,6 +1777,8 @@ router.post("/:id/borzo-refresh", async (req: ScopedRequest, res) => {
     }
 
     const dispatch = order.borzoDispatch ?? {};
+    const configuredEnvironment = getBorzoEnvironment();
+    const dispatchEnvironment = dispatch.environment ?? "test";
     const borzoOrderId = String(dispatch.borzoOrderId ?? "").trim();
     if (!/^\d+$/.test(borzoOrderId)) {
       res.status(409).json({
@@ -1780,15 +1787,15 @@ router.post("/:id/borzo-refresh", async (req: ScopedRequest, res) => {
       });
       return;
     }
-    if (dispatch.environment && dispatch.environment !== "test") {
+    if (dispatchEnvironment !== configuredEnvironment) {
       res.status(409).json({
         error: "BorzoEnvironmentMismatch",
-        message: "This app is configured to query Borzo test orders only.",
+        message: `This app is configured for Borzo ${configuredEnvironment} orders, but this dispatch belongs to the ${dispatchEnvironment} environment.`,
       });
       return;
     }
 
-    const result = await getBorzoOrderDetails(borzoOrderId);
+    const result = await getBorzoOrderDetails(borzoOrderId, configuredEnvironment);
     if (!result.success || !result.order) {
       const refreshedAt = result.fetchedAt ? new Date(result.fetchedAt) : new Date();
       await collection.updateOne(
@@ -2139,7 +2146,7 @@ router.post("/borzo-batch", async (req: ScopedRequest, res) => {
               batchId,
               batchOrderIds: sourceOrderIds,
               sourceOrderId: String(order?.orderId ?? order?._id),
-              environment: "test",
+              environment: getBorzoEnvironment(),
               attemptedAt,
             },
           },
@@ -2171,8 +2178,9 @@ router.post("/borzo-batch", async (req: ScopedRequest, res) => {
       borzoResult = {
         success: false,
         status: "unknown",
+        environment: getBorzoEnvironment(),
         error: {
-          message: err?.message || "Borzo batch request failed unexpectedly; check the Borzo test cabinet before retrying.",
+          message: err?.message || "Borzo batch request failed unexpectedly; check the matching Borzo account before retrying.",
           outcomeMayBeUnknown: true,
         },
       };
@@ -2185,7 +2193,7 @@ router.post("/borzo-batch", async (req: ScopedRequest, res) => {
       status: dispatchStatus,
       batchId,
       batchOrderIds: sourceOrderIds,
-      environment: "test",
+      environment: getBorzoEnvironment(),
       attemptedAt,
       completedAt,
       requestMethod: borzoResult.requestMethod ?? "POST",
@@ -2221,7 +2229,7 @@ router.post("/borzo-batch", async (req: ScopedRequest, res) => {
       req.log.error({ batchId, sourceOrderIds, dispatchStatus }, "[Borzo batch] Could not save dispatch result for every order");
       res.status(500).json({
         error: "DispatchStateUncertain",
-        message: "The Borzo request was made, but its result could not be saved for every order. Check the Borzo test cabinet before retrying.",
+        message: "The Borzo request was made, but its result could not be saved for every order. Check the matching Borzo account before retrying.",
         batchId,
         orderIds: documentIds,
         borzo: borzoResult,
@@ -2233,7 +2241,7 @@ router.post("/borzo-batch", async (req: ScopedRequest, res) => {
       batchId,
       orderIds: sourceOrderIds,
       orderCount: orders.length,
-      environment: "test",
+      environment: getBorzoEnvironment(),
       requestMethod: borzoResult.requestMethod,
       requestUrl: borzoResult.requestUrl,
       authentication: borzoResult.authentication,
@@ -2286,8 +2294,8 @@ router.post("/borzo-batch", async (req: ScopedRequest, res) => {
     req.log.error({ err, batchId, orderIds: claimedOrders.map(({ order }) => order?.orderId) }, "[Borzo batch] Failed to dispatch batch");
     res.status(500).json({
       error: "InternalError",
-      message: batchId
-        ? "Could not complete the batch request safely. Check the Borzo test cabinet and refresh the orders before retrying."
+        message: batchId
+          ? "Could not complete the batch request safely. Check the matching Borzo account and refresh the orders before retrying."
         : "Failed to prepare Borzo batch.",
     });
   }
@@ -2802,6 +2810,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
       );
 
     if (shouldAttemptBorzo) {
+      const borzoEnvironment = getBorzoEnvironment();
       const sourceOrderId = String(orderAfterUpdate.orderId ?? "").trim().replace(/^#+/, "");
       const attemptedAt = new Date();
       try {
@@ -2819,13 +2828,17 @@ router.put("/:id", async (req: ScopedRequest, res) => {
                 status: "sending",
                 sourceOrderId,
                 attemptedAt,
+                environment: borzoEnvironment,
               },
             },
           },
         );
 
         if (claim.modifiedCount > 0) {
-          req.log.info({ orderId: sourceOrderId, environment: "test" }, "Submitting confirmed FishTokri order to Borzo test API");
+          req.log.info(
+            { orderId: sourceOrderId, environment: borzoEnvironment },
+            `Submitting confirmed FishTokri order to Borzo ${borzoEnvironment} API`,
+          );
           borzoResult = await createBorzoOrder(orderAfterUpdate);
           const dispatchStatus = borzoResult.success
             ? "sent"
@@ -2837,7 +2850,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
             sourceOrderId,
             borzoOrderId: borzoResult.borzoOrderId,
             borzoOrderStatus: borzoResult.borzoOrderStatus,
-            environment: "test",
+            environment: borzoEnvironment,
             attemptedAt,
             completedAt: new Date(),
             requestMethod: borzoResult.requestMethod,
@@ -2864,7 +2877,12 @@ router.put("/:id", async (req: ScopedRequest, res) => {
               { err: persistError, orderId: sourceOrderId, borzoOrderId: borzoResult.borzoOrderId },
               "Could not persist Borzo submission result; duplicate protection remains active",
             );
-            orderAfterUpdate.borzoDispatch = { status: "sending", sourceOrderId, attemptedAt, environment: "test" };
+            orderAfterUpdate.borzoDispatch = {
+              status: "sending",
+              sourceOrderId,
+              attemptedAt,
+              environment: borzoEnvironment,
+            };
           }
 
           if (borzoResult.success) {
@@ -2875,12 +2893,12 @@ router.put("/:id", async (req: ScopedRequest, res) => {
                 borzoOrderStatus: borzoResult.borzoOrderStatus,
                 httpStatus: borzoResult.httpStatus,
               },
-              "Borzo test API accepted the order",
+              `Borzo ${borzoEnvironment} API accepted the order`,
             );
           } else {
             req.log.error(
               { orderId: sourceOrderId, borzoStatus: dispatchStatus, httpStatus: borzoResult.httpStatus, error: borzoResult.error },
-              "Borzo test API order submission failed",
+              `Borzo ${borzoEnvironment} API order submission failed`,
             );
           }
         } else {
@@ -2895,10 +2913,11 @@ router.put("/:id", async (req: ScopedRequest, res) => {
             status: alreadySent ? "already_sent" : priorDispatch.status === "unknown" ? "unknown" : "in_progress",
             borzoOrderId: priorDispatch.borzoOrderId,
             borzoOrderStatus: priorDispatch.borzoOrderStatus,
+            environment: priorDispatch.environment ?? borzoEnvironment,
             message: alreadySent
-              ? "This order was already submitted to Borzo test; no duplicate was created."
+              ? `This order was already submitted to Borzo ${priorDispatch.environment ?? borzoEnvironment}; no duplicate was created.`
               : priorDispatch.status === "unknown"
-                ? "The previous Borzo test result is uncertain. Check the Borzo test cabinet before retrying to avoid a duplicate."
+                ? "The previous Borzo result is uncertain. Check the matching Borzo account before retrying to avoid a duplicate."
                 : "A Borzo submission is already in progress; no second request was sent.",
           };
         }
@@ -2913,7 +2932,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
           const failedDispatch = {
             status: "failed",
             sourceOrderId,
-            environment: "test",
+            environment: borzoEnvironment,
             attemptedAt,
             completedAt: new Date(),
             errorMessage: borzoResult.error.message,

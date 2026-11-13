@@ -7,6 +7,7 @@ export interface BorzoPayloadBuildResult {
 export interface BorzoDispatchResult {
   success: boolean;
   status: "sent" | "failed" | "already_sent" | "unknown" | "in_progress";
+  environment?: "test" | "production";
   requestPayload: Record<string, any>;
   requestMethod?: string;
   requestUrl?: string;
@@ -30,5 +31,7 @@ export interface BorzoDispatchResult {
 
 export function buildBorzoOrderPayload(order: any, env?: Record<string, string | undefined>): BorzoPayloadBuildResult;
 export function buildBorzoBatchOrderPayload(orders: any[], env?: Record<string, string | undefined>): BorzoPayloadBuildResult;
+export function getBorzoEnvironment(env?: Record<string, string | undefined>): "test" | "production";
 export function createBorzoOrder(order: any): Promise<BorzoDispatchResult>;
 export function createBorzoBatchOrder(orders: any[]): Promise<BorzoDispatchResult>;
+export function getBorzoOrderDetails(orderId: string, environment?: "test" | "production"): Promise<any>;

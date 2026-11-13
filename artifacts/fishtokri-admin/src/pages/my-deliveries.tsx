@@ -531,12 +531,12 @@ function OrdersList({ mode, refreshKey, silentRefreshKey, onCountChange }: { mod
       if (editStatus === "confirmed") {
         logBorzoDispatchResult(String(selectedOrder.orderId || selectedOrder._id), updateResult.borzo);
         if (updateResult.borzo && !updateResult.borzo.success) {
-          console.error(`[Borzo test] ${selectedOrder.orderId || selectedOrder._id} was confirmed locally, but Borzo did not accept the order.`);
+          console.error(`[Borzo] ${selectedOrder.orderId || selectedOrder._id} was confirmed locally, but Borzo did not accept the order.`);
         }
       }
       toast({
         title: updateResult.borzo && !updateResult.borzo.success
-          ? "Order confirmed; Borzo test submission failed"
+          ? "Order confirmed; Borzo submission failed"
           : "Status updated successfully",
         description: updateResult.borzo?.error?.message,
         ...(updateResult.borzo && !updateResult.borzo.success ? { variant: "destructive" as const } : {}),

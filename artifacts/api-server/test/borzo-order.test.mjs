@@ -5,6 +5,7 @@ import {
   buildBorzoOrderPayload,
   createBorzoBatchOrder,
   createBorzoOrder,
+  getBorzoEnvironment,
   getBorzoOrderDetails,
 } from "../src/services/borzo.mjs";
 
@@ -240,13 +241,23 @@ test("rejects incomplete customer and pickup data before making an API request",
   assert.ok(result.missingFields.includes("valid Indian customer phone"));
 });
 
+test("selects production only when explicitly configured", () => {
+  assert.equal(getBorzoEnvironment({}), "test");
+  assert.equal(getBorzoEnvironment({ BORZO_ENVIRONMENT: "production" }), "production");
+  assert.throws(
+    () => getBorzoEnvironment({ BORZO_ENVIRONMENT: "prod" }),
+    /BORZO_ENVIRONMENT must be either 'test' or 'production'/,
+  );
+});
+
 test("submits only to Borzo test with the documented auth-token header", async () => {
-  const envKeys = ["BORZO_API_TOKEN", "BORZO_CLIENT_ID"];
+  const envKeys = ["BORZO_API_TOKEN", "BORZO_CLIENT_ID", "BORZO_ENVIRONMENT"];
   const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   const originalFetch = globalThis.fetch;
   const requests = [];
   process.env.BORZO_API_TOKEN = "test-token";
   process.env.BORZO_CLIENT_ID = "test-client-id";
+  process.env.BORZO_ENVIRONMENT = "test";
   const pickupKeys = Object.keys(pickupEnv).filter((key) => key.startsWith("BORZO_PICKUP_"));
   const previousPickup = Object.fromEntries(pickupKeys.map((key) => [key, process.env[key]]));
   for (const key of pickupKeys) process.env[key] = pickupEnv[key];
@@ -262,6 +273,7 @@ test("submits only to Borzo test with the documented auth-token header", async (
     const result = await createBorzoOrder(ftwOrder);
     assert.equal(result.success, true);
     assert.equal(result.status, "sent");
+    assert.equal(result.environment, "test");
     assert.equal(result.borzoOrderId, "12345");
     assert.equal(result.borzoOrderStatus, "new");
     assert.equal(requests.length, 1);
@@ -283,12 +295,54 @@ test("submits only to Borzo test with the documented auth-token header", async (
   }
 });
 
+test("uses Borzo's production host and records the selected environment", async () => {
+  const envKeys = ["BORZO_API_TOKEN", "BORZO_ENVIRONMENT"];
+  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  process.env.BORZO_API_TOKEN = "production-token";
+  process.env.BORZO_ENVIRONMENT = "production";
+  const pickupKeys = Object.keys(pickupEnv).filter((key) => key.startsWith("BORZO_PICKUP_"));
+  const previousPickup = Object.fromEntries(pickupKeys.map((key) => [key, process.env[key]]));
+  for (const key of pickupKeys) process.env[key] = pickupEnv[key];
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    return new Response(JSON.stringify({
+      is_successful: true,
+      order: { order_id: 98765, status: "new" },
+    }), { status: 200 });
+  };
+
+  try {
+    const result = await createBorzoOrder(ftwOrder);
+    assert.equal(result.success, true);
+    assert.equal(result.environment, "production");
+    assert.equal(
+      requests[0].url,
+      "https://robot-in.borzodelivery.com/api/business/1.8/create-order",
+    );
+    assert.equal(requests[0].options.headers["X-DV-Auth-Token"], "production-token");
+    assert.equal(requests[0].options.headers["X-DV-Client-ID"], undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    for (const [key, value] of Object.entries(previousPickup)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test("submits a multi-order batch as one Borzo test API request", async () => {
-  const envKeys = ["BORZO_API_TOKEN"];
+  const envKeys = ["BORZO_API_TOKEN", "BORZO_ENVIRONMENT"];
   const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   const originalFetch = globalThis.fetch;
   const requests = [];
   process.env.BORZO_API_TOKEN = "test-token";
+  process.env.BORZO_ENVIRONMENT = "test";
   const pickupKeys = Object.keys(pickupEnv).filter((key) => key.startsWith("BORZO_PICKUP_"));
   const previousPickup = Object.fromEntries(pickupKeys.map((key) => [key, process.env[key]]));
   for (const key of pickupKeys) process.env[key] = pickupEnv[key];
@@ -323,10 +377,11 @@ test("submits a multi-order batch as one Borzo test API request", async () => {
 });
 
 test("marks server errors as uncertain to prevent duplicate delivery orders", async () => {
-  const envKeys = ["BORZO_API_TOKEN"];
+  const envKeys = ["BORZO_API_TOKEN", "BORZO_ENVIRONMENT"];
   const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   const originalFetch = globalThis.fetch;
   process.env.BORZO_API_TOKEN = "test-token";
+  process.env.BORZO_ENVIRONMENT = "test";
   const pickupKeys = Object.keys(pickupEnv).filter((key) => key.startsWith("BORZO_PICKUP_"));
   const previousPickup = Object.fromEntries(pickupKeys.map((key) => [key, process.env[key]]));
   for (const key of pickupKeys) process.env[key] = pickupEnv[key];
@@ -351,10 +406,11 @@ test("marks server errors as uncertain to prevent duplicate delivery orders", as
 });
 
 test("includes Borzo's exact field path when the API rejects request parameters", async () => {
-  const envKeys = ["BORZO_API_TOKEN"];
+  const envKeys = ["BORZO_API_TOKEN", "BORZO_ENVIRONMENT"];
   const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   const originalFetch = globalThis.fetch;
   process.env.BORZO_API_TOKEN = "test-token";
+  process.env.BORZO_ENVIRONMENT = "test";
   const pickupKeys = Object.keys(pickupEnv).filter((key) => key.startsWith("BORZO_PICKUP_"));
   const previousPickup = Object.fromEntries(pickupKeys.map((key) => [key, process.env[key]]));
   for (const key of pickupKeys) process.env[key] = pickupEnv[key];
@@ -383,9 +439,11 @@ test("includes Borzo's exact field path when the API rejects request parameters"
 });
 
 test("fetches a specific Borzo test order and returns its live status and fees", async () => {
-  const previousToken = process.env.BORZO_API_TOKEN;
+  const envKeys = ["BORZO_API_TOKEN", "BORZO_ENVIRONMENT"];
+  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   const originalFetch = globalThis.fetch;
   process.env.BORZO_API_TOKEN = "test-token";
+  process.env.BORZO_ENVIRONMENT = "test";
   const requests = [];
   globalThis.fetch = async (url, options) => {
     requests.push({ url: String(url), options });
@@ -406,6 +464,7 @@ test("fetches a specific Borzo test order and returns its live status and fees",
   try {
     const result = await getBorzoOrderDetails("333402");
     assert.equal(result.success, true);
+    assert.equal(result.environment, "test");
     assert.equal(result.order.status, "completed");
     assert.equal(result.order.delivery_fee_amount, "100.00");
     assert.equal(result.order.points[0].delivery.status, "finished");
@@ -420,15 +479,53 @@ test("fetches a specific Borzo test order and returns its live status and fees",
     assert.equal(JSON.stringify(result).includes("test-token"), false);
   } finally {
     globalThis.fetch = originalFetch;
-    if (previousToken === undefined) delete process.env.BORZO_API_TOKEN;
-    else process.env.BORZO_API_TOKEN = previousToken;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("fetches production Borzo order details from the production endpoint", async () => {
+  const envKeys = ["BORZO_API_TOKEN", "BORZO_ENVIRONMENT"];
+  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  process.env.BORZO_API_TOKEN = "production-token";
+  process.env.BORZO_ENVIRONMENT = "production";
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    return new Response(JSON.stringify({
+      is_successful: true,
+      orders: [{ order_id: 98765, status: "new" }],
+    }), { status: 200 });
+  };
+
+  try {
+    const result = await getBorzoOrderDetails("98765");
+    assert.equal(result.success, true);
+    assert.equal(result.environment, "production");
+    assert.equal(result.order.status, "new");
+    assert.equal(
+      requests[0].url,
+      "https://robot-in.borzodelivery.com/api/business/1.8/orders?order_id=98765&count=1",
+    );
+    assert.equal(requests[0].options.headers["X-DV-Auth-Token"], "production-token");
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });
 
 test("reports when the requested Borzo order is not returned by the test account", async () => {
-  const previousToken = process.env.BORZO_API_TOKEN;
+  const envKeys = ["BORZO_API_TOKEN", "BORZO_ENVIRONMENT"];
+  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   const originalFetch = globalThis.fetch;
   process.env.BORZO_API_TOKEN = "test-token";
+  process.env.BORZO_ENVIRONMENT = "test";
   globalThis.fetch = async () => new Response(JSON.stringify({
     is_successful: true,
     orders: [{ order_id: 123, status: "new" }],
@@ -441,7 +538,9 @@ test("reports when the requested Borzo order is not returned by the test account
     assert.match(result.error.message, /333402/);
   } finally {
     globalThis.fetch = originalFetch;
-    if (previousToken === undefined) delete process.env.BORZO_API_TOKEN;
-    else process.env.BORZO_API_TOKEN = previousToken;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });

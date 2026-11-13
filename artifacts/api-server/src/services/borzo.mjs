@@ -1,8 +1,31 @@
-const TEST_API_URL = "https://robotapitest-in.borzodelivery.com/api/business/1.8";
+const BORZO_API_BASE_URLS = {
+  test: "https://robotapitest-in.borzodelivery.com/api/business/1.8",
+  production: "https://robot-in.borzodelivery.com/api/business/1.8",
+};
 const REQUEST_TIMEOUT_MS = 15_000;
 
 function asText(value) {
   return String(value ?? "").trim();
+}
+
+function normalizeBorzoEnvironment(value) {
+  const environment = asText(value).toLowerCase() || "test";
+  if (environment !== "test" && environment !== "production") {
+    throw new Error("BORZO_ENVIRONMENT must be either 'test' or 'production'.");
+  }
+  return environment;
+}
+
+export function getBorzoEnvironment(env = process.env) {
+  return normalizeBorzoEnvironment(env?.BORZO_ENVIRONMENT);
+}
+
+function getBorzoApiBaseUrl(environment = getBorzoEnvironment()) {
+  return BORZO_API_BASE_URLS[normalizeBorzoEnvironment(environment)];
+}
+
+function borzoApiName(environment) {
+  return `Borzo ${normalizeBorzoEnvironment(environment)} API`;
 }
 
 function normalizeIndianPhone(value) {
@@ -275,7 +298,7 @@ export function buildBorzoOrderPayload(order, env = process.env) {
   };
 
   const missingFields = [];
-  if (!asText(env.BORZO_API_TOKEN)) missingFields.push("Borzo test API token secret");
+  if (!asText(env.BORZO_API_TOKEN)) missingFields.push("Borzo API token secret");
   if (!pickupAddress) missingFields.push("pickup address");
   if (!pickupName) missingFields.push("pickup contact name");
   if (!/^\d{12}$/.test(pickupPhone)) missingFields.push("valid Indian pickup phone");
@@ -386,27 +409,31 @@ async function requestJson(url, body, token) {
   }
 }
 
-export async function getBorzoOrderDetails(orderId) {
+export async function getBorzoOrderDetails(orderId, requestedEnvironment = getBorzoEnvironment()) {
+  const environment = normalizeBorzoEnvironment(requestedEnvironment);
+  const apiName = borzoApiName(environment);
   const normalizedOrderId = asText(orderId);
   if (!/^\d+$/.test(normalizedOrderId) || Number(normalizedOrderId) <= 0) {
     return {
       success: false,
+      environment,
       error: { message: "A valid Borzo order ID is required." },
     };
   }
 
   const token = asText(process.env.BORZO_API_TOKEN);
-  const requestUrl = `${TEST_API_URL}/orders?${new URLSearchParams({
+  const requestUrl = `${getBorzoApiBaseUrl(environment)}/orders?${new URLSearchParams({
     order_id: normalizedOrderId,
     count: "1",
   })}`;
   if (!token) {
     return {
       success: false,
+      environment,
       requestMethod: "GET",
       requestUrl,
       authentication: { scheme: "X-DV-Auth-Token (value not logged)" },
-      error: { message: "Borzo test API token is not configured on the server." },
+      error: { message: `${apiName} token is not configured on the server.` },
     };
   }
 
@@ -434,6 +461,7 @@ export async function getBorzoOrderDetails(orderId) {
     if (!response.ok || body?.is_successful !== true || !order) {
       return {
         success: false,
+        environment,
         requestMethod: "GET",
         requestUrl,
         authentication: { scheme: "X-DV-Auth-Token (value not logged)" },
@@ -442,10 +470,10 @@ export async function getBorzoOrderDetails(orderId) {
         responseBody,
         error: {
           message: !response.ok
-            ? `Borzo test API returned HTTP ${response.status}.`
+            ? `${apiName} returned HTTP ${response.status}.`
             : body?.is_successful !== true
               ? "Borzo did not confirm the order lookup."
-              : `Borzo test account did not return order ${normalizedOrderId}.`,
+              : `${apiName} account did not return order ${normalizedOrderId}.`,
           code: !order && response.ok && body?.is_successful === true ? "order_not_found" : undefined,
           httpStatus: response.status,
         },
@@ -454,6 +482,7 @@ export async function getBorzoOrderDetails(orderId) {
 
     return {
       success: true,
+      environment,
       requestMethod: "GET",
       requestUrl,
       authentication: { scheme: "X-DV-Auth-Token (value not logged)" },
@@ -465,6 +494,7 @@ export async function getBorzoOrderDetails(orderId) {
   } catch (error) {
     return {
       success: false,
+      environment,
       requestMethod: "GET",
       requestUrl,
       authentication: { scheme: "X-DV-Auth-Token (value not logged)" },
@@ -480,19 +510,22 @@ export async function getBorzoOrderDetails(orderId) {
 }
 
 async function submitBorzoPayload({ payload, missingFields, warnings }) {
+  const environment = getBorzoEnvironment();
+  const apiName = borzoApiName(environment);
   const token = asText(process.env.BORZO_API_TOKEN);
-  const requestUrl = `${TEST_API_URL}/create-order`;
+  const requestUrl = `${getBorzoApiBaseUrl(environment)}/create-order`;
   if (missingFields.length > 0) {
     return {
       success: false,
       status: "failed",
+      environment,
       requestPayload: payload,
       requestMethod: "POST",
       requestUrl,
       authentication: { scheme: "X-DV-Auth-Token (value not logged)" },
       warnings,
       error: {
-        message: `Borzo test request was not sent. Missing required values: ${missingFields.join(", ")}.`,
+        message: `${apiName} request was not sent. Missing required values: ${missingFields.join(", ")}.`,
         missingFields,
       },
     };
@@ -516,6 +549,7 @@ async function submitBorzoPayload({ payload, missingFields, warnings }) {
       return {
         success: false,
         status: outcomeMayBeUnknown ? "unknown" : "failed",
+        environment,
         requestPayload: payload,
         requestMethod: "POST",
         requestUrl,
@@ -525,10 +559,10 @@ async function submitBorzoPayload({ payload, missingFields, warnings }) {
         responseBody,
         error: {
           message: [
-            detail ? `Borzo test API rejected the request (${detail}).` : "",
+            detail ? `${apiName} rejected the request (${detail}).` : "",
             ...parameterDetails,
           ].filter(Boolean).join(" ") ||
-            `Borzo test API returned HTTP ${response.status} without a confirmed order ID.`,
+            `${apiName} returned HTTP ${response.status} without a confirmed order ID.`,
           httpStatus: response.status,
           responseBody,
           outcomeMayBeUnknown,
@@ -539,6 +573,7 @@ async function submitBorzoPayload({ payload, missingFields, warnings }) {
     return {
       success: true,
       status: "sent",
+      environment,
       requestPayload: payload,
       requestMethod: "POST",
       requestUrl,
@@ -554,6 +589,7 @@ async function submitBorzoPayload({ payload, missingFields, warnings }) {
     return {
       success: false,
       status: requestStarted ? "unknown" : "failed",
+      environment,
       requestPayload: payload,
       requestMethod: "POST",
       requestUrl,
@@ -561,8 +597,8 @@ async function submitBorzoPayload({ payload, missingFields, warnings }) {
       warnings,
       error: {
         message: isTimeout
-          ? "Borzo test request timed out; check the Borzo test cabinet before retrying."
-          : (error?.message || "Borzo test request failed; check the Borzo test cabinet before retrying."),
+          ? `${apiName} request timed out; check the matching Borzo account before retrying.`
+          : (error?.message || `${apiName} request failed; check the matching Borzo account before retrying.`),
         outcomeMayBeUnknown: requestStarted,
       },
     };
