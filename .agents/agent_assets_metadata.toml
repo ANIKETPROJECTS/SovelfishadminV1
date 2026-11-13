@@ -10,8 +10,15 @@ title = "generated_image"
 id = "_ULFns-qV2pt3QMkRUZNN"
 uri = "file://prompt.md"
 type = "text"
-title = "Coupon Logic Implementation Prompt"
+title = "Storefront next-day order prompt"
+description = "Copy-ready instructions for adding the 5 PM IST automatic next-day checkout flow while preserving FTW order IDs, payments, and Admin compatibility."
 logical_id = "6f8a7293-6cb8-4862-bc83-dd7fa6a5be1f"
+content_hash = "sha256:bbe15e012fe785caa143937ebb5d310a89b953cc1393b07056b225fb23e848b1"
+size = 5168
+mtime_ms = 1794558723071
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9206d6a1-2156-498e-a766-e1cb594d813b/6f8a7293-6cb8-4862-bc83-dd7fa6a5be1f/b5d62fdc-d841-4dc3-b80b-d40116a6e10f"
+storage_version_token = "1794558766961894"
+content_type = "text/markdown"
 
 [[outputs]]
 id = "w-muzyQInFcQM4RxNMka_"
