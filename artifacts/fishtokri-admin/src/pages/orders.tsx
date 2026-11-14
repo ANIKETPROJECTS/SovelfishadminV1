@@ -1191,6 +1191,7 @@ export default function Orders() {
     bulkBaseName?: string;
     bulkWeightStepGrams?: string | number;
     posWeightOverride?: boolean;
+    cuttingMethods?: string[];
   }[]>([]);
 
   // Coupons / timeslots / scheduling
@@ -2305,6 +2306,7 @@ export default function Orders() {
           bulkSourceWeightKg: p.bulkSourceWeightKg ?? p.bulkWeightKg,
           ...(p.posWeightOverride ? { posWeightOverride: true } : {}),
         } : {}),
+        cuttingMethods: Array.isArray(p.cuttingMethods) ? p.cuttingMethods : [],
       }));
     const customItems = orderItems
       .map((it) => ({
@@ -3558,6 +3560,7 @@ export default function Orders() {
         price: Number(it.basePrice ?? it.price) || 0,
         unit: it.unit ?? "",
         quantity: Number(it.quantity) || 0,
+        cuttingMethods: Array.isArray(it.cuttingMethods) ? it.cuttingMethods.map((method: any) => String(method)) : [],
         ...(it.inventoryBatchId ? {
           inventoryBatchId: String(it.inventoryBatchId),
           batchNumber: it.batchNumber,
@@ -4239,6 +4242,9 @@ export default function Orders() {
                               <p key={i} className="text-sm text-black truncate">
                                 <span className="font-medium">{it.name}</span>
                                 <span> × {Number(it.quantity) || 1}</span>
+                                {Array.isArray(it.cuttingMethods) && it.cuttingMethods.length > 0 && (
+                                  <span className="block truncate text-[10px] text-gray-500">Cut: {it.cuttingMethods.join(", ")}</span>
+                                )}
                               </p>
                             ))}
                           </div>
@@ -5203,6 +5209,7 @@ export default function Orders() {
                               price: Number(p.price) || 0,
                               unit: p.unit ?? "",
                               quantity: 1,
+                              cuttingMethods: [],
                               isCombo: Boolean(p.isCombo),
                               ...(bulkWeightKg ? {
                                 bulkWeightKg,
@@ -6008,6 +6015,12 @@ export default function Orders() {
                   <div className="px-3 py-2 space-y-0">
                     {selectedProducts.map((p, cartIndex) => {
                       const lineKey = posCartLineKey(p.productId, p.inventoryBatchId, p.bulkWeightKg);
+                      const catalogCuttingMethods = subHubProducts.find((product) => String(product._id) === p.productId)?.cuttingMethods;
+                      const availableCuttingMethods = Array.from(new Set([
+                        ...(Array.isArray(catalogCuttingMethods) ? catalogCuttingMethods : []),
+                        ...(Array.isArray(p.cuttingMethods) ? p.cuttingMethods : []),
+                      ].map((method) => String(method).trim()).filter(Boolean)));
+                      const selectedCuttingMethods = Array.isArray(p.cuttingMethods) ? p.cuttingMethods : [];
                       const stock = stockOf(p.productId, p.inventoryBatchId, p.bulkWeightKg);
                       const bulkWeightKg = Number(p.bulkWeightKg) > 0 ? Number(p.bulkWeightKg) : 0;
                       const selectedBulkKg = bulkWeightKg
@@ -6037,6 +6050,35 @@ export default function Orders() {
                             </div>
                             <span className="text-xs font-bold text-[#162B4D] w-12 text-right flex-shrink-0">₹{((Number(p.price) + selectedAreaCharge) * p.quantity).toLocaleString("en-IN")}</span>
                           </div>
+                          {availableCuttingMethods.length > 0 && (
+                            <div className="mt-2 rounded-md bg-gray-50 px-2 py-1.5">
+                              <p className="text-[10px] font-semibold text-gray-500 mb-1">
+                                Cutting methods (optional){selectedCuttingMethods.length > 0 ? ` · ${selectedCuttingMethods.length} selected` : ""}
+                              </p>
+                              <div className="flex flex-wrap gap-x-2 gap-y-1">
+                                {availableCuttingMethods.map((method) => (
+                                  <label key={method} className="inline-flex items-center gap-1 text-[10px] text-gray-700 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedCuttingMethods.includes(method)}
+                                      onChange={() => setSelectedProducts((current) => current.map((item, index) => {
+                                        if (index !== cartIndex) return item;
+                                        const currentMethods = Array.isArray(item.cuttingMethods) ? item.cuttingMethods : [];
+                                        return {
+                                          ...item,
+                                          cuttingMethods: currentMethods.includes(method)
+                                            ? currentMethods.filter((name) => name !== method)
+                                            : [...currentMethods, method],
+                                        };
+                                      }))}
+                                      className="h-3 w-3 rounded accent-[#1A56DB]"
+                                    />
+                                    <span>{method}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           {bulkWeightKg > 0 && (
                             <div className="mt-1.5 space-y-1">
                               <p className="text-[10px] font-semibold text-[#162B4D]">Current: {Math.round(bulkWeightKg * 1000).toLocaleString("en-IN")} g</p>
@@ -6543,6 +6585,9 @@ export default function Orders() {
                         <li key={i} className="flex items-center justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <p className="font-bold text-black text-base">{item.name}</p>
+                            {Array.isArray(item.cuttingMethods) && item.cuttingMethods.length > 0 && (
+                              <p className="text-sm text-[#364F9F] mt-0.5">Cutting: {item.cuttingMethods.join(", ")}</p>
+                            )}
                             <p className="text-sm font-medium text-black mt-0.5">{qty} × {formatRupees(Number(item.price))}</p>
                           </div>
                           <span className="font-extrabold text-black text-base whitespace-nowrap">{formatRupees(lineTotal)}</span>

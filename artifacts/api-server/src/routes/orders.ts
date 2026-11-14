@@ -264,6 +264,42 @@ function toId(id: string): mongoose.mongo.BSON.ObjectId | null {
   try { return new mongoose.mongo.ObjectId(id); } catch { return null; }
 }
 
+function normalizeOrderCuttingMethods(raw: any): string[] | null {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) return null;
+  const names = raw.map((value: any) => String(value ?? "").trim()).filter(Boolean);
+  if (names.some((name: string) => name.length > 80)) return null;
+  return Array.from(new Map(names.map((name: string) => [name.toLocaleLowerCase("en-IN"), name])).values());
+}
+
+async function validateOrderCuttingMethods(subHubId: unknown, items: any[]): Promise<string | null> {
+  const selectedItems = items.filter((item) => Array.isArray(item.cuttingMethods) && item.cuttingMethods.length > 0);
+  if (selectedItems.length === 0) return null;
+  const subHubObjectId = toId(String(subHubId ?? ""));
+  if (!subHubObjectId) return "A valid sub hub is required for cutting method selections.";
+  const subHub = await SubHub.findById(subHubObjectId).select("dbName").lean() as any;
+  if (!subHub?.dbName) return "The selected sub hub has no product database.";
+
+  const productIds = selectedItems.map((item) => toId(String(item.productId ?? "")));
+  if (productIds.some((id) => !id)) return "Cutting methods can only be selected for saved products.";
+  const validProductIds = productIds.filter(Boolean) as mongoose.mongo.BSON.ObjectId[];
+  const conn = await getSubHubDbConnection(String(subHub.dbName));
+  const productDocs = await conn.db!.collection("products")
+    .find({ _id: { $in: validProductIds } })
+    .project({ cuttingMethods: 1 })
+    .toArray();
+  const productsById = new Map(productDocs.map((product: any) => [String(product._id), product]));
+  for (const item of selectedItems) {
+    const product = productsById.get(String(item.productId));
+    if (!product) return "A selected product with cutting methods could not be found.";
+    const available = new Set((Array.isArray(product.cuttingMethods) ? product.cuttingMethods : []).map((name: any) => String(name)));
+    if (item.cuttingMethods.some((name: string) => !available.has(name))) {
+      return `One or more cutting methods are no longer available for ${item.name}.`;
+    }
+  }
+  return null;
+}
+
 const ORDER_QR_PREFIX = "fishtokri-order-v1";
 const ORDER_QR_PUBLIC_URL = "https://fishtokri.com/";
 
@@ -1145,6 +1181,10 @@ router.post("/", async (req: ScopedRequest, res) => {
       res.status(400).json({ error: "ValidationError", message: "At least one item is required" });
       return;
     }
+    if (items.some((item: any) => normalizeOrderCuttingMethods(item?.cuttingMethods) === null)) {
+      res.status(400).json({ error: "ValidationError", message: "Cutting methods must be an array of names up to 80 characters each." });
+      return;
+    }
     const dt = deliveryType === "takeaway" ? "takeaway" : "delivery";
     if (nextDayOrder === true && dt !== "delivery") {
       res.status(400).json({ error: "ValidationError", message: "Next Day Orders must use delivery." });
@@ -1191,6 +1231,9 @@ router.post("/", async (req: ScopedRequest, res) => {
         ...(Number(it.bulkSourceWeightKg) > 0 ? { bulkSourceWeightKg: Number(it.bulkSourceWeightKg) } : {}),
         ...(allowPosBulkWeightOverride && it.posWeightOverride === true ? { posWeightOverride: true } : {}),
       } : {}),
+      ...(normalizeOrderCuttingMethods(it.cuttingMethods)?.length
+        ? { cuttingMethods: normalizeOrderCuttingMethods(it.cuttingMethods) }
+        : {}),
     })).filter((it: any) => it.name);
 
     if (cleanItems.length === 0) {
@@ -1211,6 +1254,12 @@ router.post("/", async (req: ScopedRequest, res) => {
         res.status(403).json({ error: "Forbidden", message: "You can only create orders for your assigned sub hubs." });
         return;
       }
+    }
+
+    const cuttingMethodsError = await validateOrderCuttingMethods(subHubId, cleanItems);
+    if (cuttingMethodsError) {
+      res.status(400).json({ error: "ValidationError", message: cuttingMethodsError });
+      return;
     }
 
     let selectedCityArea = "";
@@ -2430,6 +2479,10 @@ router.put("/:id", async (req: ScopedRequest, res) => {
     if (Array.isArray(couponIds)) update.couponIds = couponIds;
     if (Array.isArray(couponCodes)) update.couponCodes = couponCodes;
     if (Array.isArray(coupons)) update.coupons = coupons;
+    if (Array.isArray(items) && items.some((item: any) => normalizeOrderCuttingMethods(item?.cuttingMethods) === null)) {
+      res.status(400).json({ error: "ValidationError", message: "Cutting methods must be an array of names up to 80 characters each." });
+      return;
+    }
     if (subtotal !== undefined) update.subtotal = Number(subtotal) || 0;
     if (discount !== undefined) update.discount = Number(discount) || 0;
     if (slotCharge !== undefined) update.slotCharge = DIRECT_ORDER_ONLY ? 0 : Number(slotCharge) || 0;
@@ -2522,6 +2575,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
           ...(Number(it?.bulkSourceWeightKg) > 0 ? { bulkSourceWeightKg: Number(it.bulkSourceWeightKg) } : {}),
           ...(allowPosBulkWeightOverride && it?.posWeightOverride === true ? { posWeightOverride: true } : {}),
         } : {}),
+        cuttingMethods: normalizeOrderCuttingMethods(it?.cuttingMethods) ?? [],
         };
       }).filter((it: any) => it.name && it.quantity > 0);
       const computedSubtotal = update.items.reduce(

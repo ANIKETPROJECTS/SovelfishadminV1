@@ -3012,6 +3012,12 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
   const [lowStockThreshold, setLowStockThreshold] = useState("0");
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
   const [categorySearchInput, setCategorySearchInput] = useState("");
+  const [availableCuttingMethods, setAvailableCuttingMethods] = useState<any[]>([]);
+  const [selectedCuttingMethods, setSelectedCuttingMethods] = useState<string[]>([]);
+  const [newCuttingMethodName, setNewCuttingMethodName] = useState("");
+  const [editingCuttingMethodId, setEditingCuttingMethodId] = useState("");
+  const [editingCuttingMethodName, setEditingCuttingMethodName] = useState("");
+  const [cuttingMethodsBusy, setCuttingMethodsBusy] = useState(false);
 
   const discountPct = useMemo(() => {
     const p = Number(price), op = Number(originalPrice);
@@ -3020,6 +3026,9 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
 
   useEffect(() => {
     if (!isOpen) return;
+    apiFetch(`/api/sub-hubs/${subHubId}/menu/cutting-methods`)
+      .then((data) => setAvailableCuttingMethods(Array.isArray(data.methods) ? data.methods : []))
+      .catch((error: any) => toast({ title: "Could not load cutting methods", description: error.message, variant: "destructive" }));
     apiFetch(`/api/sub-hubs/${subHubId}/menu/coupons`).then((d) => {
       setAvailableCoupons(d.coupons ?? []);
     }).catch(() => {});
@@ -3059,6 +3068,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
         method: Array.isArray(r.method) && r.method.length > 0 ? r.method : [""],
       })) : []);
       setCouponIds(Array.isArray(product.couponIds) ? product.couponIds.map((id: any) => String(id?.$oid ?? id?._id ?? id)) : []);
+      setSelectedCuttingMethods(Array.isArray(product.cuttingMethods) ? product.cuttingMethods.map((method: any) => String(method)) : []);
       setLowStockThreshold(String(product.lowStockThreshold ?? 0));
       // Load batches from inventory API
       setBatchesLoading(true);
@@ -3086,12 +3096,17 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
       setPreorderAvailability(defaultPreorderAvailability());
       setPreorderTimeslots([]);
       setCouponIds([]);
+      setSelectedCuttingMethods([]);
       setLowStockThreshold("0");
       setBatches([]);
     }
+    setNewCuttingMethodName("");
+    setEditingCuttingMethodId("");
+    setEditingCuttingMethodName("");
+    setCuttingMethodsBusy(false);
     setCategoryDropdownOpen(false);
     setCategorySearchInput("");
-  }, [isOpen, product]);
+  }, [isOpen, product, subHubId, toast]);
 
   const selectedCat = categories?.find((c: any) => c.name === category);
   const subCats: string[] = selectedCat?.subCategories?.map((s: any) => s.name ?? s) ?? [];
@@ -3113,6 +3128,70 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
       alert(err.message ?? "Upload failed");
     } finally {
       setProductImageUploading(false);
+    }
+  };
+
+  const addCuttingMethod = async () => {
+    const name = newCuttingMethodName.trim();
+    if (!name) return;
+    setCuttingMethodsBusy(true);
+    try {
+      const data = await apiFetch(`/api/sub-hubs/${subHubId}/menu/cutting-methods`, {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      const method = data.method;
+      setAvailableCuttingMethods((current) => [...current, method].sort((a, b) => a.name.localeCompare(b.name)));
+      setSelectedCuttingMethods((current) => current.includes(method.name) ? current : [...current, method.name]);
+      setNewCuttingMethodName("");
+      toast({ title: "Cutting method added", description: `${method.name} is selected for this product.` });
+    } catch (error: any) {
+      toast({ title: "Could not add cutting method", description: error.message, variant: "destructive" });
+    } finally {
+      setCuttingMethodsBusy(false);
+    }
+  };
+
+  const saveCuttingMethodName = async (method: any) => {
+    const name = editingCuttingMethodName.trim();
+    if (!name) {
+      toast({ title: "Enter a cutting method name", variant: "destructive" });
+      return;
+    }
+    setCuttingMethodsBusy(true);
+    try {
+      const data = await apiFetch(`/api/sub-hubs/${subHubId}/menu/cutting-methods/${encodeURIComponent(String(method._id))}`, {
+        method: "PUT",
+        body: JSON.stringify({ name }),
+      });
+      setAvailableCuttingMethods((current) => current.map((item) => String(item._id) === String(method._id) ? data.method : item).sort((a, b) => a.name.localeCompare(b.name)));
+      setSelectedCuttingMethods((current) => current.map((selected) => selected === method.name ? data.method.name : selected));
+      setEditingCuttingMethodId("");
+      setEditingCuttingMethodName("");
+      toast({ title: "Cutting method updated", description: "The name was updated wherever it is used." });
+    } catch (error: any) {
+      toast({ title: "Could not update cutting method", description: error.message, variant: "destructive" });
+    } finally {
+      setCuttingMethodsBusy(false);
+    }
+  };
+
+  const deleteCuttingMethod = async (method: any) => {
+    if (!window.confirm(`Delete "${method.name}" from this sub-hub? It will be removed from every product, but existing orders will keep their saved selection.`)) return;
+    setCuttingMethodsBusy(true);
+    try {
+      await apiFetch(`/api/sub-hubs/${subHubId}/menu/cutting-methods/${encodeURIComponent(String(method._id))}`, { method: "DELETE" });
+      setAvailableCuttingMethods((current) => current.filter((item) => String(item._id) !== String(method._id)));
+      setSelectedCuttingMethods((current) => current.filter((selected) => selected !== method.name));
+      if (editingCuttingMethodId === String(method._id)) {
+        setEditingCuttingMethodId("");
+        setEditingCuttingMethodName("");
+      }
+      toast({ title: "Cutting method deleted", description: "It was removed from products; saved orders are unchanged." });
+    } catch (error: any) {
+      toast({ title: "Could not delete cutting method", description: error.message, variant: "destructive" });
+    } finally {
+      setCuttingMethodsBusy(false);
     }
   };
 
@@ -3156,6 +3235,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
       preorderAvailability: preorderMode === "preorder_only"
         ? preorderAvailability
         : defaultPreorderAvailability(),
+      cuttingMethods: selectedCuttingMethods,
       recipes: cleanedRecipes,
       couponIds,
     };
@@ -3518,6 +3598,107 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
                 </div>
               )}
             </div>
+          </section>
+
+          {/* ── CUTTING METHODS ─────────────────────────────── */}
+          <section className="rounded-lg border border-gray-200 p-3 space-y-3">
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <Label className="text-xs font-semibold text-gray-700">Cutting Methods</Label>
+                <span className="text-[10px] text-gray-400">{selectedCuttingMethods.length} selected</span>
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1">Choose the optional cutting choices available for this product in POS. Orders can select none, one, or multiple.</p>
+            </div>
+
+            <div className="flex gap-2">
+              <Input
+                value={newCuttingMethodName}
+                onChange={(event) => setNewCuttingMethodName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void addCuttingMethod();
+                  }
+                }}
+                maxLength={80}
+                placeholder="Add a reusable method, e.g. Curry cut"
+                className="h-9"
+                disabled={cuttingMethodsBusy}
+              />
+              <Button type="button" variant="outline" className="h-9 shrink-0" onClick={() => void addCuttingMethod()} disabled={cuttingMethodsBusy || !newCuttingMethodName.trim()}>
+                <Plus className="w-4 h-4 mr-1" /> Add
+              </Button>
+            </div>
+
+            {availableCuttingMethods.length > 0 ? (
+              <div className="max-h-64 overflow-y-auto rounded-md border border-gray-100 divide-y divide-gray-100">
+                {availableCuttingMethods.map((method: any) => {
+                  const methodId = String(method._id);
+                  const selected = selectedCuttingMethods.includes(method.name);
+                  const isEditingMethod = editingCuttingMethodId === methodId;
+                  return (
+                    <div key={methodId} className="flex items-center justify-between gap-3 px-3 py-2">
+                      {isEditingMethod ? (
+                        <>
+                          <Input
+                            autoFocus
+                            value={editingCuttingMethodName}
+                            onChange={(event) => setEditingCuttingMethodName(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                void saveCuttingMethodName(method);
+                              }
+                              if (event.key === "Escape") {
+                                setEditingCuttingMethodId("");
+                                setEditingCuttingMethodName("");
+                              }
+                            }}
+                            maxLength={80}
+                            className="h-8"
+                            disabled={cuttingMethodsBusy}
+                            aria-label={`Rename ${method.name}`}
+                          />
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button type="button" title="Save method name" aria-label="Save method name" onClick={() => void saveCuttingMethodName(method)} disabled={cuttingMethodsBusy} className="p-1.5 rounded text-emerald-600 hover:bg-emerald-50 disabled:opacity-50">
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button type="button" title="Cancel rename" aria-label="Cancel rename" onClick={() => { setEditingCuttingMethodId(""); setEditingCuttingMethodName(""); }} disabled={cuttingMethodsBusy} className="p-1.5 rounded text-gray-500 hover:bg-gray-100 disabled:opacity-50">
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              disabled={cuttingMethodsBusy}
+                              onChange={() => setSelectedCuttingMethods((current) => selected
+                                ? current.filter((name) => name !== method.name)
+                                : [...current, method.name])}
+                              className="h-4 w-4 rounded accent-[#1A56DB]"
+                            />
+                            <span className="truncate">{method.name}</span>
+                          </label>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button type="button" title={`Edit ${method.name}`} aria-label={`Edit ${method.name}`} onClick={() => { setEditingCuttingMethodId(methodId); setEditingCuttingMethodName(method.name); }} disabled={cuttingMethodsBusy} className="p-1.5 rounded text-[#1A56DB] hover:bg-blue-50 disabled:opacity-50">
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button type="button" title={`Delete ${method.name}`} aria-label={`Delete ${method.name}`} onClick={() => void deleteCuttingMethod(method)} disabled={cuttingMethodsBusy} className="p-1.5 rounded text-red-500 hover:bg-red-50 disabled:opacity-50">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="rounded-md bg-gray-50 px-3 py-4 text-center text-xs text-gray-500">No reusable cutting methods yet. Add one above to make it available for products in this sub-hub.</p>
+            )}
           </section>
 
           {isEditing && product?.wholeFishInventory === true ? (

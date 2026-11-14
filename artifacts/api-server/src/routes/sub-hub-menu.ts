@@ -66,6 +66,31 @@ function normalizeIdList(values: any) {
     .filter(Boolean);
 }
 
+function normalizeCuttingMethodNames(values: any): string[] | null {
+  if (!Array.isArray(values)) return null;
+  const names = values
+    .map((value: any) => String(value ?? "").trim())
+    .filter(Boolean);
+  if (names.some((name: string) => name.length > 80)) return null;
+  return Array.from(new Map(names.map((name: string) => [name.toLocaleLowerCase("en-IN"), name])).values());
+}
+
+async function validateProductCuttingMethods(db: any, values: any): Promise<{ names?: string[]; error?: string }> {
+  const names = normalizeCuttingMethodNames(values);
+  if (!names) return { error: "Cutting methods must be an array of names (maximum 80 characters each)." };
+  if (names.length === 0) return { names: [] };
+  const nameKeys = names.map((name) => name.toLocaleLowerCase("en-IN"));
+  const methods = await db.collection("cutting_methods")
+    .find({ nameKey: { $in: nameKeys } })
+    .project({ name: 1, nameKey: 1 })
+    .toArray();
+  const canonicalNames = new Map(methods.map((method: any) => [String(method.nameKey), String(method.name)]));
+  if (nameKeys.some((key) => !canonicalNames.has(key))) {
+    return { error: "Choose cutting methods from this sub-hub's saved method list." };
+  }
+  return { names: Array.from(new Set(nameKeys.map((key) => canonicalNames.get(key)!))) };
+}
+
 const PRODUCT_PREORDER_DAY_NUMBERS = [0, 1, 2, 3, 4, 5, 6];
 const PRODUCT_PREORDER_AVAILABILITY_TYPES = new Set(["all", "weekdays", "date_range", "date_range_and_weekdays"]);
 
@@ -153,6 +178,111 @@ router.get("/stats", async (req, res) => {
 });
 
 // ─── PRODUCTS ─────────────────────────────────────────────────────────────────
+router.get("/cutting-methods", async (req, res) => {
+  try {
+    const ctx = await getSubHubDb(String((req.params as any).id), res, req as ScopedRequest);
+    if (!ctx) return;
+    const methods = await ctx.conn.db!.collection("cutting_methods").find({})
+      .sort({ nameKey: 1, name: 1 }).toArray();
+    res.json({ methods });
+  } catch (err) {
+    req.log.error({ err }, "Failed to get cutting methods");
+    res.status(500).json({ error: "InternalError", message: "Failed to fetch cutting methods" });
+  }
+});
+
+router.post("/cutting-methods", async (req, res) => {
+  try {
+    const ctx = await getSubHubDb(String((req.params as any).id), res, req as ScopedRequest);
+    if (!ctx) return;
+    const name = String(req.body?.name ?? "").trim();
+    if (!name || name.length > 80) {
+      res.status(400).json({ error: "ValidationError", message: "Enter a cutting method name up to 80 characters." });
+      return;
+    }
+    const methods = ctx.conn.db!.collection("cutting_methods");
+    const nameKey = name.toLocaleLowerCase("en-IN");
+    if (await methods.findOne({ nameKey })) {
+      res.status(409).json({ error: "Duplicate", message: "This cutting method already exists." });
+      return;
+    }
+    const doc = { name, nameKey, createdAt: new Date(), updatedAt: new Date() };
+    const result = await methods.insertOne(doc);
+    res.status(201).json({ method: { ...doc, _id: result.insertedId } });
+  } catch (err) {
+    req.log.error({ err }, "Failed to create cutting method");
+    res.status(500).json({ error: "InternalError", message: "Failed to create cutting method" });
+  }
+});
+
+router.put("/cutting-methods/:methodId", async (req, res) => {
+  try {
+    const ctx = await getSubHubDb(String((req.params as any).id), res, req as ScopedRequest);
+    if (!ctx) return;
+    const methodId = toId(req.params.methodId);
+    const name = String(req.body?.name ?? "").trim();
+    if (!methodId) {
+      res.status(400).json({ error: "InvalidId", message: "Invalid cutting method ID." });
+      return;
+    }
+    if (!name || name.length > 80) {
+      res.status(400).json({ error: "ValidationError", message: "Enter a cutting method name up to 80 characters." });
+      return;
+    }
+    const methods = ctx.conn.db!.collection("cutting_methods");
+    const existing = await methods.findOne({ _id: methodId });
+    if (!existing) {
+      res.status(404).json({ error: "NotFound", message: "Cutting method not found." });
+      return;
+    }
+    const nameKey = name.toLocaleLowerCase("en-IN");
+    const duplicate = await methods.findOne({ nameKey, _id: { $ne: methodId } });
+    if (duplicate) {
+      res.status(409).json({ error: "Duplicate", message: "This cutting method already exists." });
+      return;
+    }
+    await methods.updateOne({ _id: methodId }, { $set: { name, nameKey, updatedAt: new Date() } });
+    if (String(existing.name) !== name) {
+      await ctx.conn.db!.collection("products").updateMany(
+        { cuttingMethods: String(existing.name) },
+        { $set: { "cuttingMethods.$[method]": name, updatedAt: new Date() } },
+        { arrayFilters: [{ method: String(existing.name) }] },
+      );
+    }
+    res.json({ method: { ...existing, name, nameKey, updatedAt: new Date() } });
+  } catch (err) {
+    req.log.error({ err }, "Failed to update cutting method");
+    res.status(500).json({ error: "InternalError", message: "Failed to update cutting method" });
+  }
+});
+
+router.delete("/cutting-methods/:methodId", async (req, res) => {
+  try {
+    const ctx = await getSubHubDb(String((req.params as any).id), res, req as ScopedRequest);
+    if (!ctx) return;
+    const methodId = toId(req.params.methodId);
+    if (!methodId) {
+      res.status(400).json({ error: "InvalidId", message: "Invalid cutting method ID." });
+      return;
+    }
+    const methods = ctx.conn.db!.collection("cutting_methods");
+    const existing = await methods.findOne({ _id: methodId });
+    if (!existing) {
+      res.status(404).json({ error: "NotFound", message: "Cutting method not found." });
+      return;
+    }
+    await methods.deleteOne({ _id: methodId });
+    await ctx.conn.db!.collection("products").updateMany(
+      { cuttingMethods: String(existing.name) },
+      { $pull: { cuttingMethods: String(existing.name) }, $set: { updatedAt: new Date() } } as any,
+    );
+    res.json({ message: "Cutting method deleted", methodId: String(methodId) });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete cutting method");
+    res.status(500).json({ error: "InternalError", message: "Failed to delete cutting method" });
+  }
+});
+
 router.get("/products", async (req, res) => {
   try {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);
@@ -426,6 +556,7 @@ router.post("/products/:productId/variants", async (req, res) => {
       lowStockThreshold: Number(base.lowStockThreshold) || 0,
       preorderMode: base.preorderMode ?? "normal",
       preorderAvailability: base.preorderAvailability ?? { type: "all", weekdays: [0, 1, 2, 3, 4, 5, 6], startDate: "", endDate: "" },
+      cuttingMethods: Array.isArray(base.cuttingMethods) ? base.cuttingMethods : [],
       recipes: Array.isArray(base.recipes) ? base.recipes : [],
       sectionId: Array.isArray(base.sectionId) ? base.sectionId : [],
       couponIds: Array.isArray(base.couponIds) ? base.couponIds : [],
@@ -601,7 +732,7 @@ router.post("/products", async (req, res) => {
       price, originalPrice, discountPct, unit, weight, grossWeight, netWeight, pieces, serves, quantity,
       status, isArchived, imageUrl, limitedStockNote, lowStockThreshold,
       recipes, sectionId, couponIds, preorderMode,
-      preorderAvailability,
+      preorderAvailability, cuttingMethods,
     } = req.body;
     if (!name) { res.status(400).json({ error: "ValidationError", message: "Name is required" }); return; }
     const validPreorderModes = new Set(["normal", "preorder_only"]);
@@ -609,6 +740,11 @@ router.post("/products", async (req, res) => {
     const availabilityResult = normalizePreorderAvailability(preorderAvailability);
     if (availabilityResult.error) {
       res.status(400).json({ error: "ValidationError", message: availabilityResult.error });
+      return;
+    }
+    const cuttingMethodsResult = await validateProductCuttingMethods(ctx.conn.db!, cuttingMethods ?? []);
+    if (cuttingMethodsResult.error) {
+      res.status(400).json({ error: "ValidationError", message: cuttingMethodsResult.error });
       return;
     }
     const p = Number(price) || 0;
@@ -637,6 +773,7 @@ router.post("/products", async (req, res) => {
       lowStockThreshold: lowStockThreshold != null ? Number(lowStockThreshold) : 0,
       preorderMode: normalizedPreorderMode,
       preorderAvailability: availabilityResult.value,
+      cuttingMethods: cuttingMethodsResult.names,
       recipes: Array.isArray(recipes) ? recipes : [],
       sectionId: normalizeIdList(sectionId),
       couponIds: normalizeIdList(couponIds),
@@ -663,7 +800,7 @@ router.put("/products/:productId", async (req, res) => {
       price, originalPrice, discountPct, unit, weight, grossWeight, netWeight, pieces, serves, quantity,
       status, isArchived, imageUrl, limitedStockNote, lowStockThreshold,
       recipes, sectionId, couponIds, preorderMode,
-      preorderAvailability,
+      preorderAvailability, cuttingMethods,
     } = req.body;
     const update: any = { updatedAt: new Date() };
     if (name !== undefined) update.name = name;
@@ -702,6 +839,14 @@ router.put("/products/:productId", async (req, res) => {
       }
       update.preorderAvailability = availabilityResult.value;
     }
+    if (cuttingMethods !== undefined) {
+      const cuttingMethodsResult = await validateProductCuttingMethods(db, cuttingMethods);
+      if (cuttingMethodsResult.error) {
+        res.status(400).json({ error: "ValidationError", message: cuttingMethodsResult.error });
+        return;
+      }
+      update.cuttingMethods = cuttingMethodsResult.names;
+    }
     if (recipes !== undefined) update.recipes = Array.isArray(recipes) ? recipes : [];
     if (sectionId !== undefined) update.sectionId = normalizeIdList(sectionId);
     if (couponIds !== undefined) update.couponIds = normalizeIdList(couponIds);
@@ -710,7 +855,7 @@ router.put("/products/:productId", async (req, res) => {
     if (existing.variantGroupId) {
       const sharedFields = [
         "name", "description", "category", "subCategory", "shortCode",
-        "imageUrl", "preorderMode", "preorderAvailability", "recipes", "unit",
+        "imageUrl", "preorderMode", "preorderAvailability", "recipes", "unit", "cuttingMethods",
       ];
       const sharedUpdate: Record<string, unknown> = { updatedAt: update.updatedAt };
       for (const field of sharedFields) {
@@ -838,7 +983,7 @@ router.post("/products/bulk-upsert", async (req, res) => {
           await ctx.conn.db.collection("products").updateOne({ _id: oid }, { $set: fields });
           updated.push(1);
         } else {
-          await ctx.conn.db.collection("products").insertOne({ ...fields, createdAt: new Date() });
+          await ctx.conn.db.collection("products").insertOne({ ...fields, cuttingMethods: [], createdAt: new Date() });
           created.push(1);
         }
       } catch (rowErr: any) {
