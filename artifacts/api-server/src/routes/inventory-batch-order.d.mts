@@ -47,6 +47,8 @@ export interface BulkPortionOption {
   weightKg: number;
   minWeightKg?: number;
   maxWeightKg?: number;
+  pieces?: string;
+  serves?: string;
 }
 
 export declare function normalizeBulkPortionOptions(

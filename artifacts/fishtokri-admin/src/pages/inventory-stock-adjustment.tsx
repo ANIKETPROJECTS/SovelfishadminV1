@@ -54,6 +54,8 @@ type Batch = {
   id: string;
   batchNumber: string;
   quantity: number;
+  pieces?: string;
+  serves?: string;
   shelfLifeDays: number | null;
   receivedDate: string | null;
   expiryDate: string | null;
@@ -64,8 +66,14 @@ type Batch = {
   fishPricePerKg?: number | null;
 };
 type FishInventoryMode = "standard" | "whole_fish" | "bulk_portions";
-type BulkPortionOption = { weightKg: number; minWeightKg?: number; maxWeightKg?: number };
-type BulkPortionOptionForm = { weightInput: string };
+type BulkPortionOption = {
+  weightKg: number;
+  minWeightKg?: number;
+  maxWeightKg?: number;
+  pieces?: string;
+  serves?: string;
+};
+type BulkPortionOptionForm = { weightInput: string; pieces: string; serves: string };
 type WeightInputUnit = "kg" | "g";
 
 function formatWeightInput(weightKg: number | string | null | undefined, unit: WeightInputUnit): string {
@@ -208,17 +216,27 @@ function bulkPortionOptionsForProduct(product?: Product): BulkPortionOptionForm[
       weightInput: option.minWeightKg != null && option.maxWeightKg != null
         ? `${Number(option.minWeightKg)}-${Number(option.maxWeightKg)}`
         : String(Number(option.weightKg) || ""),
+      pieces: String(option.pieces ?? ""),
+      serves: String(option.serves ?? ""),
     }));
   }
   if (product?.bulkPortionWeightsKg?.length) {
-    return product.bulkPortionWeightsKg.map((weightKg) => ({ weightInput: String(Number(weightKg) || "") }));
+    return product.bulkPortionWeightsKg.map((weightKg) => ({
+      weightInput: String(Number(weightKg) || ""),
+      pieces: "",
+      serves: "",
+    }));
   }
-  return ["0.5", "1", "2"].map((weightInput) => ({ weightInput }));
+  return ["0.5", "1", "2"].map((weightInput) => ({ weightInput, pieces: "", serves: "" }));
 }
 
 function bulkPortionOptionsForSave(options: BulkPortionOptionForm[]): BulkPortionOption[] {
   return options
-    .map((option) => parseBulkPortionInput(option.weightInput) ?? { weightKg: Number.NaN })
+    .map((option) => ({
+      ...(parseBulkPortionInput(option.weightInput) ?? { weightKg: Number.NaN }),
+      ...(option.pieces.trim() ? { pieces: option.pieces.trim() } : {}),
+      ...(option.serves.trim() ? { serves: option.serves.trim() } : {}),
+    }))
     .sort((a, b) => a.weightKg - b.weightKg);
 }
 
@@ -293,6 +311,8 @@ type FormRow = {
   bulkPortionOptions: BulkPortionOptionForm[];
   fishWeightKg: string;
   fishPrice: string;
+  pieces: string;
+  serves: string;
 };
 
 type Adjustment = {
@@ -376,7 +396,7 @@ function emptyRow(): FormRow {
     mode: "add", addQuantity: "", shelfLifeDays: "", expiryDate: "", expiryTime: getCurrentTime12h(), batchNumber: "",
     removeQuantity: "", selectedBatchId: "", search: "",
     isWholeFishBatch: false, isBulkFishBatch: false, fishInventoryMode: "standard",
-    fishPricePerKg: "", bulkPortionOptions: [], fishWeightKg: "", fishPrice: "",
+    fishPricePerKg: "", bulkPortionOptions: [], fishWeightKg: "", fishPrice: "", pieces: "", serves: "",
   };
 }
 
@@ -1119,7 +1139,7 @@ function ExistingBatchesCard({
       <>
         {/* Column headers */}
           <div className="px-3 py-1.5 bg-[#364F9F]/5 border-y border-[#364F9F]/10">
-            <div className={`grid ${wholeFishProduct ? "min-w-[1080px] grid-cols-8" : "grid-cols-6"} gap-2`}>
+            <div className={`grid ${wholeFishProduct ? "min-w-[1320px] grid-cols-10" : "grid-cols-6"} gap-2`}>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Batch ID</span>
               {wholeFishProduct && (
                 <div className="flex items-center justify-between gap-1">
@@ -1129,6 +1149,8 @@ function ExistingBatchesCard({
               )}
               {wholeFishProduct && <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Price / fish</span>}
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">{wholeFishProduct ? "Fish stock (0 or 1)" : `Qty (${unit})`}</span>
+              {wholeFishProduct && <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Pieces</span>}
+              {wholeFishProduct && <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Serves</span>}
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Shelf Life (d, optional)</span>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Received</span>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Expiry Date &amp; Time (optional)</span>
@@ -1145,7 +1167,7 @@ function ExistingBatchesCard({
                 : dl <= 7 ? "border-amber-300 bg-amber-50"
                 : "border-emerald-200 bg-emerald-50";
               return (
-                <div key={b.id} className={`px-3 py-2 grid ${wholeFishProduct ? "min-w-[1080px] grid-cols-8" : "grid-cols-6"} gap-2 items-start bg-white/50 hover:bg-white/80 transition-colors`}>
+                <div key={b.id} className={`px-3 py-2 grid ${wholeFishProduct ? "min-w-[1320px] grid-cols-10" : "grid-cols-6"} gap-2 items-start bg-white/50 hover:bg-white/80 transition-colors`}>
                   <input
                     type="text"
                     value={b.batchNumber}
@@ -1188,6 +1210,26 @@ function ExistingBatchesCard({
                     onChange={(e) => patchBatch(i, { quantity: Number(e.target.value) })}
                     className="h-7 px-2 text-[11px] font-bold text-[#162B4D] border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#364F9F]/30 mt-0.5"
                   />
+                  {wholeFishProduct && (
+                    <input
+                      type="text"
+                      value={b.pieces ?? ""}
+                      onChange={(e) => patchBatch(i, { pieces: e.target.value })}
+                      aria-label="Pieces for this fish batch"
+                      placeholder="e.g. 4–5 pieces"
+                      className="h-7 min-w-0 px-2 text-[11px] text-[#162B4D] border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#364F9F]/30 mt-0.5"
+                    />
+                  )}
+                  {wholeFishProduct && (
+                    <input
+                      type="text"
+                      value={b.serves ?? ""}
+                      onChange={(e) => patchBatch(i, { serves: e.target.value })}
+                      aria-label="Serves for this fish batch"
+                      placeholder="e.g. serves 2"
+                      className="h-7 min-w-0 px-2 text-[11px] text-[#162B4D] border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#364F9F]/30 mt-0.5"
+                    />
+                  )}
                   <input
                     type="number"
                     min="0"
@@ -1349,10 +1391,10 @@ function WholeFishAdjustmentTable({
         <p className="pb-2 text-xs text-gray-500">Each fish’s total price is calculated from its weight and this rate. Saving the price does not change stock.</p>
       </div>
       <div className="overflow-x-auto rounded-lg border border-gray-200">
-        <table className="w-full min-w-[900px] border-collapse text-left">
+        <table className="w-full min-w-[1220px] border-collapse text-left">
           <thead className="bg-gray-50">
             <tr>
-              {["#", "Weight (kg)", "Total price per fish", "Stock unit", "Expiry date & time", "Batch ID", ""].map((heading, index) => (
+              {["#", "Weight (kg)", "Total price per fish", "Stock unit", "Pieces", "Serves", "Expiry date & time", "Batch ID", ""].map((heading, index) => (
                 <th key={`${heading}-${index}`} className="border-b border-r border-gray-200 px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 last:border-r-0">
                   {index === 1 ? (
                     <div className="flex items-center justify-between gap-2">
@@ -1398,6 +1440,26 @@ function WholeFishAdjustmentTable({
                   </div>
                 </td>
                 <td className="border-b border-r border-gray-200 px-2 py-2 text-xs font-semibold text-[#162B4D]">1 fish</td>
+                <td className="border-b border-r border-gray-200 px-2 py-2">
+                  <input
+                    type="text"
+                    value={row.pieces}
+                    onChange={(event) => onUpdate(idx, { pieces: event.target.value })}
+                    placeholder="e.g. 4–5 pieces"
+                    aria-label={`Pieces for fish ${rowNumber + 1}`}
+                    className="h-9 w-full rounded-md border border-gray-200 px-2 text-xs text-[#162B4D] outline-none focus:border-[#364F9F]"
+                  />
+                </td>
+                <td className="border-b border-r border-gray-200 px-2 py-2">
+                  <input
+                    type="text"
+                    value={row.serves}
+                    onChange={(event) => onUpdate(idx, { serves: event.target.value })}
+                    placeholder="e.g. serves 2"
+                    aria-label={`Serves for fish ${rowNumber + 1}`}
+                    className="h-9 w-full rounded-md border border-gray-200 px-2 text-xs text-[#162B4D] outline-none focus:border-[#364F9F]"
+                  />
+                </td>
                 <td className="border-b border-r border-gray-200 px-2 py-2">
                   <div className="flex min-w-[220px] items-center gap-1.5">
                     <input
@@ -1547,13 +1609,13 @@ export default function InventoryStockAdjustment() {
     });
   }
 
-  function updateBulkPortionOption(card: AdjustmentCard, portionIndex: number, weightInput: string) {
+  function updateBulkPortionOption(card: AdjustmentCard, portionIndex: number, patch: Partial<BulkPortionOptionForm>) {
     if (!card.groupId) return;
     setFormRows((rows) => rows.map((row) => row.selectionGroupId === card.groupId
       ? {
           ...row,
           bulkPortionOptions: row.bulkPortionOptions.map((option, index) =>
-            index === portionIndex ? { weightInput } : option,
+            index === portionIndex ? { ...option, ...patch } : option,
           ),
         }
       : row));
@@ -1564,7 +1626,7 @@ export default function InventoryStockAdjustment() {
     setFormRows((rows) => rows.map((row) => row.selectionGroupId === card.groupId
       ? {
           ...row,
-          bulkPortionOptions: [...row.bulkPortionOptions, { weightInput: "" }],
+          bulkPortionOptions: [...row.bulkPortionOptions, { weightInput: "", pieces: "", serves: "" }],
         }
       : row));
   }
@@ -1584,6 +1646,8 @@ export default function InventoryStockAdjustment() {
     const savedOptions = bulkPortionOptionsForSave(bulkPortionOptionsForProduct(product))
       .map((option) => ({
         weightKg: Number(option.weightKg.toFixed(3)),
+        pieces: option.pieces ?? "",
+        serves: option.serves ?? "",
         ...(option.minWeightKg != null && option.maxWeightKg != null
           ? { minWeightKg: option.minWeightKg, maxWeightKg: option.maxWeightKg }
           : {}),
@@ -1592,6 +1656,8 @@ export default function InventoryStockAdjustment() {
       .filter((option) => Number.isFinite(option.weightKg) && option.weightKg > 0)
       .map((option) => ({
         weightKg: Number(option.weightKg.toFixed(3)),
+        pieces: option.pieces ?? "",
+        serves: option.serves ?? "",
         ...(option.minWeightKg != null && option.maxWeightKg != null
           ? { minWeightKg: option.minWeightKg, maxWeightKg: option.maxWeightKg }
           : {}),
@@ -1747,6 +1813,8 @@ export default function InventoryStockAdjustment() {
       batchNumber,
       fishWeightKg: "",
       fishPrice: "",
+      pieces: "",
+      serves: "",
       removeQuantity: "",
       selectedBatchId: "",
     };
@@ -2029,6 +2097,8 @@ export default function InventoryStockAdjustment() {
               fishWeightKg: Number(r.fishWeightKg),
               fishPrice: Number(r.fishPrice),
               fishPricePerKg: Number(r.fishPricePerKg),
+              pieces: r.pieces,
+              serves: r.serves,
               receivedDate: formDate,
               shelfLifeDays: r.shelfLifeDays !== ""
                 ? Number(r.shelfLifeDays)
@@ -2374,15 +2444,15 @@ export default function InventoryStockAdjustment() {
                                     <div
                                       key={`bulk-portion-${portionIndex}`}
                                       title={`Pack ${portionIndex + 1}`}
-                                      className={`flex h-12 shrink-0 items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2 ${
-                                        isRange ? "min-w-[365px]" : "min-w-[300px]"
+                                      className={`flex h-14 shrink-0 items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2 ${
+                                        isRange ? "min-w-[610px]" : "min-w-[550px]"
                                       }`}
                                     >
                                       <span className="shrink-0 text-[10px] font-semibold text-gray-500">#{portionIndex + 1}</span>
                                       <input
                                         type="text"
                                         value={option.weightInput}
-                                        onChange={(event) => updateBulkPortionOption(card, portionIndex, event.target.value)}
+                                        onChange={(event) => updateBulkPortionOption(card, portionIndex, { weightInput: event.target.value })}
                                         aria-label={`Pack ${portionIndex + 1} weight in kilograms or range`}
                                         data-testid={`input-pack-weight-${firstRow.productId}-${portionIndex + 1}`}
                                         placeholder="0.5 or 0.5-0.6"
@@ -2397,6 +2467,22 @@ export default function InventoryStockAdjustment() {
                                           avg {bulkPortionLabel(averageWeightKg)}
                                         </span>
                                       )}
+                                      <input
+                                        type="text"
+                                        value={option.pieces}
+                                        onChange={(event) => updateBulkPortionOption(card, portionIndex, { pieces: event.target.value })}
+                                        aria-label={`Pieces for pack ${portionIndex + 1}`}
+                                        placeholder="Pieces"
+                                        className="h-8 w-[92px] min-w-0 shrink-0 rounded-md border border-gray-200 px-2 text-[10px] text-[#162B4D] outline-none focus:border-[#364F9F]"
+                                      />
+                                      <input
+                                        type="text"
+                                        value={option.serves}
+                                        onChange={(event) => updateBulkPortionOption(card, portionIndex, { serves: event.target.value })}
+                                        aria-label={`Serves for pack ${portionIndex + 1}`}
+                                        placeholder="Serves"
+                                        className="h-8 w-[88px] min-w-0 shrink-0 rounded-md border border-gray-200 px-2 text-[10px] text-[#162B4D] outline-none focus:border-[#364F9F]"
+                                      />
                                       <span className="ml-auto whitespace-nowrap text-[11px] font-bold text-[#162B4D]">
                                         {calculatedPrice ? `₹${calculatedPrice}` : "Set rate"}
                                       </span>
@@ -2417,7 +2503,7 @@ export default function InventoryStockAdjustment() {
                                   type="button"
                                   onClick={() => addBulkPortionOption(card)}
                                   data-testid={`button-add-bulk-pack-${firstRow.productId}`}
-                                  className="flex h-12 shrink-0 items-center justify-center gap-1 rounded-md border border-dashed border-[#364F9F]/35 bg-white px-3 text-xs font-semibold text-[#364F9F] hover:bg-[#364F9F]/5"
+                                  className="flex h-14 shrink-0 items-center justify-center gap-1 rounded-md border border-dashed border-[#364F9F]/35 bg-white px-3 text-xs font-semibold text-[#364F9F] hover:bg-[#364F9F]/5"
                                 >
                                   <Plus className="h-3.5 w-3.5" /> Add pack
                                 </button>

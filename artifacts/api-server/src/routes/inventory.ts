@@ -88,6 +88,8 @@ type Batch = {
   _id?: any;
   batchNumber?: string;
   quantity: number;
+  pieces?: string;
+  serves?: string;
   fishWeightKg?: number | null;
   fishPrice?: number | null;
   fishPricePerKg?: number | null;
@@ -121,6 +123,8 @@ function normalizeBatch(b: any): Batch {
     _id: b?._id ?? new mongoose.Types.ObjectId(),
     batchNumber: b?.batchNumber ? String(b.batchNumber).trim() : "",
     quantity: Math.max(0, Number(b?.quantity) || 0),
+    ...(String(b?.pieces ?? "").trim() ? { pieces: String(b.pieces).trim().slice(0, 120) } : {}),
+    ...(String(b?.serves ?? "").trim() ? { serves: String(b.serves).trim().slice(0, 120) } : {}),
     ...(Number.isFinite(fishWeightValue) && fishWeightValue > 0 ? { fishWeightKg: fishWeightValue } : {}),
     ...(Number.isFinite(fishPriceValue) && fishPriceValue >= 0 ? { fishPrice: fishPriceValue } : {}),
     ...(Number.isFinite(fishPricePerKgValue) && fishPricePerKgValue > 0 ? { fishPricePerKg: fishPricePerKgValue } : {}),
@@ -158,6 +162,8 @@ function batchesTotal(batches: Batch[] | undefined | null): number {
 function batchSnapshot(batch: Batch) {
   return {
     batchNumber: batch.batchNumber || "",
+    pieces: batch.pieces ?? "",
+    serves: batch.serves ?? "",
     fishWeightKg: batch.fishWeightKg ?? null,
     fishPrice: batch.fishPrice == null ? null : Math.round(Number(batch.fishPrice)),
     fishPricePerKg: batch.fishPricePerKg ?? null,
@@ -532,6 +538,8 @@ router.get("/products", async (req, res) => {
             fishPrice: b.fishPrice != null
               ? fishInventoryMode === "whole_fish" ? Math.round(Number(b.fishPrice)) : Number(b.fishPrice)
               : null,
+            pieces: b.pieces ?? "",
+            serves: b.serves ?? "",
             fishPricePerKg: b.fishPricePerKg != null ? Number(b.fishPricePerKg) : null,
             shelfLifeDays: b.shelfLifeDays ?? null,
             receivedDate: b.receivedDate ? new Date(b.receivedDate).toISOString() : null,
@@ -952,6 +960,8 @@ router.post("/adjustments", async (req, res) => {
           fishWeightKg: it.fishWeightKg,
           fishPrice: Number.isFinite(fishPrice) ? fishPrice : undefined,
           fishPricePerKg: fishInventoryMode === "whole_fish" ? fishPricePerKg : undefined,
+          pieces: it.pieces,
+          serves: it.serves,
           createdAt: now,
         });
         newBatches.push(batch);

@@ -995,8 +995,6 @@ const PRODUCT_COLS = [
   { key: "originalPrice", header: "MRP" },
   { key: "discountPct", header: "Discount %" },
   { key: "unit", header: "Unit" },
-  { key: "pieces", header: "Pieces" },
-  { key: "serves", header: "Serves" },
   { key: "quantity", header: "Stock" },
   { key: "status", header: "Status (available/out_of_stock)" },
   { key: "isArchived", header: "Archived (yes/no)" },
@@ -1220,8 +1218,6 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
       { header: "Unit",                            key: "unit",             width: 16 },
       { header: "Gross Weight",                    key: "grossWeight",      width: 14 },
       { header: "Net Weight",                      key: "netWeight",        width: 14 },
-      { header: "Pieces",                          key: "pieces",           width: 12 },
-      { header: "Serves",                          key: "serves",           width: 12 },
       { header: "Stock",                           key: "stock",            width: 10 },
       { header: "Status (available/out_of_stock)", key: "status",           width: 30 },
       { header: "Archived (yes/no)",               key: "archived",         width: 16 },
@@ -1250,8 +1246,6 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
         unit: normalizeProductUnit(p.unit, ""),
         grossWeight: p.grossWeight ?? "",
         netWeight: p.netWeight ?? "",
-        pieces: p.pieces ?? "",
-        serves: p.serves ?? "",
         stock: p.quantity ?? 0,
         status: p.status ?? "available",
         archived: p.isArchived ? "yes" : "no",
@@ -1280,8 +1274,8 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
         formulae: ['"kg,gram,per tray,pack,per piece"'],
       };
 
-      // Status dropdown — column L (G=GrossWeight, H=NetWeight, I=Pieces, J=Serves, K=Stock, L=Status)
-      ws.getCell(`L${row}`).dataValidation = {
+      // Status dropdown — column J after product-level Pieces/Serves were removed.
+      ws.getCell(`J${row}`).dataValidation = {
         type: "list",
         allowBlank: true,
         showErrorMessage: true,
@@ -1291,8 +1285,8 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
         formulae: ['"available,out_of_stock"'],
       };
 
-      // Archived dropdown — column M
-      ws.getCell(`M${row}`).dataValidation = {
+      // Archived dropdown — column K
+      ws.getCell(`K${row}`).dataValidation = {
         type: "list",
         allowBlank: true,
         showErrorMessage: true,
@@ -1302,8 +1296,8 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
         formulae: ['"yes,no"'],
       };
 
-      // Preorder mode dropdown — column N
-      ws.getCell(`N${row}`).dataValidation = {
+      // Preorder mode dropdown — column L
+      ws.getCell(`L${row}`).dataValidation = {
         type: "list",
         allowBlank: true,
         showErrorMessage: true,
@@ -1313,8 +1307,8 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
         formulae: ['"normal,preorder_only"'],
       };
 
-      // Preorder availability dropdown — column O
-      ws.getCell(`O${row}`).dataValidation = {
+      // Preorder availability dropdown — column M
+      ws.getCell(`M${row}`).dataValidation = {
         type: "list",
         allowBlank: true,
         showErrorMessage: true,
@@ -1430,8 +1424,6 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
           unit: normalizeProductUnit(r["Unit"] ?? r["unit"] ?? "pack"),
           grossWeight: String(r["Gross Weight"] ?? r["grossWeight"] ?? ""),
           netWeight: String(r["Net Weight"] ?? r["netWeight"] ?? ""),
-          pieces: String(r["Pieces"] ?? r["pieces"] ?? ""),
-          serves: String(r["Serves"] ?? r["serves"] ?? ""),
           quantity: Number(r["Stock"] ?? r["quantity"] ?? 0),
           status: r["Status (available/out_of_stock)"] ?? r["status"] ?? "available",
           isArchived: r["Archived (yes/no)"] ?? r["isArchived"] ?? "no",
@@ -1478,8 +1470,6 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
             unit: normalizeProductUnit(r["Unit"] ?? r["unit"] ?? orig?.unit ?? "pack"),
             grossWeight: String(r["Gross Weight"] ?? r["grossWeight"] ?? orig?.grossWeight ?? ""),
             netWeight: String(r["Net Weight"] ?? r["netWeight"] ?? orig?.netWeight ?? ""),
-            pieces: String(r["Pieces"] ?? r["pieces"] ?? orig?.pieces ?? ""),
-            serves: String(r["Serves"] ?? r["serves"] ?? orig?.serves ?? ""),
             quantity: Number(r["Stock"] ?? r["quantity"] ?? orig?.quantity ?? 0),
             status: r["Status (available/out_of_stock)"] ?? r["status"] ?? orig?.status ?? "available",
             isArchived: r["Archived (yes/no)"] ?? r["isArchived"] ?? (orig?.isArchived ? "yes" : "no"),
@@ -1501,8 +1491,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
             row.unit !== (orig.unit ?? "") ||
             row.grossWeight !== String(orig.grossWeight ?? "") ||
             row.netWeight !== String(orig.netWeight ?? "") ||
-            row.pieces !== String(orig.pieces ?? "") ||
-            row.serves !== String(orig.serves ?? "") || row.quantity !== (orig.quantity ?? 0) ||
+            row.quantity !== (orig.quantity ?? 0) ||
             row.status !== (orig.status ?? "available") ||
             (String(row.isArchived).toLowerCase() === "yes") !== (orig.isArchived === true) ||
             row.preorderMode !== (orig.preorderMode ?? "normal") ||
@@ -1566,7 +1555,6 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
                 <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide">Category</th>
                 <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide">Price</th>
                 <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide">Weight / Unit</th>
-                <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide">Pieces / Serves</th>
                 <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide text-center">Stock</th>
                 <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide text-center">Recipes</th>
                 <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide">Preorder</th>
@@ -1601,10 +1589,6 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
                   </td>
                   <td className="px-5 py-4">
                     <p className="text-sm text-black font-medium">{normalizeProductUnit(p.unit, "—")}</p>
-                  </td>
-                  <td className="px-5 py-4">
-                    <p className="text-sm text-black font-medium">{p.pieces || "—"}</p>
-                    {p.serves && <p className="text-sm text-black">{p.serves}</p>}
                   </td>
                   <td className="px-5 py-4 text-center">
                     <div className="flex flex-col items-center gap-0.5">
@@ -2992,8 +2976,6 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
   const [unit, setUnit] = useState("pack");
   const [grossWeight, setGrossWeight] = useState("");
   const [netWeight, setNetWeight] = useState("");
-  const [pieces, setPieces] = useState("");
-  const [serves, setServes] = useState("");
   const [quantity, setQuantity] = useState("0");
   const [status, setStatus] = useState("available");
   const [isArchived, setIsArchived] = useState(false);
@@ -3052,8 +3034,6 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
       setUnit(normalizeProductUnit(product.unit));
       setGrossWeight(product.grossWeight ?? "");
       setNetWeight(product.netWeight ?? "");
-      setPieces(product.pieces ?? "");
-      setServes(product.serves ?? "");
       setQuantity(String(product.quantity ?? 0));
       setStatus(product.status ?? "available");
       setIsArchived(product.isArchived === true);
@@ -3090,7 +3070,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
     } else {
       setName(""); setShortCode(""); setDescription(""); setCategory(""); setSubCategory("");
       setPrice(""); setOriginalPrice(""); setUnit("pack");
-      setGrossWeight(""); setNetWeight(""); setPieces(""); setServes(""); setQuantity("0"); setStatus("available");
+      setGrossWeight(""); setNetWeight(""); setQuantity("0"); setStatus("available");
       setIsArchived(false); setProductImageUrl(""); setProductImageMode("url"); setRecipes([]);
       setPreorderMode("normal");
       setPreorderAvailability(defaultPreorderAvailability());
@@ -3227,7 +3207,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
     }));
     const payload: Record<string, any> = {
       name, shortCode, description, category, subCategory,
-      unit, pieces, serves,
+      unit,
       quantity: batchesTotal,
       status, isArchived, imageUrl,
       lowStockThreshold: Number(lowStockThreshold) || 0,
@@ -3570,9 +3550,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
                   <div className="space-y-1.5"><Label className="text-xs font-semibold text-gray-600">Net Weight</Label><Input value={netWeight} onChange={(e) => setNetWeight(e.target.value)} placeholder="e.g. 500 g" className="h-9" /></div>
                 </div>
               )}
-              <div className="grid grid-cols-4 gap-3">
-                <div className="space-y-1.5"><Label className="text-xs font-semibold text-gray-600">Pieces</Label><Input value={pieces} onChange={(e) => setPieces(e.target.value)} placeholder="e.g. 8–10 Pieces" className="h-9" /></div>
-                <div className="space-y-1.5"><Label className="text-xs font-semibold text-gray-600">Serves</Label><Input value={serves} onChange={(e) => setServes(e.target.value)} placeholder="e.g. Serves 4" className="h-9" /></div>
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold text-gray-600">Stock (Qty)</Label>
                   <Input type="number" readOnly value={batchesTotal} className="h-9 bg-gray-50 text-gray-500 cursor-not-allowed" title="Derived from batches below" />

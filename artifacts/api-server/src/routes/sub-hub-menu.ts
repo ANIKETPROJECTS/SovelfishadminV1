@@ -340,6 +340,8 @@ router.get("/products", async (req, res) => {
             weightKg: Number(batch.fishWeightKg),
             price: Math.round(Number(batch.fishPrice)),
             quantity: Number(batch.quantity) || 0,
+            pieces: batch.pieces ?? "",
+            serves: batch.serves ?? "",
             expiryDate: batch.expiryDate ?? null,
           }))
         : undefined;
@@ -375,6 +377,8 @@ router.get("/products", async (req, res) => {
                 minWeightKg: option.minWeightKg,
                 maxWeightKg: option.maxWeightKg,
               } : {}),
+              ...(option.pieces ? { pieces: option.pieces } : {}),
+              ...(option.serves ? { serves: option.serves } : {}),
               weightLabel: formatBulkPortionRangeLabel(option),
               averageWeightLabel: formatBulkPortionWeightLabel(weightKg),
               price: Math.round(weightKg * fishPricePerKg),
@@ -950,8 +954,8 @@ router.post("/products/bulk-upsert", async (req, res) => {
           grossWeight: row.grossWeight ?? "",
           netWeight: row.netWeight ?? "",
           variantLabel: String(row.netWeight ?? "").trim(),
-          pieces: row.pieces ?? "",
-          serves: row.serves ?? "",
+          ...(row.pieces !== undefined ? { pieces: String(row.pieces ?? "") } : {}),
+          ...(row.serves !== undefined ? { serves: String(row.serves ?? "") } : {}),
           quantity: Number(row.quantity ?? row.stock) || 0,
           status: row.status ?? "available",
           isArchived: String(row.isArchived ?? row.archived ?? "").toLowerCase() === "yes" || row.isArchived === true,
@@ -983,7 +987,13 @@ router.post("/products/bulk-upsert", async (req, res) => {
           await ctx.conn.db.collection("products").updateOne({ _id: oid }, { $set: fields });
           updated.push(1);
         } else {
-          await ctx.conn.db.collection("products").insertOne({ ...fields, cuttingMethods: [], createdAt: new Date() });
+          await ctx.conn.db.collection("products").insertOne({
+            ...fields,
+            pieces: fields.pieces ?? "",
+            serves: fields.serves ?? "",
+            cuttingMethods: [],
+            createdAt: new Date(),
+          });
           created.push(1);
         }
       } catch (rowErr: any) {

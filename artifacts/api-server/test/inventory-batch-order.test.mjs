@@ -34,6 +34,16 @@ test("normalizes a ranged pack to its midpoint while preserving exact legacy wei
   ]);
 });
 
+test("preserves per-pack Pieces and Serves through bulk option normalization", () => {
+  assert.deepEqual(normalizeBulkPortionOptions([
+    { weightKg: 0.5, pieces: "4–5 pieces", serves: "Serves 2" },
+    { minWeightKg: 1, maxWeightKg: 1.2, pieces: "8 pieces", serves: "Serves 4" },
+  ]), [
+    { weightKg: 0.5, pieces: "4–5 pieces", serves: "Serves 2" },
+    { weightKg: 1.1, minWeightKg: 1, maxWeightKg: 1.2, pieces: "8 pieces", serves: "Serves 4" },
+  ]);
+});
+
 test("rejects invalid, incomplete, and duplicate-average bulk ranges", () => {
   assert.equal(isValidBulkPortionOptions([{ minWeightKg: 0.5, maxWeightKg: 0.55 }]), true);
   assert.equal(isValidBulkPortionOptions([{ minWeightKg: 0.5 }]), false);
@@ -171,6 +181,8 @@ test("recreates a removed source batch using its saved ID and metadata", () => {
         batchNumber: "SOURCE",
         expiryDate: new Date("2026-10-01"),
         receivedDate: new Date("2026-08-01"),
+        pieces: "4–5 pieces",
+        serves: "Serves 2",
       },
     }],
   );
@@ -181,6 +193,8 @@ test("recreates a removed source batch using its saved ID and metadata", () => {
       batchNumber: "SOURCE",
       expiryDate: new Date("2026-10-01"),
       receivedDate: new Date("2026-08-01"),
+      pieces: "4–5 pieces",
+      serves: "Serves 2",
       _id: "removed-batch",
       quantity: 2,
     },

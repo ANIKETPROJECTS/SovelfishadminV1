@@ -61,3 +61,17 @@ mtime_ms = 1794651539954
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9206d6a1-2156-498e-a766-e1cb594d813b/9b8a0235-97ff-4167-a2c1-f55ed8981f2e/35a117bb-3e98-4f82-b8aa-d252a72f503a"
 storage_version_token = "1794651567767510"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "lifCQcEwc8MeIyYx_mfSc"
+uri = "file://ftw-pieces-serves-by-weight-prompt.md"
+type = "text"
+title = "FTW Pieces and Serves prompt"
+description = "Instructions for the FTW storefront to use Pieces and Serves from the selected weight or batch."
+logical_id = "612a3596-5f2d-4c84-8085-0cc26f7888aa"
+content_hash = "sha256:a51463e6161b0f89473a26d0ca9532f3ce5265c510dc549fc0083a651fb23767"
+size = 6115
+mtime_ms = 1794653716038
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9206d6a1-2156-498e-a766-e1cb594d813b/612a3596-5f2d-4c84-8085-0cc26f7888aa/5575dfc9-6731-45cd-8978-c63ff71cde3e"
+storage_version_token = "1794654024129430"
+content_type = "text/markdown"

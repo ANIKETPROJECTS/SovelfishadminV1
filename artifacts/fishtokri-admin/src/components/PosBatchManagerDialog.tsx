@@ -23,6 +23,8 @@ type BatchDraft = {
   _id: string;
   batchNumber: string;
   quantity: number;
+  pieces: string;
+  serves: string;
   fishWeightKg: number | null;
   fishPrice: number | null;
   fishPricePerKg: number | null;
@@ -112,6 +114,8 @@ function mapBatch(batch: any): BatchDraft {
     _id: String(batch._id ?? batch.id ?? ""),
     batchNumber: String(batch.batchNumber ?? ""),
     quantity: Math.max(0, Number(batch.quantity) || 0),
+    pieces: String(batch.pieces ?? ""),
+    serves: String(batch.serves ?? ""),
     fishWeightKg: batch.fishWeightKg == null ? null : Number(batch.fishWeightKg),
     fishPrice: batch.fishPrice == null ? null : Number(batch.fishPrice),
     fishPricePerKg: batch.fishPricePerKg == null ? null : Number(batch.fishPricePerKg),
@@ -166,6 +170,8 @@ export function PosBatchManagerDialog({
   const [newStockInput, setNewStockInput] = useState("");
   const [newFishPrice, setNewFishPrice] = useState("");
   const [newExpiryDate, setNewExpiryDate] = useState("");
+  const [newPieces, setNewPieces] = useState("");
+  const [newServes, setNewServes] = useState("");
   const [dirty, setDirty] = useState(false);
 
   const loadBatches = useCallback(async () => {
@@ -198,6 +204,8 @@ export function PosBatchManagerDialog({
     setNewStockInput("");
     setNewFishPrice("");
     setNewExpiryDate("");
+    setNewPieces("");
+    setNewServes("");
     if (product) void loadBatches();
   }, [product, loadBatches]);
 
@@ -243,6 +251,8 @@ export function PosBatchManagerDialog({
         const fishPricePerKg = batch.fishPricePerKg !== original.fishPricePerKg
           ? batch.fishPricePerKg
           : latest.fishPricePerKg;
+        const pieces = batch.pieces !== original.pieces ? batch.pieces.trim() : latest.pieces;
+        const serves = batch.serves !== original.serves ? batch.serves.trim() : latest.serves;
         const expiryWasEdited = batch.expiryDateInput !== dateOnly(original.originalExpiryDate);
         const expiryDate = expiryWasEdited
           ? expiryAtIST(batch.expiryDateInput)
@@ -251,6 +261,8 @@ export function PosBatchManagerDialog({
           _id: latest._id,
           batchNumber,
           quantity,
+          pieces,
+          serves,
           ...(product.inventoryMode === "whole_fish" ? {
             fishWeightKg,
             fishPrice,
@@ -369,6 +381,8 @@ export function PosBatchManagerDialog({
             ...(wholeFish ? {
               fishWeightKg: parsedStock,
               fishPrice: Number(fishPrice),
+              pieces: newPieces,
+              serves: newServes,
               ...(rate ? { fishPricePerKg: rate } : {}),
             } : {}),
           }],
@@ -378,6 +392,8 @@ export function PosBatchManagerDialog({
       setNewStockInput("");
       setNewFishPrice("");
       setNewExpiryDate("");
+      setNewPieces("");
+      setNewServes("");
       await loadBatches();
       await onSaved();
     } catch (error: any) {
@@ -474,6 +490,16 @@ export function PosBatchManagerDialog({
                             <div className="sm:col-span-1">
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-gray-500">Stock</label>
                               <div className="flex h-8 items-center rounded-md border bg-gray-50 px-2 text-xs text-gray-600">{batch.quantity} fish</div>
+                            </div>
+                            <div className="sm:col-span-12 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <div>
+                                <label className="mb-1 block text-[10px] font-semibold uppercase text-gray-500">Pieces</label>
+                                <Input disabled={Boolean(deletingBatchId)} value={batch.pieces} onChange={(event) => patchBatch(batch._id, { pieces: event.target.value })} placeholder="e.g. 4–5 pieces" className="h-8 text-xs" />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-[10px] font-semibold uppercase text-gray-500">Serves</label>
+                                <Input disabled={Boolean(deletingBatchId)} value={batch.serves} onChange={(event) => patchBatch(batch._id, { serves: event.target.value })} placeholder="e.g. serves 2" className="h-8 text-xs" />
+                              </div>
                             </div>
                           </>
                         ) : (
@@ -577,6 +603,18 @@ export function PosBatchManagerDialog({
                       readOnly={Number(product.fishPricePerKg) > 0}
                       className="h-9 text-xs"
                     />
+                  </div>
+                )}
+                {product.inventoryMode === "whole_fish" && (
+                  <div className="sm:col-span-12 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase text-gray-500">Pieces</label>
+                      <Input value={newPieces} onChange={(event) => setNewPieces(event.target.value)} placeholder="e.g. 4–5 pieces" className="h-9 text-xs" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase text-gray-500">Serves</label>
+                      <Input value={newServes} onChange={(event) => setNewServes(event.target.value)} placeholder="e.g. serves 2" className="h-9 text-xs" />
+                    </div>
                   </div>
                 )}
                 <div className="sm:col-span-3">

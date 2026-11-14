@@ -1221,6 +1221,8 @@ router.post("/", async (req: ScopedRequest, res) => {
       basePrice: Number(it.basePrice ?? it.price) || 0,
       quantity: Number(it.quantity) || 1,
       unit: it.unit ?? "",
+      ...(String(it.pieces ?? "").trim() ? { pieces: String(it.pieces).trim().slice(0, 120) } : {}),
+      ...(String(it.serves ?? "").trim() ? { serves: String(it.serves).trim().slice(0, 120) } : {}),
       ...(it.inventoryBatchId ? {
         inventoryBatchId: String(it.inventoryBatchId),
         batchNumber: String(it.batchNumber ?? ""),
@@ -2565,6 +2567,8 @@ router.put("/:id", async (req: ScopedRequest, res) => {
         ...(itemCharge > 0 || selectedArea ? { cityArea: selectedArea } : {}),
         quantity: Number(it?.quantity) || 0,
         unit: String(it?.unit ?? "").trim(),
+        ...(String(it?.pieces ?? "").trim() ? { pieces: String(it.pieces).trim().slice(0, 120) } : {}),
+        ...(String(it?.serves ?? "").trim() ? { serves: String(it.serves).trim().slice(0, 120) } : {}),
         ...(it?.inventoryBatchId ? {
           inventoryBatchId: String(it.inventoryBatchId),
           batchNumber: String(it.batchNumber ?? ""),

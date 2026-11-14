@@ -91,6 +91,12 @@ export function normalizeBulkPortionOptions(options, legacyWeights = []) {
     normalized.push({
       weightKg,
       ...(minWeightKg != null && maxWeightKg != null ? { minWeightKg, maxWeightKg } : {}),
+      ...(typeof raw === "object" && String(raw?.pieces ?? "").trim()
+        ? { pieces: String(raw.pieces).trim().slice(0, 120) }
+        : {}),
+      ...(typeof raw === "object" && String(raw?.serves ?? "").trim()
+        ? { serves: String(raw.serves).trim().slice(0, 120) }
+        : {}),
     });
   }
 
