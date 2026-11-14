@@ -15,17 +15,26 @@ type CachedResult = {
   results: LocationSearchResult[];
 };
 
+type CachedReverseResult = {
+  expiresAt: number;
+  postcode: string | null;
+};
+
 const router: IRouter = Router();
 router.use(requireAuth as any);
 
 const resultCache = new Map<string, CachedResult>();
+const reverseResultCache = new Map<string, CachedReverseResult>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 500;
 const MIN_REQUEST_INTERVAL_MS = 600;
+const MIN_REVERSE_REQUEST_INTERVAL_MS = 1000;
 const LOCATION_SEARCH_BASE_URL =
   process.env.LOCATION_SEARCH_BASE_URL || "https://photon.komoot.io/api/";
 let lastPhotonRequestAt = 0;
 let requestQueue: Promise<unknown> = Promise.resolve();
+let lastReverseRequestAt = 0;
+let reverseRequestQueue: Promise<unknown> = Promise.resolve();
 
 function getCachedResults(key: string): LocationSearchResult[] | null {
   const cached = resultCache.get(key);
@@ -122,6 +131,60 @@ async function searchPhoton(query: string): Promise<LocationSearchResult[]> {
   return job;
 }
 
+async function reverseGeocodeNominatim(latitude: number, longitude: number): Promise<string | null> {
+  const cacheKey = `${latitude.toFixed(5)},${longitude.toFixed(5)}`;
+  const cached = reverseResultCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.postcode;
+  if (cached) reverseResultCache.delete(cacheKey);
+
+  const job = reverseRequestQueue.then(async () => {
+    const queuedCache = reverseResultCache.get(cacheKey);
+    if (queuedCache && queuedCache.expiresAt > Date.now()) return queuedCache.postcode;
+
+    const waitMs = Math.max(
+      0,
+      MIN_REVERSE_REQUEST_INTERVAL_MS - (Date.now() - lastReverseRequestAt),
+    );
+    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+    lastReverseRequestAt = Date.now();
+
+    const url = new URL("https://nominatim.openstreetmap.org/reverse");
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("lat", String(latitude));
+    url.searchParams.set("lon", String(longitude));
+    url.searchParams.set("zoom", "18");
+    url.searchParams.set("addressdetails", "1");
+
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "FreshStockXchangeAdmin/1.0 (customer map pin postal-code lookup)",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      const error = new Error(`Nominatim returned HTTP ${response.status}`) as Error & { status?: number };
+      error.status = response.status;
+      throw error;
+    }
+
+    const body = await response.json() as { address?: { postcode?: unknown } };
+    const rawPostcode = typeof body?.address?.postcode === "string"
+      ? body.address.postcode.trim()
+      : "";
+    const postcode = rawPostcode || null;
+    reverseResultCache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, postcode });
+    if (reverseResultCache.size > MAX_CACHE_ENTRIES) {
+      const oldestKey = reverseResultCache.keys().next().value;
+      if (oldestKey) reverseResultCache.delete(oldestKey);
+    }
+    return postcode;
+  });
+
+  reverseRequestQueue = job.then(() => undefined, () => undefined);
+  return job;
+}
+
 router.get("/", async (req, res) => {
   const rawQuery = req.query.q;
   const query = typeof rawQuery === "string" ? rawQuery.trim().replace(/\s+/g, " ") : "";
@@ -148,6 +211,29 @@ router.get("/", async (req, res) => {
       return;
     }
     res.status(503).json({ message: "Location search is temporarily unavailable. You can still place a pin on the map." });
+  }
+});
+
+router.get("/reverse", async (req, res) => {
+  const latitude = Number(req.query.lat);
+  const longitude = Number(req.query.lon);
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+    !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    res.status(400).json({ message: "Valid latitude and longitude are required." });
+    return;
+  }
+
+  try {
+    res.json({ postcode: await reverseGeocodeNominatim(latitude, longitude) });
+  } catch (error: any) {
+    const status = Number(error?.status);
+    logger.warn(
+      { status: Number.isFinite(status) ? status : undefined },
+      "Nominatim reverse geocoding failed",
+    );
+    res.status(503).json({
+      message: "Postal-code lookup is temporarily unavailable. Enter the pincode manually.",
+    });
   }
 });
 

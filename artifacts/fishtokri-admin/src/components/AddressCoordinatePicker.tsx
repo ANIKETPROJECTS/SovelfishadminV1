@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import * as L from "leaflet";
-import { LoaderCircle, LocateFixed, MapPin, Search, Trash2 } from "lucide-react";
+import { Link2, LoaderCircle, LocateFixed, MapPin, Search, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { parseMapLinkCoordinates } from "@/lib/map-link-coordinates";
 import "leaflet/dist/leaflet.css";
 
 export type AddressCoordinates = {
@@ -13,6 +14,8 @@ type AddressCoordinatePickerProps = {
   latitude: number | null | undefined;
   longitude: number | null | undefined;
   onChange: (coordinates: AddressCoordinates | null) => void;
+  onPincodeChange?: (pincode: string) => void;
+  onPincodeLookupStateChange?: (busy: boolean) => void;
 };
 
 const DEFAULT_CENTER: [number, number] = [19.2183, 72.9781];
@@ -38,20 +41,35 @@ export function AddressCoordinatePicker({
   latitude,
   longitude,
   onChange,
+  onPincodeChange,
+  onPincodeLookupStateChange,
 }: AddressCoordinatePickerProps) {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.CircleMarker | null>(null);
   const onChangeRef = useRef(onChange);
+  const onPincodeChangeRef = useRef(onPincodeChange);
+  const onPincodeLookupStateChangeRef = useRef(onPincodeLookupStateChange);
   const [locating, setLocating] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [lookingUpPostcode, setLookingUpPostcode] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [mapLink, setMapLink] = useState("");
+  const [mapLinkMessage, setMapLinkMessage] = useState("");
   const [searchResults, setSearchResults] = useState<LocationSearchResult[]>([]);
   const [locationError, setLocationError] = useState("");
 
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  useEffect(() => {
+    onPincodeChangeRef.current = onPincodeChange;
+  }, [onPincodeChange]);
+
+  useEffect(() => {
+    onPincodeLookupStateChangeRef.current = onPincodeLookupStateChange;
+  }, [onPincodeLookupStateChange]);
 
   useEffect(() => {
     if (!mapElementRef.current) return;
@@ -191,6 +209,57 @@ export function AddressCoordinatePicker({
     setLocationError("");
   };
 
+  const pinFromMapLink = async () => {
+    const coordinates = parseMapLinkCoordinates(mapLink);
+    if (!coordinates) {
+      setMapLinkMessage("Could not find coordinates. Paste a full Google Maps or OpenStreetMap link that includes them.");
+      return;
+    }
+
+    const roundedCoordinates = {
+      latitude: Number(coordinates.latitude.toFixed(6)),
+      longitude: Number(coordinates.longitude.toFixed(6)),
+    };
+    mapRef.current?.flyTo(
+      [roundedCoordinates.latitude, roundedCoordinates.longitude],
+      Math.max(mapRef.current?.getZoom() ?? 0, 18),
+      { duration: 0.4 },
+    );
+    onChangeRef.current(roundedCoordinates);
+    setSearchResults([]);
+    setSearchQuery("");
+    setLocationError("");
+    setLookingUpPostcode(true);
+    onPincodeLookupStateChangeRef.current?.(true);
+    setMapLinkMessage("Pin set. Looking up the pincode…");
+
+    try {
+      const result = await apiFetch(
+        `/api/location-search/reverse?lat=${encodeURIComponent(roundedCoordinates.latitude)}&lon=${encodeURIComponent(roundedCoordinates.longitude)}`,
+      );
+      const pincode = typeof result?.postcode === "string"
+        ? result.postcode.replace(/\D/g, "")
+        : "";
+      if (/^\d{6}$/.test(pincode)) {
+        onPincodeChangeRef.current?.(pincode);
+        setMapLinkMessage(
+          `Pin set at ${roundedCoordinates.latitude.toFixed(6)}, ${roundedCoordinates.longitude.toFixed(6)}. Pincode ${pincode} found.`,
+        );
+      } else {
+        setMapLinkMessage(
+          `Pin set at ${roundedCoordinates.latitude.toFixed(6)}, ${roundedCoordinates.longitude.toFixed(6)}. No 6-digit pincode was found here; enter it manually.`,
+        );
+      }
+    } catch {
+      setMapLinkMessage(
+        `Pin set at ${roundedCoordinates.latitude.toFixed(6)}, ${roundedCoordinates.longitude.toFixed(6)}. Pincode lookup failed; enter it manually.`,
+      );
+    } finally {
+      setLookingUpPostcode(false);
+      onPincodeLookupStateChangeRef.current?.(false);
+    }
+  };
+
   const hasCoordinates = isValidCoordinatePair(latitude, longitude);
 
   return (
@@ -226,6 +295,53 @@ export function AddressCoordinatePicker({
       </div>
 
       <div className="space-y-2">
+        <div className="space-y-1.5">
+          <label htmlFor="address-map-link" className="block text-xs font-semibold text-gray-700">
+            Paste a Google Maps or OpenStreetMap link
+          </label>
+          <div className="flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Link2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+              <input
+                id="address-map-link"
+                type="text"
+                data-testid="input-address-map-link"
+                value={mapLink}
+                onChange={(event) => {
+                  setMapLink(event.target.value);
+                  setMapLinkMessage("");
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void pinFromMapLink();
+                  }
+                }}
+                placeholder="Paste a link containing map coordinates"
+                aria-label="Paste map link"
+                autoComplete="off"
+                className="h-10 w-full rounded-md border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+            <button
+              type="button"
+              data-testid="button-pin-from-map-link"
+              onClick={() => void pinFromMapLink()}
+              disabled={!mapLink.trim() || lookingUpPostcode}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {lookingUpPostcode
+                ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                : <MapPin className="h-3.5 w-3.5" />}
+              {lookingUpPostcode ? "Looking up…" : "Pin from link"}
+            </button>
+          </div>
+          <p className="text-[10px] leading-4 text-gray-500">
+            Exact coordinates are used when included. The pincode is filled automatically when map data provides one.
+          </p>
+          {mapLinkMessage && <p className="text-xs text-blue-800" role="status">{mapLinkMessage}</p>}
+        </div>
+
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
           <input

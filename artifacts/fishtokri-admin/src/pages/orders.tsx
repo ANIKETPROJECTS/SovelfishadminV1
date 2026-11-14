@@ -1144,6 +1144,9 @@ export default function Orders() {
   const [posMapTarget, setPosMapTarget] = useState<"saved" | "new" | null>(null);
   const [posMapDraft, setPosMapDraft] = useState({ latitude: null as number | null, longitude: null as number | null });
   const [posMapInitial, setPosMapInitial] = useState({ latitude: null as number | null, longitude: null as number | null });
+  const [posMapDraftPincode, setPosMapDraftPincode] = useState("");
+  const [posMapInitialPincode, setPosMapInitialPincode] = useState("");
+  const [posMapLookingUpPincode, setPosMapLookingUpPincode] = useState(false);
   const [orderNotes, setOrderNotes] = useState("");
   const [posRightTab, setPosRightTab] = useState<"cart" | "details">("cart");
 
@@ -1243,18 +1246,23 @@ export default function Orders() {
   const [originalSavedAddress, setOriginalSavedAddress] = useState(emptyAddr);
 
   const openPosMap = (target: "saved" | "new") => {
-    const coords = validAddressCoordinates(target === "saved" ? editedSavedAddress : newAddress);
+    const address = target === "saved" ? editedSavedAddress : newAddress;
+    const coords = validAddressCoordinates(address);
     setPosMapTarget(target);
     setPosMapDraft(coords);
     setPosMapInitial(coords);
+    setPosMapDraftPincode(address.pincode || "");
+    setPosMapInitialPincode(address.pincode || "");
+    setPosMapLookingUpPincode(false);
     setPosMapOpen(true);
   };
 
   const applyPosMapPin = () => {
+    const addressUpdates = { ...posMapDraft, pincode: posMapDraftPincode };
     if (posMapTarget === "saved") {
-      setEditedSavedAddress((address) => ({ ...address, ...posMapDraft }));
+      setEditedSavedAddress((address) => ({ ...address, ...addressUpdates }));
     } else if (posMapTarget === "new") {
-      setNewAddress((address) => ({ ...address, ...posMapDraft }));
+      setNewAddress((address) => ({ ...address, ...addressUpdates }));
     }
     setPosMapOpen(false);
     setPosMapTarget(null);
@@ -1277,6 +1285,9 @@ export default function Orders() {
     setPosMapTarget(null);
     setPosMapDraft({ latitude: null, longitude: null });
     setPosMapInitial({ latitude: null, longitude: null });
+    setPosMapDraftPincode("");
+    setPosMapInitialPincode("");
+    setPosMapLookingUpPincode(false);
     setOrderNotes("");
     // Keep hub selection (super + sub) so the user doesn't have to re-pick every time.
     // Clear only the cart and per-order state.
@@ -2067,7 +2078,8 @@ export default function Orders() {
   const savedAddrDirty = JSON.stringify(editedSavedAddress) !== JSON.stringify(originalSavedAddress);
   const posMapDraftChanged =
     posMapDraft.latitude !== posMapInitial.latitude ||
-    posMapDraft.longitude !== posMapInitial.longitude;
+    posMapDraft.longitude !== posMapInitial.longitude ||
+    posMapDraftPincode !== posMapInitialPincode;
 
   const effectiveDeliveryCharge = useMemo(() => {
     if (orderDeliveryType !== "delivery" || !isExpressOrder) return 0;
@@ -6361,7 +6373,10 @@ export default function Orders() {
           open={posMapOpen}
           onOpenChange={(open) => {
             setPosMapOpen(open);
-            if (!open) setPosMapTarget(null);
+            if (!open) {
+              setPosMapTarget(null);
+              setPosMapLookingUpPincode(false);
+            }
           }}
         >
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -6375,6 +6390,8 @@ export default function Orders() {
               <AddressCoordinatePicker
                 latitude={posMapDraft.latitude}
                 longitude={posMapDraft.longitude}
+                onPincodeChange={setPosMapDraftPincode}
+                onPincodeLookupStateChange={setPosMapLookingUpPincode}
                 onChange={(coordinates) => setPosMapDraft({
                   latitude: coordinates?.latitude ?? null,
                   longitude: coordinates?.longitude ?? null,
@@ -6392,7 +6409,7 @@ export default function Orders() {
               >
                 Cancel
               </Button>
-              <Button data-testid="button-pos-map-save" onClick={applyPosMapPin} disabled={!posMapDraftChanged}>
+              <Button data-testid="button-pos-map-save" onClick={applyPosMapPin} disabled={!posMapDraftChanged || posMapLookingUpPincode}>
                 Save pin
               </Button>
             </DialogFooter>
