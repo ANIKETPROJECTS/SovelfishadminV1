@@ -1654,7 +1654,11 @@ export default function Orders() {
     const currentWeightKg = Number(line?.bulkWeightKg);
     if (!line || !Number.isFinite(currentWeightKg) || currentWeightKg <= 0) return;
 
-    const stepGrams = Math.max(1, Math.floor(Number(line.bulkWeightStepGrams) || 100));
+    const stepGrams = Math.floor(Number(line.bulkWeightStepGrams));
+    if (!Number.isFinite(stepGrams) || stepGrams <= 0) {
+      toast({ title: "Enter grams to adjust", variant: "destructive" });
+      return;
+    }
     const nextWeightKg = Math.round((currentWeightKg + direction * stepGrams / 1000) * 1000) / 1000;
     if (nextWeightKg <= 0) {
       toast({ title: "Weight must be at least 1 gram", variant: "destructive" });
@@ -3552,7 +3556,7 @@ export default function Orders() {
           bulkSourceWeightKg: Number(it.bulkSourceWeightKg) > 0 ? Number(it.bulkSourceWeightKg) : Number(it.bulkWeightKg),
           bulkPricePerKg: (Number(it.basePrice ?? it.price) || 0) / Number(it.bulkWeightKg),
           bulkBaseName: String(it.name ?? "").replace(/\s+\([^)]*\)\s*$/, ""),
-          bulkWeightStepGrams: 100,
+          bulkWeightStepGrams: "",
           posWeightOverride: it.posWeightOverride === true,
         } : {}),
       }));
@@ -5195,7 +5199,7 @@ export default function Orders() {
                                   ? Number(p.fishPricePerKg)
                                   : (Number(p.price) || 0) / bulkWeightKg,
                                 bulkBaseName: String(p.name ?? displayName),
-                                bulkWeightStepGrams: 100,
+                                bulkWeightStepGrams: "",
                                 posWeightOverride: false,
                               } : {}),
                               ...(inventoryBatchId ? {
@@ -6005,6 +6009,8 @@ export default function Orders() {
                       const atMax = bulkWeightKg
                         ? selectedBulkKg + bulkWeightKg > sharedStockKg + 1e-9
                         : p.quantity >= stock;
+                      const gramStep = Math.floor(Number(p.bulkWeightStepGrams));
+                      const canAdjustBulkWeight = Number.isFinite(gramStep) && gramStep > 0;
                       return (
                         <div key={`${lineKey}::${cartIndex}`} className="py-2 border-b border-gray-100 last:border-0">
                           <div className="flex items-center gap-2">
@@ -6020,33 +6026,37 @@ export default function Orders() {
                             <span className="text-xs font-bold text-[#162B4D] w-12 text-right flex-shrink-0">₹{((Number(p.price) + selectedAreaCharge) * p.quantity).toLocaleString("en-IN")}</span>
                           </div>
                           {bulkWeightKg > 0 && (
-                            <div className="mt-1.5 flex items-center gap-1.5 text-[10px]">
-                              <span className="text-gray-500 whitespace-nowrap">Weight/pack</span>
-                              <span className="font-semibold text-[#162B4D] whitespace-nowrap">{Math.round(bulkWeightKg * 1000)} g</span>
-                              <button
-                                type="button"
-                                aria-label={`Reduce ${p.name} by ${p.bulkWeightStepGrams || 100} grams`}
-                                title="Reduce this cart item's weight"
-                                onClick={() => adjustBulkWeight(cartIndex, -1)}
-                                className="w-5 h-5 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 font-bold"
-                              >−</button>
-                              <Input
-                                type="number"
-                                min={1}
-                                step={1}
-                                aria-label="Grams to add or reduce"
-                                value={p.bulkWeightStepGrams || 100}
-                                onChange={(event) => setBulkWeightStep(cartIndex, event.target.value)}
-                                className="h-5 w-11 px-1 text-center text-[10px]"
-                              />
-                              <span className="text-gray-500">g</span>
-                              <button
-                                type="button"
-                                aria-label={`Add ${p.bulkWeightStepGrams || 100} grams to ${p.name}`}
-                                title="Add this weight to the cart item"
-                                onClick={() => adjustBulkWeight(cartIndex, 1)}
-                                className="w-5 h-5 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 font-bold"
-                              >+</button>
+                            <div className="mt-1.5 space-y-1">
+                              <p className="text-[10px] font-semibold text-[#162B4D]">Current: {Math.round(bulkWeightKg * 1000).toLocaleString("en-IN")} g</p>
+                              <div className="flex items-center gap-1 text-[10px]">
+                                <button
+                                  type="button"
+                                  aria-label={`Reduce ${p.name} by the entered gram amount`}
+                                  title="Reduce this cart item's weight"
+                                  onClick={() => adjustBulkWeight(cartIndex, -1)}
+                                  disabled={!canAdjustBulkWeight}
+                                  className="h-5 w-5 flex-shrink-0 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                                >−</button>
+                                <Input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  maxLength={6}
+                                  aria-label="Grams to add or reduce"
+                                  value={p.bulkWeightStepGrams ?? ""}
+                                  onChange={(event) => setBulkWeightStep(cartIndex, event.target.value.replace(/\D/g, ""))}
+                                  className="h-6 w-16 flex-shrink-0 rounded border border-gray-300 bg-white px-1 text-center text-xs"
+                                />
+                                <span className="text-gray-500">g</span>
+                                <button
+                                  type="button"
+                                  aria-label={`Add the entered gram amount to ${p.name}`}
+                                  title="Add this weight to the cart item"
+                                  onClick={() => adjustBulkWeight(cartIndex, 1)}
+                                  disabled={!canAdjustBulkWeight}
+                                  className="h-5 w-5 flex-shrink-0 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                                >+</button>
+                              </div>
                             </div>
                           )}
                         </div>
