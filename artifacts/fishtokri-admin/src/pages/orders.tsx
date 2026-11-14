@@ -1207,6 +1207,7 @@ export default function Orders() {
   // so the saved payment entries aren't overwritten by the derived logic.
   const skipPaymentRecomputeRef = useRef(false);
   const [savingAddress, setSavingAddress] = useState(false);
+  const [savingTakeawayCustomer, setSavingTakeawayCustomer] = useState(false);
   // Track whether the new address form has been saved so the Save button hides
   // until the user makes a new change.
   const [newAddressSaved, setNewAddressSaved] = useState(false);
@@ -1238,6 +1239,7 @@ export default function Orders() {
     setCustomerMode("existing");
     setCustomerSearch(""); setChosenCustomer(null); setCustomerDropdownOpen(false);
     setNewCustomer({ name: "", phone: "", email: "", dateOfBirth: "" });
+    setSavingTakeawayCustomer(false);
     setOrderItems([]);
     setOrderDeliveryType("delivery");
     setOrderAddressMode("saved"); setSelectedAddressIdx(null);
@@ -2095,6 +2097,50 @@ export default function Orders() {
     setAppliedCouponIds([id]);
     setCouponCode("");
     setCouponError("");
+  };
+
+  const handleSaveTakeawayCustomer = async () => {
+    const name = newCustomer.name.trim();
+    const phone = newCustomer.phone.replace(/\D/g, "").slice(0, 10);
+    if (!name) {
+      toast({ title: "Customer name required", variant: "destructive" });
+      return;
+    }
+    if (!/^\d{10}$/.test(phone)) {
+      toast({ title: "Invalid phone", description: "Enter a valid 10-digit phone number.", variant: "destructive" });
+      return;
+    }
+
+    setSavingTakeawayCustomer(true);
+    try {
+      const response = await apiFetch("/api/customers", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          phone,
+          email: newCustomer.email.trim() || null,
+          dateOfBirth: newCustomer.dateOfBirth || null,
+          addresses: [],
+        }),
+      });
+      const customer = response?.customer;
+      if (!customer?.id) throw new Error("Customer was created but could not be loaded.");
+
+      setChosenCustomer(customer);
+      setAllCustomers((current) => [customer, ...current.filter((item: any) => String(item.id) !== String(customer.id))]);
+      setCustomerMode("existing");
+      setCustomerSearch("");
+      setSelectedAddressIdx(null);
+      setOrderAddressMode("new");
+      setNewAddress((address) => ({ ...address, name, phone }));
+      setNewAddressSaved(false);
+      setNewCustomer({ name: "", phone: "", email: "", dateOfBirth: "" });
+      toast({ title: "Customer saved", description: `${name} is ready for this takeaway order.` });
+    } catch (err: any) {
+      toast({ title: "Could not save customer", description: err.message, variant: "destructive" });
+    } finally {
+      setSavingTakeawayCustomer(false);
+    }
   };
 
   const handleCreateOrder = async () => {
@@ -5143,6 +5189,61 @@ export default function Orders() {
                     })()}
                   </div>
 
+                ) : orderDeliveryType === "takeaway" && customerMode === "new" ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#1A56DB] flex items-center gap-1.5">
+                      <UserPlus className="w-3.5 h-3.5" /> New customer
+                    </p>
+                    <Input
+                      value={newCustomer.name}
+                      onChange={(e) => setNewCustomer((customer) => ({ ...customer, name: e.target.value }))}
+                      placeholder="Full name *"
+                      className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0"
+                    />
+                    <Input
+                      value={newCustomer.phone}
+                      onChange={(e) => setNewCustomer((customer) => ({ ...customer, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))}
+                      placeholder="10-digit phone *"
+                      className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0"
+                      inputMode="numeric"
+                      maxLength={10}
+                    />
+                    <Input
+                      value={newCustomer.email}
+                      onChange={(e) => setNewCustomer((customer) => ({ ...customer, email: e.target.value }))}
+                      placeholder="Email (optional)"
+                      className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0"
+                      type="email"
+                    />
+                    <Input
+                      value={newCustomer.dateOfBirth}
+                      onChange={(e) => setNewCustomer((customer) => ({ ...customer, dateOfBirth: e.target.value }))}
+                      placeholder="Date of birth (optional)"
+                      className="h-8 text-sm border-0 border-b border-gray-300 rounded-none bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0"
+                      type="date"
+                    />
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveTakeawayCustomer()}
+                        disabled={savingTakeawayCustomer}
+                        className="flex-1 h-8 rounded-lg bg-[#1A56DB] text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                      >
+                        {savingTakeawayCustomer ? "Saving…" : "Save customer"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomerMode("existing");
+                          setNewCustomer({ name: "", phone: "", email: "", dateOfBirth: "" });
+                        }}
+                        disabled={savingTakeawayCustomer}
+                        className="h-8 rounded-lg border border-gray-200 px-3 text-xs font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 ) : (() => {
                   const searchTrimmed = customerSearch.trim();
                   const isPhoneOnly = /^\d+$/.test(searchTrimmed);
@@ -5181,6 +5282,22 @@ export default function Orders() {
                           <button onClick={() => { setCustomerSearch(""); setNewCustomer({ name: "", phone: "", email: "", dateOfBirth: "" }); }} className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"><X className="w-3.5 h-3.5" /></button>
                         )}
                       </div>
+                      {orderDeliveryType === "takeaway" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomerMode("new");
+                            setChosenCustomer(null);
+                            setCustomerSearch("");
+                            setAllCustomers([]);
+                            setNewCustomer({ name: "", phone: "", email: "", dateOfBirth: "" });
+                          }}
+                          className="mt-2 flex items-center gap-1.5 rounded-md border border-[#1A56DB]/20 px-2.5 py-1.5 text-xs font-semibold text-[#1A56DB] hover:bg-blue-50"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          Add new customer
+                        </button>
+                      )}
 
                       {/* Matching existing customers */}
                       {!noMatch && allMatches.length > 0 && (
