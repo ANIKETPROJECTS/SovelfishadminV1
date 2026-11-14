@@ -1059,6 +1059,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [availabilityBusyIds, setAvailabilityBusyIds] = useState<Set<string>>(new Set());
   const [xlsxBusy, setXlsxBusy] = useState(false);
   const [initBatchesBusy, setInitBatchesBusy] = useState(false);
   const [activeProductsPreviewOpen, setActiveProductsPreviewOpen] = useState(false);
@@ -1105,7 +1106,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
 
   const catOptions = [{ value: "all", label: "All Categories" }, ...categories.map((c) => ({ value: c.name, label: c.name }))];
   const filterGroups: FilterGroup[] = [
-    { key: "status", label: "Status", options: [{ value: "all", label: "All" }, { value: "available", label: "Available" }, { value: "out_of_stock", label: "Out of Stock" }] },
+    { key: "status", label: "Stock status", options: [{ value: "all", label: "All" }, { value: "available", label: "In Stock" }, { value: "out_of_stock", label: "Out of Stock" }] },
     { key: "category", label: "Category", options: catOptions },
   ];
 
@@ -1158,6 +1159,44 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
       toast({ title: deleting?.variantGroupId ? "Variant archived" : "Product deleted" }); load();
     } catch (err: any) { toast({ title: "Error", description: err.message, variant: "destructive" }); }
     finally { setDeleteId(null); }
+  };
+
+  const updateProductAvailability = async (product: any, available: boolean) => {
+    const productId = String(product._id ?? "");
+    if (!productId || availabilityBusyIds.has(productId) || product.isArchived) return;
+    const previousStatus = product.status ?? "available";
+    const nextStatus = available ? "available" : "out_of_stock";
+    if (previousStatus === nextStatus) return;
+
+    setAvailabilityBusyIds((current) => new Set(current).add(productId));
+    setProducts((current) => current.map((item) =>
+      String(item._id) === productId ? { ...item, status: nextStatus } : item,
+    ));
+    try {
+      await apiFetch(`/api/sub-hubs/${subHubId}/menu/products/${encodeURIComponent(productId)}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      toast({
+        title: available ? "Product marked available" : "Product marked unavailable",
+        description: product.name,
+      });
+    } catch (error: any) {
+      setProducts((current) => current.map((item) =>
+        String(item._id) === productId ? { ...item, status: previousStatus } : item,
+      ));
+      toast({
+        title: "Could not update availability",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setAvailabilityBusyIds((current) => {
+        const next = new Set(current);
+        next.delete(productId);
+        return next;
+      });
+    }
   };
 
   const handleExport = async () => {
@@ -1484,8 +1523,8 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
 
   const statusBadge = (p: any) => {
     if (p.isArchived) return <span className="inline-flex items-center text-sm font-semibold bg-gray-500 text-white px-4 py-1.5 rounded-full">Archived</span>;
-    if (p.status === "out_of_stock" || (p.quantity ?? 0) === 0) return <span className="inline-flex items-center text-sm font-semibold bg-red-500 text-white px-4 py-1.5 rounded-full">Out of Stock</span>;
-    return <span className="inline-flex items-center text-sm font-semibold bg-green-500 text-white px-4 py-1.5 rounded-full">Available</span>;
+    if ((p.quantity ?? 0) <= 0) return <span className="inline-flex items-center text-sm font-semibold bg-red-500 text-white px-4 py-1.5 rounded-full">Out of Stock</span>;
+    return <span className="inline-flex items-center text-sm font-semibold bg-green-500 text-white px-4 py-1.5 rounded-full">In Stock</span>;
   };
 
   const _prodImportClick = useCallback(() => importRef.current?.click(), []);
@@ -1531,7 +1570,8 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
                 <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide text-center">Stock</th>
                 <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide text-center">Recipes</th>
                 <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide">Preorder</th>
-                <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide">Status</th>
+                <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide">Availability</th>
+                <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide">Stock Status</th>
                 <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide">Actions</th>
               </tr>
             </thead>
@@ -1590,7 +1630,21 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
                       <span className="text-xs text-gray-500">Normal</span>
                     )}
                   </td>
-                  <td className="px-5 py-4">{statusBadge(p)}</td>
+                   <td className="px-5 py-4">
+                     <div className="flex items-center gap-2">
+                       <Switch
+                         checked={p.status !== "out_of_stock"}
+                         onCheckedChange={(available) => void updateProductAvailability(p, available)}
+                         disabled={p.isArchived || availabilityBusyIds.has(String(p._id))}
+                         aria-label={`Mark ${p.name} ${p.status === "out_of_stock" ? "available" : "unavailable"}`}
+                         className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-gray-400"
+                       />
+                       <span className={`whitespace-nowrap text-xs font-semibold ${p.status === "out_of_stock" ? "text-gray-500" : "text-emerald-700"}`}>
+                         {p.status === "out_of_stock" ? "Unavailable" : "Available"}
+                       </span>
+                     </div>
+                   </td>
+                   <td className="px-5 py-4">{statusBadge(p)}</td>
                   <td className="px-5 py-4">
                     <ActionButtons
                       onView={() => { setEditing(p); setModalOpen(true); }}
