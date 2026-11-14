@@ -613,7 +613,7 @@ export default function SubHubMenuAdmin() {
   const headerSlot = document.getElementById("page-header-slot");
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="w-full max-w-none space-y-6">
       {headerSlot && createPortal(
         <div className="flex items-center w-full gap-3 min-w-0">
           <button
@@ -1559,7 +1559,7 @@ function ProductsTab({ subHubId, onSetExcel }: { subHubId: string; onSetExcel: (
         <EmptyState icon={Package} message="No products found" sub="Try adjusting your search or filters" />
       ) : (
         <div className="overflow-x-auto" style={{ fontFamily: "Poppins, sans-serif" }}>
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[1120px] text-sm">
             <thead>
               <tr className="text-left border-b border-gray-200">
                 <th className="px-5 py-3 text-sm font-bold text-black uppercase tracking-wide min-w-[220px]">Product</th>
