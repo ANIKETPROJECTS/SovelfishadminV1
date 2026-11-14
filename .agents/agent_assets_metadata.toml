@@ -47,3 +47,17 @@ mtime_ms = 1791337586632
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:bf84a5a0-6065-4cbc-a90a-122909921b84/84e25861-cd87-46f3-a4fc-90c3d836944b/90b8057f-f4c8-405a-8f43-e9c2022495b5"
 storage_version_token = "1791337588427106"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "2GPKQEqkJ6h4mV8Cdb778"
+uri = "file://ftw-cutting-methods-prompt.md"
+type = "text"
+title = "FTW cutting methods prompt"
+description = "Prompt for adding Admin-configured cutting choices to FTW product pages, cart, and saved orders."
+logical_id = "9b8a0235-97ff-4167-a2c1-f55ed8981f2e"
+content_hash = "sha256:ac2f77fcbd18d719f1720a8bf40e4cde69b5abcd8f82c55e39f4d2df19688b35"
+size = 5527
+mtime_ms = 1794651539954
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9206d6a1-2156-498e-a766-e1cb594d813b/9b8a0235-97ff-4167-a2c1-f55ed8981f2e/35a117bb-3e98-4f82-b8aa-d252a72f503a"
+storage_version_token = "1794651567767510"
+content_type = "text/markdown"
