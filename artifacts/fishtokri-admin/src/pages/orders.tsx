@@ -49,6 +49,7 @@ import { useLocation } from "wouter";
 import { getCurrentAdminScope, logBorzoDispatchResult } from "@/lib/api";
 import { AddressCoordinatePicker } from "@/components/AddressCoordinatePicker";
 import { BorzoOrderDetailsDialog } from "@/components/BorzoOrderDetailsDialog";
+import { PosBatchManagerDialog } from "@/components/PosBatchManagerDialog";
 import { DayPicker, type Matcher } from "react-day-picker";
 import { format } from "date-fns";
 import "react-day-picker/style.css";
@@ -1147,6 +1148,16 @@ export default function Orders() {
   const [subHubCityAreas, setSubHubCityAreas] = useState<any[]>([]);
   const [subHubProducts, setSubHubProducts] = useState<any[]>([]);
   const [subHubCombos, setSubHubCombos] = useState<any[]>([]);
+  const [batchManagerProduct, setBatchManagerProduct] = useState<{
+    productId: string;
+    subHubId: string;
+    superHubId?: string;
+    name: string;
+    shortCode?: string;
+    unit?: string;
+    inventoryMode: "standard" | "whole_fish" | "bulk_portions";
+    fishPricePerKg?: number | null;
+  } | null>(null);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [productPickerOpen, setProductPickerOpen] = useState(false);
@@ -5050,7 +5061,7 @@ export default function Orders() {
                     return (
                       <div
                         key={String(p._id)}
-                        className={`rounded-xl border-2 transition-all select-none flex flex-col ${
+                        className={`relative rounded-xl border-2 transition-all select-none flex flex-col ${
                           outOfStock
                             ? "border-gray-100 bg-gray-50 opacity-40 cursor-not-allowed"
                             : cartItem
@@ -5135,6 +5146,32 @@ export default function Orders() {
                             )}
                           </div>
                         </div>
+                        {!p.isCombo && (
+                          <button
+                            type="button"
+                            aria-label={`Manage batches for ${p.name}`}
+                            title="Manage stock batches"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setBatchManagerProduct({
+                                productId: pid,
+                                subHubId: selectedSubHubId,
+                                superHubId: selectedSuperHubId,
+                                name: String(p.name ?? displayName),
+                                shortCode: p.shortCode ? String(p.shortCode) : undefined,
+                                unit: String(p.unit ?? ""),
+                                inventoryMode: p.fishInventoryMode === "whole_fish" || p.wholeFishInventory === true
+                                  ? "whole_fish"
+                                  : p.fishInventoryMode === "bulk_portions" ? "bulk_portions" : "standard",
+                                fishPricePerKg: Number(p.fishPricePerKg) > 0 ? Number(p.fishPricePerKg) : null,
+                              });
+                            }}
+                            className="absolute right-2 top-2 z-10 inline-flex h-7 items-center gap-1 rounded-md border border-gray-200 bg-white/95 px-2 text-[10px] font-semibold text-[#364F9F] shadow-sm hover:bg-blue-50"
+                          >
+                            <Pencil className="h-3 w-3" />
+                            Batches
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -6214,6 +6251,27 @@ export default function Orders() {
         </Dialog>
       </div>,
       document.body
+      )}
+
+      {batchManagerProduct && (
+        <PosBatchManagerDialog
+          product={batchManagerProduct}
+          onClose={() => setBatchManagerProduct(null)}
+          onSaved={async () => {
+            const updatedProductId = batchManagerProduct.productId;
+            setSelectedProducts((current) => current.filter((item) => item.productId !== updatedProductId));
+            try {
+              const result = await apiFetch(`/api/sub-hubs/${encodeURIComponent(batchManagerProduct.subHubId)}/menu/products`);
+              setSubHubProducts(result.products ?? []);
+            } catch (error: any) {
+              toast({
+                title: "Batch saved",
+                description: error?.message || "Refresh the POS to reload current stock.",
+                variant: "destructive",
+              });
+            }
+          }}
+        />
       )}
 
 
