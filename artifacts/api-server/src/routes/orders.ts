@@ -66,6 +66,13 @@ function scopeOrderFilter(req: ScopedRequest): Record<string, any> | null {
   return { subHubId: { $in: scope.subHubIds } };
 }
 
+function canUsePosBulkWeightOverride(req: ScopedRequest, subHubId: unknown): boolean {
+  const scope = req.scope;
+  const targetSubHubId = String(subHubId ?? "").trim();
+  if (!scope || !targetSubHubId || scope.role === "delivery_person") return false;
+  return scope.isMaster || scope.subHubIds.includes(targetSubHubId);
+}
+
 /** Combines an existing filter with the scope filter. Returns null when the
  *  scope is empty for a non-master user (caller should respond with empty). */
 function applyOrderScope(filter: any, req: ScopedRequest): any | null {
@@ -1166,6 +1173,7 @@ router.post("/", async (req: ScopedRequest, res) => {
       }
     }
 
+    const allowPosBulkWeightOverride = canUsePosBulkWeightOverride(req, subHubId);
     const cleanItems: any[] = items.map((it: any) => ({
       productId: it.productId ? String(it.productId) : undefined,
       name: String(it.name ?? "").trim(),
@@ -1178,7 +1186,11 @@ router.post("/", async (req: ScopedRequest, res) => {
         batchNumber: String(it.batchNumber ?? ""),
         fishWeightKg: Number(it.fishWeightKg) || undefined,
       } : {}),
-      ...(Number(it.bulkWeightKg) > 0 ? { bulkWeightKg: Number(it.bulkWeightKg) } : {}),
+      ...(Number(it.bulkWeightKg) > 0 ? {
+        bulkWeightKg: Number(it.bulkWeightKg),
+        ...(Number(it.bulkSourceWeightKg) > 0 ? { bulkSourceWeightKg: Number(it.bulkSourceWeightKg) } : {}),
+        ...(allowPosBulkWeightOverride && it.posWeightOverride === true ? { posWeightOverride: true } : {}),
+      } : {}),
     })).filter((it: any) => it.name);
 
     if (cleanItems.length === 0) {
@@ -2486,6 +2498,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
         update.cityAreaCharge = 0;
       }
 
+      const allowPosBulkWeightOverride = canUsePosBulkWeightOverride(req, update.subHubId ?? existingForPricing.subHubId);
       update.items = items.map((it: any) => {
         const basePrice = Math.max(0, Number(it?.basePrice ?? it?.price) || 0);
         const productId = it?.productId ? String(it.productId) : undefined;
@@ -2504,7 +2517,11 @@ router.put("/:id", async (req: ScopedRequest, res) => {
           batchNumber: String(it.batchNumber ?? ""),
           fishWeightKg: Number(it.fishWeightKg) || undefined,
         } : {}),
-        ...(Number(it?.bulkWeightKg) > 0 ? { bulkWeightKg: Number(it.bulkWeightKg) } : {}),
+        ...(Number(it?.bulkWeightKg) > 0 ? {
+          bulkWeightKg: Number(it.bulkWeightKg),
+          ...(Number(it?.bulkSourceWeightKg) > 0 ? { bulkSourceWeightKg: Number(it.bulkSourceWeightKg) } : {}),
+          ...(allowPosBulkWeightOverride && it?.posWeightOverride === true ? { posWeightOverride: true } : {}),
+        } : {}),
         };
       }).filter((it: any) => it.name && it.quantity > 0);
       const computedSubtotal = update.items.reduce(
@@ -2687,25 +2704,6 @@ router.put("/:id", async (req: ScopedRequest, res) => {
       if (!targetSub || !req.scope.subHubIds.includes(targetSub)) {
         res.status(403).json({ error: "Forbidden", message: "You cannot reassign this order to a sub hub outside your scope." });
         return;
-      }
-    }
-
-    // Guard: out_for_delivery / delivered require an assigned delivery partner
-    // (only applies to delivery-type orders, not takeaway).
-    if (status !== undefined && (status === "out_for_delivery" || status === "delivered")) {
-      const effectiveDeliveryType = update.deliveryType ?? prev.deliveryType ?? "delivery";
-      if (effectiveDeliveryType !== "takeaway") {
-        const effectiveAssignee =
-          update.assignedDeliveryPersonId !== undefined
-            ? update.assignedDeliveryPersonId
-            : prev.assignedDeliveryPersonId;
-        if (!effectiveAssignee) {
-          res.status(400).json({
-            error: "DeliveryPartnerRequired",
-            message: "Assign a delivery partner before marking the order as Out for Delivery or Delivered.",
-          });
-          return;
-        }
       }
     }
 
@@ -3029,7 +3027,6 @@ router.put("/:id", async (req: ScopedRequest, res) => {
                 requestSummary: {
                   type: borzoResult.requestPayload?.type,
                   totalWeightKg: borzoResult.requestPayload?.total_weight_kg,
-                  declaredGoodsValue: borzoResult.requestPayload?.insurance_amount,
                   pointCount: Array.isArray(borzoResult.requestPayload?.points)
                     ? borzoResult.requestPayload.points.length
                     : undefined,

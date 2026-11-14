@@ -1302,7 +1302,15 @@ function orderShouldDeduct(order: OrderForSync) {
 async function expandOrderItems(
   productsCol: any,
   combosCol: any,
-  rawItems: Array<{ productId?: string; name?: string; quantity?: number; unit?: string; inventoryBatchId?: string; bulkWeightKg?: number }>,
+  rawItems: Array<{
+    productId?: string;
+    name?: string;
+    quantity?: number;
+    unit?: string;
+    inventoryBatchId?: string;
+    bulkWeightKg?: number;
+    posWeightOverride?: boolean;
+  }>,
   validateBulkPortions = false,
 ): Promise<Array<{ productId: string; name: string; quantity: number; unit: string; inventoryBatchId?: string }>> {
   const aggregated = new Map<string, { productId: string; name: string; quantity: number; unit: string; inventoryBatchId?: string }>();
@@ -1362,7 +1370,8 @@ async function expandOrderItems(
               productDoc.bulkPortionOptions,
               productDoc.bulkPortionWeightsKg,
             ).map((option) => option.weightKg);
-            if (!hasBulkWeight || !allowedWeights.some((weight) => Math.abs(weight - submittedBulkWeightKg) < 0.0005)) {
+            const isConfiguredWeight = allowedWeights.some((weight) => Math.abs(weight - submittedBulkWeightKg) < 0.0005);
+            if (!hasBulkWeight || (!isConfiguredWeight && it.posWeightOverride !== true)) {
               throw new Error(`Select a valid portion size for ${String(it.name ?? "this bulk fish")}`);
             }
           }

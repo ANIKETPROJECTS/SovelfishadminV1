@@ -94,7 +94,7 @@ test("builds one Borzo job with one pickup and one customer stop per order", () 
   assert.equal(result.payload.points[2].longitude, "72.9988770");
   assert.equal(result.payload.points[1].taking_amount, undefined);
   assert.equal(result.payload.points[2].taking_amount, undefined);
-  assert.equal(result.payload.insurance_amount, "820.00");
+  assert.equal("insurance_amount" in result.payload, false);
   assert.equal(result.payload.total_weight_kg, 2);
   assert.match(result.payload.matter, /FTS20261105001/);
   assert.match(result.payload.matter, /FTW20261105002/);
@@ -112,8 +112,7 @@ test("builds Borzo test points, required contacts, item summary, and COD amount"
   assert.equal(result.payload.points[1].taking_amount, "520.00");
   assert.equal(result.payload.points[1].is_cod_cash_voucher_required, true);
   assert.equal(result.payload.points[1].is_order_payment_here, undefined);
-  assert.equal(result.payload.insurance_amount, "520.00");
-  assert.ok(result.warnings.some((warning) => warning.includes("₹520.00")));
+  assert.equal("insurance_amount" in result.payload, false);
   assert.match(result.payload.matter, /Basa/);
   assert.equal(result.payload.total_weight_kg, 1);
 });
@@ -158,10 +157,10 @@ test("does not request cash collection for a settled online payment", () => {
   }, pickupEnv);
   assert.equal(result.payload.points[1].taking_amount, undefined);
   assert.equal(result.payload.points[1].is_cod_cash_voucher_required, undefined);
-  assert.equal(result.payload.insurance_amount, "520.00");
+  assert.equal("insurance_amount" in result.payload, false);
 });
 
-test("derives declared goods value from item prices when subtotal is missing", () => {
+test("omits declared goods value when subtotal is missing", () => {
   const result = buildBorzoOrderPayload({
     ...ftwOrder,
     subtotal: undefined,
@@ -173,7 +172,7 @@ test("derives declared goods value from item prices when subtotal is missing", (
     ],
   }, pickupEnv);
 
-  assert.equal(result.payload.insurance_amount, "520.00");
+  assert.equal("insurance_amount" in result.payload, false);
 });
 
 test("sends the full customer address snapshot, not the configured pickup address", () => {

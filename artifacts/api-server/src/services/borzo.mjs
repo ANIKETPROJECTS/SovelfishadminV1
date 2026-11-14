@@ -100,20 +100,6 @@ function cashToCollect(order) {
   return due;
 }
 
-function declaredGoodsAmount(order) {
-  const subtotal = Number(order?.subtotal);
-  if (Number.isFinite(subtotal) && subtotal > 0) return subtotal;
-
-  return (Array.isArray(order?.items) ? order.items : []).reduce((sum, item) => {
-    const price = Number(item?.price);
-    const quantity = Number(item?.quantity);
-    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(quantity) || quantity <= 0) {
-      return sum;
-    }
-    return sum + price * quantity;
-  }, 0);
-}
-
 function formatAddress(parts) {
   const result = [];
   const seen = new Set();
@@ -270,14 +256,12 @@ export function buildBorzoOrderPayload(order, env = process.env) {
     ...items.map((item) => `${item.name} × ${item.quantity}`),
   ].join("; ").slice(0, 5000);
   const totalWeightKg = items.reduce((sum, item) => sum + item.weightKg * item.quantity, 0);
-  const goodsAmount = declaredGoodsAmount(order);
   const takingAmount = cashToCollect(order);
 
   const payload = {
     type: "standard",
     matter,
     total_weight_kg: Math.ceil(totalWeightKg),
-    ...(goodsAmount > 0 ? { insurance_amount: goodsAmount.toFixed(2) } : {}),
     is_client_notification_enabled: false,
     is_contact_person_notification_enabled: false,
     points: [
@@ -323,9 +307,6 @@ export function buildBorzoOrderPayload(order, env = process.env) {
     payload,
     missingFields,
     warnings: [
-      ...(goodsAmount > 0
-        ? [`Declared goods value sent to Borzo: ₹${goodsAmount.toFixed(2)}; Borzo may apply an insurance fee.`]
-        : []),
       ...(totalWeightKg > 0 && totalWeightKg < 1
         ? ["Borzo total_weight_kg is an integer, so this order weight is rounded up to 1 kg."]
         : []),
@@ -357,7 +338,6 @@ export function buildBorzoBatchOrderPayload(orders, env = process.env) {
   );
   if (pickupAddresses.size > 1) missingFields.push("all orders must use the same Borzo pickup address");
 
-  const goodsAmount = batchOrders.reduce((sum, order) => sum + declaredGoodsAmount(order), 0);
   const totalWeightKg = batchOrders.reduce((sum, order) => {
     const items = Array.isArray(order?.items) ? order.items : [];
     return sum + items.reduce((itemSum, item) =>
@@ -376,7 +356,6 @@ export function buildBorzoBatchOrderPayload(orders, env = process.env) {
         ...firstPayload,
         matter: `Fresh Stock Xchange batch: ${matter}`.slice(0, 5000),
         total_weight_kg: Math.ceil(totalWeightKg),
-        ...(goodsAmount > 0 ? { insurance_amount: goodsAmount.toFixed(2) } : {}),
         points: [
           firstPayload.points[0],
           ...builtOrders.map((built) => built.payload.points[1]),

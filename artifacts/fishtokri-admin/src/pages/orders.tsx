@@ -94,6 +94,15 @@ function posCartLineKey(productId: string, inventoryBatchId?: string, bulkWeight
   return bulkWeightKg ? `${productId}::bulk:${Number(bulkWeightKg).toFixed(3)}` : productId;
 }
 
+function formatCartBulkWeight(weightKg: number): string {
+  const grams = Math.round(weightKg * 1000);
+  if (grams >= 1000) {
+    const kg = grams / 1000;
+    return `${Number.isInteger(kg) ? kg : Number(kg.toFixed(3))} kg`;
+  }
+  return `${grams} g`;
+}
+
 // POS edit state can contain hydrated Mongo/React objects from legacy order
 // data. Keep request serialization defensive: the API only needs the plain
 // fields assembled in the payload, and a circular metadata reference must not
@@ -1174,6 +1183,11 @@ export default function Orders() {
     batchNumber?: string;
     fishWeightKg?: number;
     bulkWeightKg?: number;
+    bulkSourceWeightKg?: number;
+    bulkPricePerKg?: number;
+    bulkBaseName?: string;
+    bulkWeightStepGrams?: string | number;
+    posWeightOverride?: boolean;
   }[]>([]);
 
   // Coupons / timeslots / scheduling
@@ -1634,6 +1648,55 @@ export default function Orders() {
     if (combo) return comboAvailableQuantity(combo, subHubProducts);
     return Infinity;
   }, [subHubProducts, subHubCombos]);
+
+  const adjustBulkWeight = (cartIndex: number, direction: -1 | 1) => {
+    const line = selectedProducts[cartIndex];
+    const currentWeightKg = Number(line?.bulkWeightKg);
+    if (!line || !Number.isFinite(currentWeightKg) || currentWeightKg <= 0) return;
+
+    const stepGrams = Math.max(1, Math.floor(Number(line.bulkWeightStepGrams) || 100));
+    const nextWeightKg = Math.round((currentWeightKg + direction * stepGrams / 1000) * 1000) / 1000;
+    if (nextWeightKg <= 0) {
+      toast({ title: "Weight must be at least 1 gram", variant: "destructive" });
+      return;
+    }
+
+    const product = subHubProducts.find((item) => String(item._id) === line.productId);
+    const otherSelectedKg = selectedProducts.reduce((total, item, index) => {
+      if (index === cartIndex || item.productId !== line.productId || !Number(item.bulkWeightKg)) return total;
+      return total + item.quantity * Number(item.bulkWeightKg);
+    }, 0);
+    const availableKg = Math.max(0, Number(product?.quantity) || 0);
+    const requestedKg = otherSelectedKg + line.quantity * nextWeightKg;
+    if (!editingOrderId && requestedKg > availableKg + 1e-9) {
+      toast({
+        title: "Not enough stock",
+        description: `This adjustment needs ${requestedKg.toFixed(3)} kg; only ${availableKg.toFixed(3)} kg is available.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const pricePerKg = Number(line.bulkPricePerKg) > 0
+      ? Number(line.bulkPricePerKg)
+      : Number(line.price) / currentWeightKg;
+    const nextName = `${line.bulkBaseName || line.name.replace(/\s+\([^)]*\)\s*$/, "")} (${formatCartBulkWeight(nextWeightKg)})`;
+    setSelectedProducts((current) => current.map((item, index) => index === cartIndex
+      ? {
+          ...item,
+          name: nextName,
+          price: Math.round(nextWeightKg * pricePerKg),
+          bulkWeightKg: nextWeightKg,
+          posWeightOverride: true,
+        }
+      : item));
+  };
+
+  const setBulkWeightStep = (cartIndex: number, rawValue: string) => {
+    setSelectedProducts((current) => current.map((item, index) => index === cartIndex
+      ? { ...item, bulkWeightStepGrams: rawValue }
+      : item));
+  };
 
   const isCouponApplicable = useCallback((c: any): boolean => {
     const apProds = (Array.isArray(c.applicableProducts) ? c.applicableProducts : []).map((x: any) => String(x));
@@ -2221,7 +2284,11 @@ export default function Orders() {
           batchNumber: p.batchNumber,
           fishWeightKg: p.fishWeightKg,
         } : {}),
-        ...(p.bulkWeightKg ? { bulkWeightKg: p.bulkWeightKg } : {}),
+        ...(p.bulkWeightKg ? {
+          bulkWeightKg: p.bulkWeightKg,
+          bulkSourceWeightKg: p.bulkSourceWeightKg ?? p.bulkWeightKg,
+          ...(p.posWeightOverride ? { posWeightOverride: true } : {}),
+        } : {}),
       }));
     const customItems = orderItems
       .map((it) => ({
@@ -3472,7 +3539,7 @@ export default function Orders() {
       .map((it: any) => ({
         productId: String(it.productId),
         name: it.name ?? "",
-        price: Number(it.price) || 0,
+        price: Number(it.basePrice ?? it.price) || 0,
         unit: it.unit ?? "",
         quantity: Number(it.quantity) || 0,
         ...(it.inventoryBatchId ? {
@@ -3480,7 +3547,14 @@ export default function Orders() {
           batchNumber: it.batchNumber,
           fishWeightKg: it.fishWeightKg != null ? Number(it.fishWeightKg) : undefined,
         } : {}),
-        ...(Number(it.bulkWeightKg) > 0 ? { bulkWeightKg: Number(it.bulkWeightKg) } : {}),
+        ...(Number(it.bulkWeightKg) > 0 ? {
+          bulkWeightKg: Number(it.bulkWeightKg),
+          bulkSourceWeightKg: Number(it.bulkSourceWeightKg) > 0 ? Number(it.bulkSourceWeightKg) : Number(it.bulkWeightKg),
+          bulkPricePerKg: (Number(it.basePrice ?? it.price) || 0) / Number(it.bulkWeightKg),
+          bulkBaseName: String(it.name ?? "").replace(/\s+\([^)]*\)\s*$/, ""),
+          bulkWeightStepGrams: 100,
+          posWeightOverride: it.posWeightOverride === true,
+        } : {}),
       }));
     const customs = (o.items ?? [])
       .filter((it: any) => it && !it.productId)
@@ -5043,9 +5117,20 @@ export default function Orders() {
                     const pid = String(p.posProductId ?? p._id);
                     const inventoryBatchId = p.posInventoryBatchId ? String(p.posInventoryBatchId) : undefined;
                     const bulkWeightKg = Number(p.posBulkWeightKg) > 0 ? Number(p.posBulkWeightKg) : undefined;
-                    const lineKey = posCartLineKey(pid, inventoryBatchId, bulkWeightKg);
                     const displayName = p.posDisplayName ?? (p.variantLabel ? `${p.name} (${p.variantLabel})` : p.name);
-                    const cartItem = selectedProducts.find((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId, sp.bulkWeightKg) === lineKey);
+                    const cartItemIndex = selectedProducts.findIndex((sp) => {
+                      if (sp.productId !== pid) return false;
+                      if (inventoryBatchId) return sp.inventoryBatchId === inventoryBatchId;
+                      if (bulkWeightKg) {
+                        const selectedWeight = Number(sp.bulkWeightKg);
+                        return !sp.inventoryBatchId
+                          && sp.posWeightOverride !== true
+                          && selectedWeight > 0
+                          && Math.abs(selectedWeight - bulkWeightKg) < 0.0005;
+                      }
+                      return !sp.inventoryBatchId && !sp.bulkWeightKg;
+                    });
+                    const cartItem = cartItemIndex >= 0 ? selectedProducts[cartItemIndex] : undefined;
                     const stock = Number(p.quantity) || 0;
                     const outOfStock = stock <= 0;
                     const lowStock = stock > 0 && stock <= 5;
@@ -5081,8 +5166,21 @@ export default function Orders() {
                           }
                           if (atMax) { toast({ title: "Stock limit reached", description: `Only ${stock} available.`, variant: "destructive" }); return; }
                           setSelectedProducts((prev) => {
-                            const exists = prev.find((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId, sp.bulkWeightKg) === lineKey);
-                            if (exists) return prev.map((sp) => posCartLineKey(sp.productId, sp.inventoryBatchId, sp.bulkWeightKg) === lineKey ? { ...sp, quantity: sp.quantity + 1 } : sp);
+                            const existingIndex = prev.findIndex((sp) => {
+                              if (sp.productId !== pid) return false;
+                              if (inventoryBatchId) return sp.inventoryBatchId === inventoryBatchId;
+                              if (bulkWeightKg) {
+                                const selectedWeight = Number(sp.bulkWeightKg);
+                                return !sp.inventoryBatchId
+                                  && sp.posWeightOverride !== true
+                                  && selectedWeight > 0
+                                  && Math.abs(selectedWeight - bulkWeightKg) < 0.0005;
+                              }
+                              return !sp.inventoryBatchId && !sp.bulkWeightKg;
+                            });
+                            if (existingIndex >= 0) {
+                              return prev.map((sp, index) => index === existingIndex ? { ...sp, quantity: sp.quantity + 1 } : sp);
+                            }
                             return [...prev, {
                               productId: pid,
                               name: displayName,
@@ -5090,7 +5188,16 @@ export default function Orders() {
                               unit: p.unit ?? "",
                               quantity: 1,
                               isCombo: Boolean(p.isCombo),
-                              ...(bulkWeightKg ? { bulkWeightKg } : {}),
+                              ...(bulkWeightKg ? {
+                                bulkWeightKg,
+                                bulkSourceWeightKg: bulkWeightKg,
+                                bulkPricePerKg: Number(p.fishPricePerKg) > 0
+                                  ? Number(p.fishPricePerKg)
+                                  : (Number(p.price) || 0) / bulkWeightKg,
+                                bulkBaseName: String(p.name ?? displayName),
+                                bulkWeightStepGrams: 100,
+                                posWeightOverride: false,
+                              } : {}),
                               ...(inventoryBatchId ? {
                                 inventoryBatchId,
                                 batchNumber: String(p.posFishBatchNumber ?? ""),
@@ -5130,13 +5237,13 @@ export default function Orders() {
                               <div className="flex items-center bg-[#1A56DB] rounded-lg overflow-hidden shadow-sm flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                                 <button
                                   className="w-6 h-6 flex items-center justify-center text-white hover:bg-[#1447B4] font-bold text-sm"
-                                  onClick={(e) => { e.stopPropagation(); setSelectedProducts((arr) => cartItem.quantity <= 1 ? arr.filter((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) !== lineKey) : arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) === lineKey ? { ...x, quantity: x.quantity - 1 } : x)); }}
+                                  onClick={(e) => { e.stopPropagation(); setSelectedProducts((arr) => cartItem.quantity <= 1 ? arr.filter((_, index) => index !== cartItemIndex) : arr.map((x, index) => index === cartItemIndex ? { ...x, quantity: x.quantity - 1 } : x)); }}
                                 >−</button>
                                 <span className="text-xs font-bold text-white min-w-[16px] text-center">{cartItem.quantity}</span>
                                 <button
                                   className="w-6 h-6 flex items-center justify-center text-white hover:bg-[#1447B4] font-bold text-sm disabled:opacity-40"
                                   disabled={atMax}
-                                  onClick={(e) => { e.stopPropagation(); if (!atMax) setSelectedProducts((arr) => arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) === lineKey ? { ...x, quantity: x.quantity + 1 } : x)); }}
+                                  onClick={(e) => { e.stopPropagation(); if (!atMax) setSelectedProducts((arr) => arr.map((x, index) => index === cartItemIndex ? { ...x, quantity: x.quantity + 1 } : x)); }}
                                 >+</button>
                               </div>
                             ) : !outOfStock && (
@@ -5883,7 +5990,7 @@ export default function Orders() {
                   </div>
                 ) : (
                   <div className="px-3 py-2 space-y-0">
-                    {selectedProducts.map((p) => {
+                    {selectedProducts.map((p, cartIndex) => {
                       const lineKey = posCartLineKey(p.productId, p.inventoryBatchId, p.bulkWeightKg);
                       const stock = stockOf(p.productId, p.inventoryBatchId, p.bulkWeightKg);
                       const bulkWeightKg = Number(p.bulkWeightKg) > 0 ? Number(p.bulkWeightKg) : 0;
@@ -5899,17 +6006,49 @@ export default function Orders() {
                         ? selectedBulkKg + bulkWeightKg > sharedStockKg + 1e-9
                         : p.quantity >= stock;
                       return (
-                        <div key={lineKey} className="flex items-center gap-2 py-2 border-b border-gray-100 last:border-0">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-[#162B4D] leading-tight truncate">{p.name}</p>
-                            <p className="text-[11px] text-gray-400">₹{(Number(p.price) + selectedAreaCharge).toLocaleString("en-IN")}{p.unit ? ` / ${p.unit}` : ""}</p>
+                        <div key={`${lineKey}::${cartIndex}`} className="py-2 border-b border-gray-100 last:border-0">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-[#162B4D] leading-tight truncate">{p.name}</p>
+                              <p className="text-[11px] text-gray-400">₹{(Number(p.price) + selectedAreaCharge).toLocaleString("en-IN")}{bulkWeightKg ? " / pack" : p.unit ? ` / ${p.unit}` : ""}</p>
+                            </div>
+                            <div className="flex items-center bg-white rounded-md border border-gray-200 overflow-hidden flex-shrink-0">
+                              <button onClick={() => setSelectedProducts((arr) => p.quantity <= 1 ? arr.filter((_, index) => index !== cartIndex) : arr.map((item, index) => index === cartIndex ? { ...item, quantity: item.quantity - 1 } : item))} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold">−</button>
+                              <span className="text-xs font-bold text-gray-700 min-w-[18px] text-center">{p.quantity}</span>
+                              <button disabled={atMax} onClick={() => { if (!atMax) setSelectedProducts((arr) => arr.map((item, index) => index === cartIndex ? { ...item, quantity: item.quantity + 1 } : item)); }} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold disabled:opacity-30">+</button>
+                            </div>
+                            <span className="text-xs font-bold text-[#162B4D] w-12 text-right flex-shrink-0">₹{((Number(p.price) + selectedAreaCharge) * p.quantity).toLocaleString("en-IN")}</span>
                           </div>
-                          <div className="flex items-center bg-white rounded-md border border-gray-200 overflow-hidden flex-shrink-0">
-                            <button onClick={() => setSelectedProducts((arr) => p.quantity <= 1 ? arr.filter((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) !== lineKey) : arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) === lineKey ? { ...x, quantity: x.quantity - 1 } : x))} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold">−</button>
-                            <span className="text-xs font-bold text-gray-700 min-w-[18px] text-center">{p.quantity}</span>
-                            <button disabled={atMax} onClick={() => { if (!atMax) setSelectedProducts((arr) => arr.map((x) => posCartLineKey(x.productId, x.inventoryBatchId, x.bulkWeightKg) === lineKey ? { ...x, quantity: x.quantity + 1 } : x)); }} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:bg-gray-100 font-bold disabled:opacity-30">+</button>
-                          </div>
-                          <span className="text-xs font-bold text-[#162B4D] w-12 text-right flex-shrink-0">₹{((Number(p.price) + selectedAreaCharge) * p.quantity).toLocaleString("en-IN")}</span>
+                          {bulkWeightKg > 0 && (
+                            <div className="mt-1.5 flex items-center gap-1.5 text-[10px]">
+                              <span className="text-gray-500 whitespace-nowrap">Weight/pack</span>
+                              <span className="font-semibold text-[#162B4D] whitespace-nowrap">{Math.round(bulkWeightKg * 1000)} g</span>
+                              <button
+                                type="button"
+                                aria-label={`Reduce ${p.name} by ${p.bulkWeightStepGrams || 100} grams`}
+                                title="Reduce this cart item's weight"
+                                onClick={() => adjustBulkWeight(cartIndex, -1)}
+                                className="w-5 h-5 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 font-bold"
+                              >−</button>
+                              <Input
+                                type="number"
+                                min={1}
+                                step={1}
+                                aria-label="Grams to add or reduce"
+                                value={p.bulkWeightStepGrams || 100}
+                                onChange={(event) => setBulkWeightStep(cartIndex, event.target.value)}
+                                className="h-5 w-11 px-1 text-center text-[10px]"
+                              />
+                              <span className="text-gray-500">g</span>
+                              <button
+                                type="button"
+                                aria-label={`Add ${p.bulkWeightStepGrams || 100} grams to ${p.name}`}
+                                title="Add this weight to the cart item"
+                                onClick={() => adjustBulkWeight(cartIndex, 1)}
+                                className="w-5 h-5 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 font-bold"
+                              >+</button>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -6892,7 +7031,7 @@ export default function Orders() {
                   <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-2.5">
                       <MaskIcon src={iconClipboardCheck} color="#364F9F" className="w-[20px] h-[20px]" />
-                      <span className="text-xs font-bold text-[#364F9F] uppercase tracking-widest">Update Status</span>
+                      <span className="text-xs font-bold text-[#364F9F] uppercase tracking-widest">Change Order Status</span>
                     </div>
                     <SolidStatusBadge status={selectedOrder.status} deliveryType={selectedOrder.deliveryType} />
                   </div>
@@ -6933,7 +7072,13 @@ export default function Orders() {
                         <>
                           <div className="flex gap-2">
                             <Select value={editStatus} onValueChange={setEditStatus}>
-                              <SelectTrigger disabled={isFtwPaymentOnHold(selectedOrder)} className="h-11 flex-1 text-sm rounded-xl font-semibold"><SelectValue /></SelectTrigger>
+                              <SelectTrigger
+                                aria-label="Choose order status"
+                                disabled={isFtwPaymentOnHold(selectedOrder)}
+                                className="h-11 flex-1 rounded-xl border-2 border-gray-200 bg-white text-sm font-semibold text-[#162B4D] shadow-sm focus:ring-2 focus:ring-[#364F9F]/20"
+                              >
+                                <SelectValue placeholder="Choose a status" />
+                              </SelectTrigger>
                               <SelectContent>
                                 {statusOptions.map((s) => {
                                   return (
@@ -6951,7 +7096,7 @@ export default function Orders() {
                               disabled={savingStatus || blocked || isFtwPaymentOnHold(selectedOrder) || editStatus === displayStatus(selectedOrder.status, selectedOrder.deliveryType)}
                               className="bg-[#F05B4E] hover:bg-[#D94A3D] h-11 px-5 text-white font-bold rounded-xl"
                             >
-                              {savingStatus ? "Saving..." : "Update"}
+                              {savingStatus ? "Saving..." : "Save status"}
                             </Button>
                           </div>
                           {isOtherDay && (
