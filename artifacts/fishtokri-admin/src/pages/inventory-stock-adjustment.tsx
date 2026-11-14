@@ -66,6 +66,48 @@ type Batch = {
 type FishInventoryMode = "standard" | "whole_fish" | "bulk_portions";
 type BulkPortionOption = { weightKg: number; minWeightKg?: number; maxWeightKg?: number };
 type BulkPortionOptionForm = { weightInput: string };
+type WeightInputUnit = "kg" | "g";
+
+function formatWeightInput(weightKg: number | string | null | undefined, unit: WeightInputUnit): string {
+  if (weightKg == null || weightKg === "") return "";
+  const numeric = Number(weightKg);
+  if (!Number.isFinite(numeric)) return "";
+  return unit === "g" ? String(Math.round(numeric * 1000)) : String(weightKg);
+}
+
+function weightInputToKg(value: string, unit: WeightInputUnit): string {
+  if (value === "") return "";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return value;
+  return String(unit === "g" ? numeric / 1000 : numeric);
+}
+
+function WeightUnitToggle({
+  value,
+  onChange,
+}: {
+  value: WeightInputUnit;
+  onChange: (unit: WeightInputUnit) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md border border-gray-200 bg-white p-0.5" role="group" aria-label="Weight unit">
+      {(["kg", "g"] as const).map((unit) => (
+        <button
+          key={unit}
+          type="button"
+          aria-pressed={value === unit}
+          onClick={() => onChange(unit)}
+          className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase transition-colors ${
+            value === unit ? "bg-[#364F9F] text-white" : "text-gray-500 hover:bg-gray-100"
+          }`}
+        >
+          {unit}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 type Product = {
   id: string;
   name: string;
@@ -942,6 +984,7 @@ function ExistingBatchesCard({
   const [dirty, setDirty] = useState(false);
   const [showAllBatches, setShowAllBatches] = useState(false);
   const [deletingBatchId, setDeletingBatchId] = useState("");
+  const [weightUnit, setWeightUnit] = useState<WeightInputUnit>("kg");
 
   // Compute which batches to show (last 7 days by receivedDate)
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -1078,7 +1121,12 @@ function ExistingBatchesCard({
           <div className="px-3 py-1.5 bg-[#364F9F]/5 border-y border-[#364F9F]/10">
             <div className={`grid ${wholeFishProduct ? "min-w-[1080px] grid-cols-8" : "grid-cols-6"} gap-2`}>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Batch ID</span>
-              {wholeFishProduct && <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Weight (kg)</span>}
+              {wholeFishProduct && (
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Weight ({weightUnit})</span>
+                  <WeightUnitToggle value={weightUnit} onChange={setWeightUnit} />
+                </div>
+              )}
               {wholeFishProduct && <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Price / fish</span>}
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">{wholeFishProduct ? "Fish stock (0 or 1)" : `Qty (${unit})`}</span>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Shelf Life (d, optional)</span>
@@ -1108,10 +1156,13 @@ function ExistingBatchesCard({
                     <input
                       type="number"
                       min="0"
-                      step="0.001"
-                      value={b.fishWeightKg ?? ""}
-                      onChange={(e) => patchBatch(i, { fishWeightKg: e.target.value === "" ? null : Number(e.target.value) })}
-                      aria-label="Fish weight in kilograms"
+                      value={formatWeightInput(b.fishWeightKg, weightUnit)}
+                      onChange={(e) => {
+                        const weightKg = weightInputToKg(e.target.value, weightUnit);
+                        patchBatch(i, { fishWeightKg: weightKg === "" ? null : Number(weightKg) });
+                      }}
+                      step={weightUnit === "g" ? "1" : "0.001"}
+                      aria-label={`Fish weight in ${weightUnit === "g" ? "grams" : "kilograms"}`}
                       className="h-7 px-2 text-[11px] text-[#162B4D] border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#364F9F]/30 mt-0.5"
                     />
                   )}
@@ -1265,6 +1316,7 @@ function WholeFishAdjustmentTable({
   savingRate: boolean;
   onWeightChange: (idx: number, value: string) => void;
 }) {
+  const [weightUnit, setWeightUnit] = useState<WeightInputUnit>("kg");
   const batches: Batch[] = product?.batches ?? [];
   return (
     <div className="space-y-3 p-3">
@@ -1302,7 +1354,12 @@ function WholeFishAdjustmentTable({
             <tr>
               {["#", "Weight (kg)", "Total price per fish", "Stock unit", "Expiry date & time", "Batch ID", ""].map((heading, index) => (
                 <th key={`${heading}-${index}`} className="border-b border-r border-gray-200 px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 last:border-r-0">
-                  {heading}
+                  {index === 1 ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Weight ({weightUnit})</span>
+                      <WeightUnitToggle value={weightUnit} onChange={setWeightUnit} />
+                    </div>
+                  ) : heading}
                 </th>
               ))}
             </tr>
@@ -1315,12 +1372,12 @@ function WholeFishAdjustmentTable({
                   <input
                     type="number"
                     min="0"
-                    step="0.001"
+                    step={weightUnit === "g" ? "1" : "0.001"}
                     inputMode="decimal"
-                    value={row.fishWeightKg}
-                    onChange={(event) => onWeightChange(idx, event.target.value)}
-                    placeholder="e.g. 1.2"
-                    aria-label={`Weight in kilograms for fish ${rowNumber + 1}`}
+                    value={formatWeightInput(row.fishWeightKg, weightUnit)}
+                    onChange={(event) => onWeightChange(idx, weightInputToKg(event.target.value, weightUnit))}
+                    placeholder={weightUnit === "g" ? "e.g. 300" : "e.g. 1.2"}
+                    aria-label={`Weight in ${weightUnit === "g" ? "grams" : "kilograms"} for fish ${rowNumber + 1}`}
                     className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm font-semibold text-[#162B4D] outline-none focus:border-[#364F9F] focus:ring-2 focus:ring-[#364F9F]/15"
                   />
                 </td>
