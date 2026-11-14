@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Layers, Plus, RefreshCw, Save, Scale } from "lucide-react";
+import { Layers, Plus, RefreshCw, Save, Scale, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -159,6 +159,7 @@ export function PosBatchManagerDialog({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [savingEdits, setSavingEdits] = useState(false);
+  const [deletingBatchId, setDeletingBatchId] = useState("");
   const [addingBatch, setAddingBatch] = useState(false);
   const [weightUnit, setWeightUnit] = useState<WeightUnit>("kg");
   const [newBatchNumber, setNewBatchNumber] = useState("");
@@ -192,6 +193,7 @@ export function PosBatchManagerDialog({
     setBatches([]);
     setOriginalBatches([]);
     setDirty(false);
+    setDeletingBatchId("");
     setWeightUnit("kg");
     setNewStockInput("");
     setNewFishPrice("");
@@ -205,7 +207,7 @@ export function PosBatchManagerDialog({
   }
 
   async function saveBatchEdits() {
-    if (!product || !dirty) return;
+    if (!product || !dirty || deletingBatchId) return;
     if (product.inventoryMode === "whole_fish" && batches.some((batch) =>
       ![0, 1].includes(Number(batch.quantity)) ||
       !(Number(batch.fishWeightKg) > 0) ||
@@ -279,8 +281,49 @@ export function PosBatchManagerDialog({
     }
   }
 
+  async function deleteBatch(batch: BatchDraft) {
+    if (!product || !batch._id || deletingBatchId) return;
+    if (dirty) {
+      toast({
+        title: "Save or discard edits first",
+        description: "Save or discard your batch changes before deleting a batch.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const stockLabel = product.inventoryMode === "whole_fish"
+      ? `${batch.quantity} fish`
+      : product.inventoryMode === "bulk_portions"
+        ? `${batch.quantity.toLocaleString("en-IN")} kg`
+        : `${batch.quantity} ${product.unit || "units"}`;
+    const batchLabel = batch.batchNumber || "this batch";
+    if (!window.confirm(
+      `Delete batch ${batchLabel}? This will permanently remove its remaining ${stockLabel} from stock.`,
+    )) return;
+
+    setDeletingBatchId(batch._id);
+    try {
+      await apiFetch(
+        `/api/inventory/products/${encodeURIComponent(product.productId)}/batches/${encodeURIComponent(batch._id)}?subHubId=${encodeURIComponent(product.subHubId)}`,
+        { method: "DELETE" },
+      );
+      toast({ title: "Batch deleted", description: `${batchLabel} was removed from stock.` });
+      await loadBatches();
+      await onSaved();
+    } catch (error: any) {
+      toast({
+        title: "Could not delete batch",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingBatchId("");
+    }
+  }
+
   async function addBatch() {
-    if (!product) return;
+    if (!product || deletingBatchId) return;
     const wholeFish = product.inventoryMode === "whole_fish";
     const bulkFish = product.inventoryMode === "bulk_portions";
     const parsedStock = wholeFish || bulkFish
@@ -402,7 +445,7 @@ export function PosBatchManagerDialog({
                       <div key={batch._id || `${batch.batchNumber}-${index}`} className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-12 sm:items-end">
                         <div className="sm:col-span-3">
                           <label className="mb-1 block text-[10px] font-semibold uppercase text-gray-500">Batch ID</label>
-                          <Input value={batch.batchNumber} onChange={(event) => patchBatch(batch._id, { batchNumber: event.target.value.toUpperCase() })} className="h-8 text-xs" />
+                          <Input disabled={Boolean(deletingBatchId)} value={batch.batchNumber} onChange={(event) => patchBatch(batch._id, { batchNumber: event.target.value.toUpperCase() })} className="h-8 text-xs" />
                         </div>
                         {product.inventoryMode === "whole_fish" ? (
                           <>
@@ -410,6 +453,7 @@ export function PosBatchManagerDialog({
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-gray-500">Weight ({weightUnit})</label>
                               <Input
                                 type="number"
+                                  disabled={Boolean(deletingBatchId)}
                                 min="0"
                                 step={weightUnit === "g" ? "1" : "0.001"}
                                 value={displayWeight(batch.fishWeightKg, weightUnit)}
@@ -425,7 +469,7 @@ export function PosBatchManagerDialog({
                             </div>
                             <div className="sm:col-span-2">
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-gray-500">Total price</label>
-                              <Input type="number" min="0" step="1" value={batch.fishPrice ?? ""} onChange={(event) => patchBatch(batch._id, { fishPrice: event.target.value === "" ? null : Number(event.target.value) })} className="h-8 text-xs" />
+                              <Input type="number" disabled={Boolean(deletingBatchId)} min="0" step="1" value={batch.fishPrice ?? ""} onChange={(event) => patchBatch(batch._id, { fishPrice: event.target.value === "" ? null : Number(event.target.value) })} className="h-8 text-xs" />
                             </div>
                             <div className="sm:col-span-1">
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-gray-500">Stock</label>
@@ -439,6 +483,7 @@ export function PosBatchManagerDialog({
                             </label>
                             <Input
                               type="number"
+                              disabled={Boolean(deletingBatchId)}
                               min="0"
                               step={product.inventoryMode === "bulk_portions" ? (weightUnit === "g" ? "1" : "0.001") : "1"}
                               value={product.inventoryMode === "bulk_portions"
@@ -454,9 +499,25 @@ export function PosBatchManagerDialog({
                             />
                           </div>
                         )}
-                        <div className={product.inventoryMode === "whole_fish" ? "sm:col-span-3" : "sm:col-span-4"}>
+                        <div className={product.inventoryMode === "whole_fish" ? "sm:col-span-2" : "sm:col-span-5"}>
                           <label className="mb-1 block text-[10px] font-semibold uppercase text-gray-500">Expiry (optional)</label>
-                          <Input type="date" value={batch.expiryDateInput} onChange={(event) => patchBatch(batch._id, { expiryDateInput: event.target.value })} className="h-8 text-xs" />
+                          <Input type="date" disabled={Boolean(deletingBatchId)} value={batch.expiryDateInput} onChange={(event) => patchBatch(batch._id, { expiryDateInput: event.target.value })} className="h-8 text-xs" />
+                        </div>
+                        <div className="flex justify-end sm:col-span-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Delete batch ${batch.batchNumber || index + 1}`}
+                            title={dirty ? "Save or discard edits before deleting" : "Delete batch"}
+                            disabled={!batch._id || Boolean(deletingBatchId) || savingEdits || loading}
+                            onClick={() => void deleteBatch(batch)}
+                            className="h-8 w-8 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          >
+                            {deletingBatchId === batch._id
+                              ? <RefreshCw className="h-4 w-4 animate-spin" />
+                              : <Trash2 className="h-4 w-4" />}
+                          </Button>
                         </div>
                       </div>
                     );
@@ -467,8 +528,8 @@ export function PosBatchManagerDialog({
                 <div className="flex items-center justify-between gap-2 border-t bg-blue-50/60 px-3 py-2">
                   <span className="text-xs text-blue-800">Save or discard edits before adding another batch.</span>
                   <div className="flex gap-2">
-                    <Button type="button" variant="outline" size="sm" disabled={savingEdits} onClick={() => void loadBatches()} className="h-8">Discard</Button>
-                    <Button type="button" size="sm" disabled={savingEdits || loading} onClick={() => void saveBatchEdits()} className="h-8 bg-[#364F9F] text-white hover:bg-[#2d417f]">
+                    <Button type="button" variant="outline" size="sm" disabled={savingEdits || Boolean(deletingBatchId)} onClick={() => void loadBatches()} className="h-8">Discard</Button>
+                    <Button type="button" size="sm" disabled={savingEdits || loading || Boolean(deletingBatchId)} onClick={() => void saveBatchEdits()} className="h-8 bg-[#364F9F] text-white hover:bg-[#2d417f]">
                       <Save className="mr-1 h-3.5 w-3.5" /> {savingEdits ? "Saving…" : "Save edits"}
                     </Button>
                   </div>
@@ -523,7 +584,7 @@ export function PosBatchManagerDialog({
                   <Input type="date" value={newExpiryDate} onChange={(event) => setNewExpiryDate(event.target.value)} className="h-9 text-xs" />
                 </div>
                 <div className="sm:col-span-1">
-                  <Button type="button" onClick={() => void addBatch()} disabled={addingBatch || loading || dirty || Boolean(loadError)} className="h-9 w-full bg-[#1A56DB] text-white hover:bg-[#1447B4]">
+                  <Button type="button" onClick={() => void addBatch()} disabled={addingBatch || loading || dirty || Boolean(loadError) || Boolean(deletingBatchId)} className="h-9 w-full bg-[#1A56DB] text-white hover:bg-[#1447B4]">
                     <Plus className="h-4 w-4" />
                   </Button>
                 </div>
