@@ -269,7 +269,8 @@ function normalizeOrderCuttingMethods(raw: any): string[] | null {
   if (!Array.isArray(raw)) return null;
   const names = raw.map((value: any) => String(value ?? "").trim()).filter(Boolean);
   if (names.some((name: string) => name.length > 80)) return null;
-  return Array.from(new Map(names.map((name: string) => [name.toLocaleLowerCase("en-IN"), name])).values());
+  const normalized = Array.from(new Map(names.map((name: string) => [name.toLocaleLowerCase("en-IN"), name])).values());
+  return normalized.length <= 1 ? normalized : null;
 }
 
 async function validateOrderCuttingMethods(subHubId: unknown, items: any[]): Promise<string | null> {
@@ -1182,7 +1183,7 @@ router.post("/", async (req: ScopedRequest, res) => {
       return;
     }
     if (items.some((item: any) => normalizeOrderCuttingMethods(item?.cuttingMethods) === null)) {
-      res.status(400).json({ error: "ValidationError", message: "Cutting methods must be an array of names up to 80 characters each." });
+      res.status(400).json({ error: "ValidationError", message: "Each order item can have at most one cutting method, with a name up to 80 characters." });
       return;
     }
     const dt = deliveryType === "takeaway" ? "takeaway" : "delivery";
@@ -2482,7 +2483,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
     if (Array.isArray(couponCodes)) update.couponCodes = couponCodes;
     if (Array.isArray(coupons)) update.coupons = coupons;
     if (Array.isArray(items) && items.some((item: any) => normalizeOrderCuttingMethods(item?.cuttingMethods) === null)) {
-      res.status(400).json({ error: "ValidationError", message: "Cutting methods must be an array of names up to 80 characters each." });
+      res.status(400).json({ error: "ValidationError", message: "Each order item can have at most one cutting method, with a name up to 80 characters." });
       return;
     }
     if (subtotal !== undefined) update.subtotal = Number(subtotal) || 0;

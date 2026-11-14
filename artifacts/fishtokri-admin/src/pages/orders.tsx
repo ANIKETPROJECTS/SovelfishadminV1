@@ -6020,7 +6020,7 @@ export default function Orders() {
                         ...(Array.isArray(catalogCuttingMethods) ? catalogCuttingMethods : []),
                         ...(Array.isArray(p.cuttingMethods) ? p.cuttingMethods : []),
                       ].map((method) => String(method).trim()).filter(Boolean)));
-                      const selectedCuttingMethods = Array.isArray(p.cuttingMethods) ? p.cuttingMethods : [];
+                      const selectedCuttingMethod = Array.isArray(p.cuttingMethods) ? String(p.cuttingMethods[0] ?? "") : "";
                       const stock = stockOf(p.productId, p.inventoryBatchId, p.bulkWeightKg);
                       const bulkWeightKg = Number(p.bulkWeightKg) > 0 ? Number(p.bulkWeightKg) : 0;
                       const selectedBulkKg = bulkWeightKg
@@ -6053,25 +6053,33 @@ export default function Orders() {
                           {availableCuttingMethods.length > 0 && (
                             <div className="mt-2 rounded-md bg-gray-50 px-2 py-1.5">
                               <p className="text-[10px] font-semibold text-gray-500 mb-1">
-                                Cutting methods (optional){selectedCuttingMethods.length > 0 ? ` · ${selectedCuttingMethods.length} selected` : ""}
+                                Cutting method (optional) · choose one
                               </p>
                               <div className="flex flex-wrap gap-x-2 gap-y-1">
+                                <label className="inline-flex items-center gap-1 text-[10px] text-gray-700 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name={`cutting-method-${lineKey}-${cartIndex}`}
+                                    value=""
+                                    checked={!selectedCuttingMethod}
+                                    onChange={() => setSelectedProducts((current) => current.map((item, index) =>
+                                      index === cartIndex ? { ...item, cuttingMethods: [] } : item,
+                                    ))}
+                                    className="h-3 w-3 accent-[#1A56DB]"
+                                  />
+                                  <span>None</span>
+                                </label>
                                 {availableCuttingMethods.map((method) => (
                                   <label key={method} className="inline-flex items-center gap-1 text-[10px] text-gray-700 cursor-pointer">
                                     <input
-                                      type="checkbox"
-                                      checked={selectedCuttingMethods.includes(method)}
-                                      onChange={() => setSelectedProducts((current) => current.map((item, index) => {
-                                        if (index !== cartIndex) return item;
-                                        const currentMethods = Array.isArray(item.cuttingMethods) ? item.cuttingMethods : [];
-                                        return {
-                                          ...item,
-                                          cuttingMethods: currentMethods.includes(method)
-                                            ? currentMethods.filter((name) => name !== method)
-                                            : [...currentMethods, method],
-                                        };
-                                      }))}
-                                      className="h-3 w-3 rounded accent-[#1A56DB]"
+                                      type="radio"
+                                      name={`cutting-method-${lineKey}-${cartIndex}`}
+                                      value={method}
+                                      checked={selectedCuttingMethod === method}
+                                      onChange={() => setSelectedProducts((current) => current.map((item, index) =>
+                                        index === cartIndex ? { ...item, cuttingMethods: [method] } : item,
+                                      ))}
+                                      className="h-3 w-3 accent-[#1A56DB]"
                                     />
                                     <span>{method}</span>
                                   </label>
