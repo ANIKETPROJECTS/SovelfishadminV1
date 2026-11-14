@@ -723,12 +723,10 @@ router.get("/adjustments", async (req, res) => {
 router.post("/adjustments", async (req, res) => {
   try {
     const { subHubId, superHubId, date, reason, notes, items } = req.body ?? {};
+    const adjustmentReason = String(reason ?? "").trim();
     if (!subHubId) { res.status(400).json({ error: "ValidationError", message: "subHubId is required" }); return; }
     if (!Array.isArray(items) || items.length === 0) {
       res.status(400).json({ error: "ValidationError", message: "At least one item is required" }); return;
-    }
-    if (!reason || !String(reason).trim()) {
-      res.status(400).json({ error: "ValidationError", message: "Reason is required" }); return;
     }
     const ctx = await getCtx(subHubId, res, req as ScopedRequest);
     if (!ctx) return;
@@ -931,7 +929,7 @@ router.post("/adjustments", async (req, res) => {
           unit: inventoryUnit,
           change: 0,
           balance: persisted.quantity,
-          reason: String(reason).trim(),
+          reason: adjustmentReason,
           notes: notes ? String(notes).trim() : "",
           createdAt: now,
         });
@@ -1089,7 +1087,7 @@ router.post("/adjustments", async (req, res) => {
         unit: inventoryUnit,
         change: delta,
         balance: persisted.quantity,
-        reason: String(reason).trim(),
+        reason: adjustmentReason,
         notes: notes ? String(notes).trim() : "",
         batchNumber: appliedBatch?.batchNumber || undefined,
         batchObjectId: appliedBatch?._id ? String(appliedBatch._id) : undefined,
@@ -1109,7 +1107,7 @@ router.post("/adjustments", async (req, res) => {
 
     const adjustmentDoc = {
       date: date ? new Date(date) : now,
-      reason: String(reason).trim(),
+      reason: adjustmentReason,
       notes: notes ? String(notes).trim() : "",
       subHubId: String(ctx.sub._id),
       subHubName: ctx.sub.name,

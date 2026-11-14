@@ -941,6 +941,7 @@ function ExistingBatchesCard({
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [showAllBatches, setShowAllBatches] = useState(false);
+  const [deletingBatchId, setDeletingBatchId] = useState("");
 
   // Compute which batches to show (last 7 days by receivedDate)
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -1013,6 +1014,38 @@ function ExistingBatchesCard({
     }
   }
 
+  async function handleDeleteBatch(batch: Batch) {
+    if (dirty) {
+      toast({
+        title: "Save or cancel edits first",
+        description: "Save or cancel your batch changes before deleting a batch.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const batchLabel = batch.batchNumber || "this batch";
+    const quantity = Number(batch.quantity) || 0;
+    const unitLabel = wholeFishProduct ? "fish" : unit;
+    const confirmed = window.confirm(
+      `Delete batch ${batchLabel}? This will permanently remove ${quantity} ${unitLabel} from stock.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingBatchId(batch.id);
+    try {
+      await apiFetch(`/api/inventory/products/${productId}/batches/${batch.id}?subHubId=${subHubId}`, {
+        method: "DELETE",
+      });
+      toast({ title: "Batch deleted", description: `${batchLabel} was removed from stock.` });
+      onReload();
+    } catch (err: any) {
+      toast({ title: "Failed to delete batch", description: err.message, variant: "destructive" });
+    } finally {
+      setDeletingBatchId("");
+    }
+  }
+
   function handleCancel() {
     setEdited(batches.map((b) => ({
       ...b,
@@ -1043,14 +1076,15 @@ function ExistingBatchesCard({
       <>
         {/* Column headers */}
           <div className="px-3 py-1.5 bg-[#364F9F]/5 border-y border-[#364F9F]/10">
-            <div className={`grid ${wholeFishProduct ? "min-w-[980px] grid-cols-7" : "grid-cols-5"} gap-2`}>
+            <div className={`grid ${wholeFishProduct ? "min-w-[1080px] grid-cols-8" : "grid-cols-6"} gap-2`}>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Batch ID</span>
               {wholeFishProduct && <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Weight (kg)</span>}
               {wholeFishProduct && <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Price / fish</span>}
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">{wholeFishProduct ? "Fish stock (0 or 1)" : `Qty (${unit})`}</span>
-              <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Shelf Life (d)</span>
+              <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Shelf Life (d, optional)</span>
               <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Received</span>
-              <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Expiry Date &amp; Time</span>
+              <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Expiry Date &amp; Time (optional)</span>
+              <span className="text-[10px] font-bold text-[#364F9F] uppercase tracking-wider">Actions</span>
             </div>
           </div>
 
@@ -1063,7 +1097,7 @@ function ExistingBatchesCard({
                 : dl <= 7 ? "border-amber-300 bg-amber-50"
                 : "border-emerald-200 bg-emerald-50";
               return (
-                <div key={b.id} className={`px-3 py-2 grid ${wholeFishProduct ? "min-w-[980px] grid-cols-7" : "grid-cols-5"} gap-2 items-start bg-white/50 hover:bg-white/80 transition-colors`}>
+                <div key={b.id} className={`px-3 py-2 grid ${wholeFishProduct ? "min-w-[1080px] grid-cols-8" : "grid-cols-6"} gap-2 items-start bg-white/50 hover:bg-white/80 transition-colors`}>
                   <input
                     type="text"
                     value={b.batchNumber}
@@ -1161,6 +1195,18 @@ function ExistingBatchesCard({
                         patchBatch(i, patch);
                       }}
                     />
+                  </div>
+                  <div className="flex justify-center pt-1">
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteBatch(b)}
+                      disabled={saving || dirty || Boolean(deletingBatchId)}
+                      aria-label={`Delete batch ${b.batchNumber || "without ID"}`}
+                      title={dirty ? "Save or cancel batch edits before deleting" : "Delete this batch"}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Trash2 className={`h-3.5 w-3.5 ${deletingBatchId === b.id ? "animate-pulse" : ""}`} />
+                    </button>
                   </div>
                 </div>
               );
@@ -1846,7 +1892,6 @@ export default function InventoryStockAdjustment() {
       toast({ title: "Add stock or change the fish pricing setup", variant: "destructive" });
       return;
     }
-    if (!formReason.trim()) { toast({ title: "Reason is required", variant: "destructive" }); return; }
     const incompleteFishEntry = formRows.find((row) =>
       row.isWholeFishBatch && row.productId &&
       row.fishWeightKg.trim() !== "" &&
@@ -1883,11 +1928,6 @@ export default function InventoryStockAdjustment() {
           : "A positive per-kg rate is needed to calculate each fish price.",
         variant: "destructive",
       });
-      return;
-    }
-    const missingExpiry = validRows.find((r) => r.mode === "add" && !r.shelfLifeDays && !r.expiryDate);
-    if (missingExpiry) {
-      toast({ title: "Set shelf life or expiry", description: `Add shelf life (days) or an expiry date for ${missingExpiry.productName}.`, variant: "destructive" });
       return;
     }
     const missingBatch = validRows.find((r) => r.mode === "add_existing" && !r.selectedBatchId);
@@ -2059,7 +2099,7 @@ export default function InventoryStockAdjustment() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                  Reason <span className="text-red-500">*</span>
+                  Reason <span className="text-gray-400 normal-case font-medium">(optional)</span>
                 </Label>
                 <Input
                   value={formReason}
@@ -2359,8 +2399,8 @@ export default function InventoryStockAdjustment() {
                         <thead className="bg-white">
                           <tr>
                             {(firstRow.isBulkFishBatch
-                              ? ["Product", "Mode", "Shelf Life (days)", "Expiry Date & Time", "Batch / Selection", "Batch Info"]
-                              : ["Weight / Variant", "Price", "Mode", "Quantity", "Shelf Life (days)", "Expiry Date & Time", "Batch / Selection", "Batch Info"]
+                              ? ["Product", "Mode", "Shelf Life (days, optional)", "Expiry Date & Time (optional)", "Batch / Selection", "Batch Info"]
+                              : ["Weight / Variant", "Price", "Mode", "Quantity", "Shelf Life (days, optional)", "Expiry Date & Time (optional)", "Batch / Selection", "Batch Info"]
                             ).map((heading) => (
                               <th key={heading} className="border-b border-r border-gray-200 px-2.5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap last:border-r-0">
                                 {heading}
