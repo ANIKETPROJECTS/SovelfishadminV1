@@ -16,7 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter,
@@ -6432,11 +6432,11 @@ export default function Orders() {
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Map</DialogTitle>
+              <DialogDescription className="text-xs text-gray-600">
+                Set an optional pin for this customer address. The written address remains the delivery address.
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
-              <p className="text-xs text-gray-600">
-                Set an optional pin for this customer address. The written address remains the delivery address.
-              </p>
               <AddressCoordinatePicker
                 latitude={posMapDraft.latitude}
                 longitude={posMapDraft.longitude}

@@ -147,18 +147,26 @@ export function AddressCoordinatePicker({
     let marker: google.maps.Marker | null = null;
     let clickListener: google.maps.MapsEventListener | null = null;
     let dragListener: google.maps.MapsEventListener | null = null;
+    let mapInitTimer: number | undefined;
 
     const createMap = async () => {
       try {
         const { mapsApi, maps, geocoding } = await loadGoogleMapsLibraries();
-        if (cancelled || !mapElementRef.current) return;
+        const mapElement = mapElementRef.current;
+        if (cancelled || !mapElement?.isConnected) return;
+        const mapBounds = mapElement.getBoundingClientRect();
+        if (mapBounds.width === 0 || mapBounds.height === 0) {
+          setMapLoading(false);
+          setLocationError("The map area is not visible yet. Close and reopen the map, then try again.");
+          return;
+        }
 
         const hasCoordinates = isValidCoordinatePair(latitude, longitude);
         const initialCenter = hasCoordinates
           ? { lat: Number(latitude), lng: Number(longitude) }
           : DEFAULT_CENTER;
 
-        map = new maps.Map(mapElementRef.current, {
+        map = new maps.Map(mapElement, {
           center: initialCenter,
           zoom: hasCoordinates ? 16 : 12,
           mapTypeControl: false,
@@ -196,10 +204,14 @@ export function AddressCoordinatePicker({
       }
     };
 
-    void createMap();
+    // The POS map is inside an animated Radix dialog. Let the opening
+    // transition finish so Google Maps initializes against a connected,
+    // measurable element.
+    mapInitTimer = window.setTimeout(() => void createMap(), 250);
 
     return () => {
       cancelled = true;
+      if (mapInitTimer !== undefined) window.clearTimeout(mapInitTimer);
       clickListener?.remove();
       dragListener?.remove();
       marker?.setMap(null);
