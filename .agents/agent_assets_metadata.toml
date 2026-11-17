@@ -75,3 +75,17 @@ mtime_ms = 1794653716038
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9206d6a1-2156-498e-a766-e1cb594d813b/612a3596-5f2d-4c84-8085-0cc26f7888aa/5575dfc9-6731-45cd-8978-c63ff71cde3e"
 storage_version_token = "1794654024129430"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "8l2WlFC9q0hdqf4d-qkKM"
+uri = "file://ftw-google-maps-migration-prompt.md"
+type = "text"
+title = "FTW Google Maps Migration Prompt"
+description = "Ready-to-paste instructions for replacing the FTW storefront's OpenStreetMap picker with Google Maps while preserving address and postcode behavior."
+logical_id = "ae2272ba-d1f0-4256-9fa0-fec5014dc951"
+content_hash = "sha256:9c42f312de79c8eb66dbf06798b7c13efa009e3d7e1847c94f3911b019ca0cad"
+size = 5479
+mtime_ms = 1794890784377
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9206d6a1-2156-498e-a766-e1cb594d813b/ae2272ba-d1f0-4256-9fa0-fec5014dc951/9431c414-4d75-4661-9dfb-005b7e1a10ad"
+storage_version_token = "1794890805984442"
+content_type = "text/markdown"
