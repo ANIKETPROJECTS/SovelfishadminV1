@@ -8,4 +8,15 @@ router.get("/healthz", (_req, res) => {
   res.json(data);
 });
 
+router.get("/runtime-config", (_req, res) => {
+  // Google Maps JavaScript keys are browser keys by design. Restrict this key
+  // in Google Cloud by allowed website referrers and enabled APIs.
+  const googleMapsApiKey =
+    process.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ||
+    process.env.GOOGLE_MAPS_API_KEY?.trim() ||
+    "";
+
+  res.set("Cache-Control", "no-store").json({ googleMapsApiKey });
+});
+
 export default router;
