@@ -15,8 +15,12 @@ router.get("/runtime-config", (_req, res) => {
     process.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ||
     process.env.GOOGLE_MAPS_API_KEY?.trim() ||
     "";
+  const googleMapsMapId =
+    process.env.VITE_GOOGLE_MAP_ID?.trim() ||
+    process.env.GOOGLE_MAP_ID?.trim() ||
+    "";
 
-  res.set("Cache-Control", "no-store").json({ googleMapsApiKey });
+  res.set("Cache-Control", "no-store").json({ googleMapsApiKey, googleMapsMapId });
 });
 
 export default router;

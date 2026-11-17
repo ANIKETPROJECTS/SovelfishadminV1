@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link2, LoaderCircle, LocateFixed, MapPin, Search, Trash2 } from "lucide-react";
 import { parseMapLinkCoordinates } from "@/lib/map-link-coordinates";
-import { loadGoogleMapsLibraries } from "@/lib/google-maps";
+import { getGoogleMapsMapId, loadGoogleMapsLibraries } from "@/lib/google-maps";
 
 export type AddressCoordinates = {
   latitude: number;
@@ -52,7 +52,7 @@ export function AddressCoordinatePicker({
 }: AddressCoordinatePickerProps) {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
-  const markerRef = useRef<google.maps.Marker | null>(null);
+  const markerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
   const autocompleteSessionRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
   const postcodeLookupIdRef = useRef(0);
@@ -128,8 +128,10 @@ export function AddressCoordinatePicker({
       map.panTo(position);
       map.setZoom(Math.max(map.getZoom() ?? 0, 16));
     }
-    markerRef.current?.setPosition(position);
-    markerRef.current?.setVisible(true);
+    if (markerRef.current) {
+      markerRef.current.position = position;
+      markerRef.current.map = map;
+    }
     onChangeRef.current(coordinates);
     setLocationError("");
 
@@ -144,14 +146,17 @@ export function AddressCoordinatePicker({
     if (!mapElementRef.current) return;
     let cancelled = false;
     let map: google.maps.Map | null = null;
-    let marker: google.maps.Marker | null = null;
+    let marker: google.maps.marker.AdvancedMarkerElement | null = null;
     let clickListener: google.maps.MapsEventListener | null = null;
-    let dragListener: google.maps.MapsEventListener | null = null;
+    let dragListener: ((event: Event) => void) | null = null;
     let mapInitTimer: number | undefined;
 
     const createMap = async () => {
       try {
-        const { mapsApi, maps, geocoding } = await loadGoogleMapsLibraries();
+        const [{ maps, geocoding, marker: markerLibrary }, mapId] = await Promise.all([
+          loadGoogleMapsLibraries(),
+          getGoogleMapsMapId(),
+        ]);
         const mapElement = mapElementRef.current;
         if (cancelled || !mapElement?.isConnected) return;
         const mapBounds = mapElement.getBoundingClientRect();
@@ -168,17 +173,17 @@ export function AddressCoordinatePicker({
 
         map = new maps.Map(mapElement, {
           center: initialCenter,
+          mapId,
           zoom: hasCoordinates ? 16 : 12,
           mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: true,
           clickableIcons: false,
         });
-        marker = new mapsApi.maps.Marker({
-          map,
+        marker = new markerLibrary.AdvancedMarkerElement({
+          map: hasCoordinates ? map : null,
           position: initialCenter,
-          draggable: true,
-          visible: hasCoordinates,
+          gmpDraggable: true,
           title: "Delivery location",
         });
         geocoderRef.current = new geocoding.Geocoder();
@@ -191,12 +196,16 @@ export function AddressCoordinatePicker({
           if (!event.latLng) return;
           pinCoordinates(normalizeCoordinates(event.latLng.lat(), event.latLng.lng()));
         });
-        dragListener = marker.addListener("dragend", () => {
-          const point = marker?.getPosition();
+        dragListener = () => {
+          const point = marker?.position;
           if (!point) return;
-          pinCoordinates(normalizeCoordinates(point.lat(), point.lng()), false);
-          void lookupPincode(normalizeCoordinates(point.lat(), point.lng()));
-        });
+          const pointLatitude = typeof point.lat === "function" ? point.lat() : point.lat;
+          const pointLongitude = typeof point.lng === "function" ? point.lng() : point.lng;
+          const coordinates = normalizeCoordinates(pointLatitude, pointLongitude);
+          pinCoordinates(coordinates, false);
+          void lookupPincode(coordinates);
+        };
+        marker.addEventListener("gmp-dragend", dragListener);
       } catch (error) {
         if (cancelled) return;
         setMapLoading(false);
@@ -213,8 +222,8 @@ export function AddressCoordinatePicker({
       cancelled = true;
       if (mapInitTimer !== undefined) window.clearTimeout(mapInitTimer);
       clickListener?.remove();
-      dragListener?.remove();
-      marker?.setMap(null);
+      if (marker && dragListener) marker.removeEventListener("gmp-dragend", dragListener);
+      if (marker) marker.map = null;
       if (map) mapsCleanup(map);
       mapRef.current = null;
       markerRef.current = null;
@@ -231,13 +240,13 @@ export function AddressCoordinatePicker({
     if (!map || !marker) return;
 
     if (!isValidCoordinatePair(latitude, longitude)) {
-      marker.setVisible(false);
+      marker.map = null;
       return;
     }
 
     const point = { lat: Number(latitude), lng: Number(longitude) };
-    marker.setPosition(point);
-    marker.setVisible(true);
+    marker.position = point;
+    marker.map = map;
     map.setCenter(point);
     map.setZoom(Math.max(map.getZoom() ?? 0, 16));
   }, [latitude, longitude, mapReady]);
@@ -389,7 +398,7 @@ export function AddressCoordinatePicker({
                 postcodeLookupIdRef.current += 1;
                 setLookingUpPostcode(false);
                 onPincodeLookupStateChangeRef.current?.(false);
-                markerRef.current?.setVisible(false);
+                if (markerRef.current) markerRef.current.map = null;
                 onChangeRef.current(null);
                 setPinStatusMessage("");
               }}

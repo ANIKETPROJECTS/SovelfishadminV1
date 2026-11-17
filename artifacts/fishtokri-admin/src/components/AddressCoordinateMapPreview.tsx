@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle } from "lucide-react";
-import { loadGoogleMaps } from "@/lib/google-maps";
+import { getGoogleMapsMapId, loadGoogleMapsLibraries } from "@/lib/google-maps";
 
 type AddressCoordinateMapPreviewProps = {
   latitude: number;
@@ -19,17 +19,20 @@ export function AddressCoordinateMapPreview({
     if (!mapElementRef.current) return;
     let cancelled = false;
     let map: google.maps.Map | null = null;
-    let marker: google.maps.Marker | null = null;
+    let marker: google.maps.marker.AdvancedMarkerElement | null = null;
 
     const renderMap = async () => {
       try {
-        const mapsApi = await loadGoogleMaps();
-        const maps = await mapsApi.maps.importLibrary("maps") as google.maps.MapsLibrary;
+        const [{ maps, marker: markerLibrary }, mapId] = await Promise.all([
+          loadGoogleMapsLibraries(),
+          getGoogleMapsMapId(),
+        ]);
         if (cancelled || !mapElementRef.current) return;
 
         const point = { lat: latitude, lng: longitude };
         map = new maps.Map(mapElementRef.current, {
           center: point,
+          mapId,
           zoom: 16,
           mapTypeControl: false,
           streetViewControl: false,
@@ -37,7 +40,7 @@ export function AddressCoordinateMapPreview({
           clickableIcons: false,
           gestureHandling: "cooperative",
         });
-        marker = new mapsApi.maps.Marker({
+        marker = new markerLibrary.AdvancedMarkerElement({
           map,
           position: point,
           title: "Saved delivery location",
@@ -54,7 +57,7 @@ export function AddressCoordinateMapPreview({
     void renderMap();
     return () => {
       cancelled = true;
-      marker?.setMap(null);
+      if (marker) marker.map = null;
       if (map) mapsApiCleanup(map);
     };
   }, [latitude, longitude]);
