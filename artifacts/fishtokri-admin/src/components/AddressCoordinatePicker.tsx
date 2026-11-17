@@ -1,9 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import * as L from "leaflet";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link2, LoaderCircle, LocateFixed, MapPin, Search, Trash2 } from "lucide-react";
-import { apiFetch } from "@/lib/api";
 import { parseMapLinkCoordinates } from "@/lib/map-link-coordinates";
-import "leaflet/dist/leaflet.css";
+import { loadGoogleMapsLibraries } from "@/lib/google-maps";
 
 export type AddressCoordinates = {
   latitude: number;
@@ -18,23 +16,31 @@ type AddressCoordinatePickerProps = {
   onPincodeLookupStateChange?: (busy: boolean) => void;
 };
 
-const DEFAULT_CENTER: [number, number] = [19.2183, 72.9781];
-
 type LocationSearchResult = {
-  place_id: string;
-  display_name: string;
-  lat: string;
-  lon: string;
-  type?: string;
+  id: string;
+  label: string;
+  prediction: google.maps.places.PlacePrediction;
 };
 
+const DEFAULT_CENTER = { lat: 19.2183, lng: 72.9781 };
+
 function isValidCoordinatePair(latitude: unknown, longitude: unknown): boolean {
-  if (latitude === null || latitude === undefined || String(latitude).trim() === "" ||
-    longitude === null || longitude === undefined || String(longitude).trim() === "") return false;
+  if (
+    latitude === null || latitude === undefined || String(latitude).trim() === "" ||
+    longitude === null || longitude === undefined || String(longitude).trim() === ""
+  ) return false;
+
   const lat = Number(latitude);
   const lng = Number(longitude);
   return Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
     Number.isFinite(lng) && lng >= -180 && lng <= 180;
+}
+
+function normalizeCoordinates(latitude: number, longitude: number): AddressCoordinates {
+  return {
+    latitude: Number(latitude.toFixed(6)),
+    longitude: Number(longitude.toFixed(6)),
+  };
 }
 
 export function AddressCoordinatePicker({
@@ -45,17 +51,22 @@ export function AddressCoordinatePicker({
   onPincodeLookupStateChange,
 }: AddressCoordinatePickerProps) {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const markerRef = useRef<L.CircleMarker | null>(null);
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const markerRef = useRef<google.maps.Marker | null>(null);
+  const geocoderRef = useRef<google.maps.Geocoder | null>(null);
+  const autocompleteSessionRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
+  const postcodeLookupIdRef = useRef(0);
   const onChangeRef = useRef(onChange);
   const onPincodeChangeRef = useRef(onPincodeChange);
   const onPincodeLookupStateChangeRef = useRef(onPincodeLookupStateChange);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapLoading, setMapLoading] = useState(true);
   const [locating, setLocating] = useState(false);
   const [searching, setSearching] = useState(false);
   const [lookingUpPostcode, setLookingUpPostcode] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [mapLink, setMapLink] = useState("");
-  const [mapLinkMessage, setMapLinkMessage] = useState("");
+  const [pinStatusMessage, setPinStatusMessage] = useState("");
   const [searchResults, setSearchResults] = useState<LocationSearchResult[]>([]);
   const [locationError, setLocationError] = useState("");
 
@@ -71,61 +82,153 @@ export function AddressCoordinatePicker({
     onPincodeLookupStateChangeRef.current = onPincodeLookupStateChange;
   }, [onPincodeLookupStateChange]);
 
+  const lookupPincode = useCallback(async (coordinates: AddressCoordinates) => {
+    const lookupId = ++postcodeLookupIdRef.current;
+    setLookingUpPostcode(true);
+    onPincodeLookupStateChangeRef.current?.(true);
+    setPinStatusMessage("Pin set. Looking up the pincode…");
+
+    try {
+      const { geocoding } = await loadGoogleMapsLibraries();
+      if (lookupId !== postcodeLookupIdRef.current) return;
+      geocoderRef.current ??= new geocoding.Geocoder();
+
+      const response = await geocoderRef.current.geocode({
+        location: { lat: coordinates.latitude, lng: coordinates.longitude },
+      });
+      if (lookupId !== postcodeLookupIdRef.current) return;
+
+      const postcode = response.results
+        .flatMap((result) => result.address_components)
+        .find((component) => component.types.includes("postal_code"))
+        ?.long_name.replace(/\D/g, "");
+
+      if (postcode && /^\d{6}$/.test(postcode)) {
+        onPincodeChangeRef.current?.(postcode);
+        setPinStatusMessage(`Pin set. Pincode ${postcode} found.`);
+      } else {
+        setPinStatusMessage("Pin set. No 6-digit pincode was found here; enter it manually.");
+      }
+    } catch {
+      if (lookupId === postcodeLookupIdRef.current) {
+        setPinStatusMessage("Pin set. Pincode lookup failed; enter it manually.");
+      }
+    } finally {
+      if (lookupId === postcodeLookupIdRef.current) {
+        setLookingUpPostcode(false);
+        onPincodeLookupStateChangeRef.current?.(false);
+      }
+    }
+  }, []);
+
+  const pinCoordinates = useCallback((coordinates: AddressCoordinates, lookupPincodeAfterPin = true) => {
+    const position = { lat: coordinates.latitude, lng: coordinates.longitude };
+    const map = mapRef.current;
+    if (map) {
+      map.panTo(position);
+      map.setZoom(Math.max(map.getZoom() ?? 0, 16));
+    }
+    markerRef.current?.setPosition(position);
+    markerRef.current?.setVisible(true);
+    onChangeRef.current(coordinates);
+    setLocationError("");
+
+    if (lookupPincodeAfterPin) {
+      void lookupPincode(coordinates);
+    } else {
+      setPinStatusMessage("");
+    }
+  }, [lookupPincode]);
+
   useEffect(() => {
     if (!mapElementRef.current) return;
-    const hasCoordinates = isValidCoordinatePair(latitude, longitude);
-    const center: [number, number] = hasCoordinates
-      ? [Number(latitude), Number(longitude)]
-      : DEFAULT_CENTER;
-    const map = L.map(mapElementRef.current, {
-      center,
-      zoom: hasCoordinates ? 16 : 12,
-      scrollWheelZoom: true,
-    });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
-    }).addTo(map);
-    map.on("click", (event: L.LeafletMouseEvent) => {
-      onChangeRef.current({
-        latitude: Number(event.latlng.lat.toFixed(6)),
-        longitude: Number(event.latlng.lng.toFixed(6)),
-      });
-    });
-    mapRef.current = map;
-    const invalidateTimer = window.setTimeout(() => map.invalidateSize(), 0);
+    let cancelled = false;
+    let map: google.maps.Map | null = null;
+    let marker: google.maps.Marker | null = null;
+    let clickListener: google.maps.MapsEventListener | null = null;
+    let dragListener: google.maps.MapsEventListener | null = null;
+
+    const createMap = async () => {
+      try {
+        const { mapsApi, maps, geocoding } = await loadGoogleMapsLibraries();
+        if (cancelled || !mapElementRef.current) return;
+
+        const hasCoordinates = isValidCoordinatePair(latitude, longitude);
+        const initialCenter = hasCoordinates
+          ? { lat: Number(latitude), lng: Number(longitude) }
+          : DEFAULT_CENTER;
+
+        map = new maps.Map(mapElementRef.current, {
+          center: initialCenter,
+          zoom: hasCoordinates ? 16 : 12,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: true,
+          clickableIcons: false,
+        });
+        marker = new mapsApi.maps.Marker({
+          map,
+          position: initialCenter,
+          draggable: true,
+          visible: hasCoordinates,
+          title: "Delivery location",
+        });
+        geocoderRef.current = new geocoding.Geocoder();
+        mapRef.current = map;
+        markerRef.current = marker;
+        setMapReady(true);
+        setMapLoading(false);
+
+        clickListener = map.addListener("click", (event: google.maps.MapMouseEvent) => {
+          if (!event.latLng) return;
+          pinCoordinates(normalizeCoordinates(event.latLng.lat(), event.latLng.lng()));
+        });
+        dragListener = marker.addListener("dragend", () => {
+          const point = marker?.getPosition();
+          if (!point) return;
+          pinCoordinates(normalizeCoordinates(point.lat(), point.lng()), false);
+          void lookupPincode(normalizeCoordinates(point.lat(), point.lng()));
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setMapLoading(false);
+        setLocationError(error instanceof Error ? error.message : "Google Maps could not be loaded.");
+      }
+    };
+
+    void createMap();
 
     return () => {
-      window.clearTimeout(invalidateTimer);
-      map.remove();
+      cancelled = true;
+      clickListener?.remove();
+      dragListener?.remove();
+      marker?.setMap(null);
+      if (map) mapsCleanup(map);
       mapRef.current = null;
       markerRef.current = null;
+      geocoderRef.current = null;
     };
+  // The map is created once; the following effect syncs incoming coordinates.
+  // Recreating the map whenever a pin is selected would interrupt clicks and drags.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    const marker = markerRef.current;
+    if (!map || !marker) return;
+
     if (!isValidCoordinatePair(latitude, longitude)) {
-      markerRef.current?.remove();
-      markerRef.current = null;
+      marker.setVisible(false);
       return;
     }
 
-    const point = L.latLng(Number(latitude), Number(longitude));
-    if (markerRef.current) {
-      markerRef.current.setLatLng(point);
-    } else {
-      markerRef.current = L.circleMarker(point, {
-        radius: 8,
-        color: "#ffffff",
-        weight: 3,
-        fillColor: "#1769d2",
-        fillOpacity: 1,
-      }).addTo(map);
-      map.setView(point, Math.max(map.getZoom(), 16));
-    }
-  }, [latitude, longitude]);
+    const point = { lat: Number(latitude), lng: Number(longitude) };
+    marker.setPosition(point);
+    marker.setVisible(true);
+    map.setCenter(point);
+    map.setZoom(Math.max(map.getZoom() ?? 0, 16));
+  }, [latitude, longitude, mapReady]);
 
   useEffect(() => {
     const query = searchQuery.trim();
@@ -133,35 +236,53 @@ export function AddressCoordinatePicker({
       setSearchResults([]);
       setSearching(false);
       setLocationError("");
+      if (query.length === 0) autocompleteSessionRef.current = null;
       return;
     }
 
-    const controller = new AbortController();
+    let cancelled = false;
     setSearching(true);
     setSearchResults([]);
     setLocationError("");
     const timeout = window.setTimeout(async () => {
       try {
-        const response = await apiFetch(
-          `/api/location-search?q=${encodeURIComponent(query)}`,
-          { signal: controller.signal },
-        );
-        if (controller.signal.aborted) return;
-        const results = Array.isArray(response?.results) ? response.results as LocationSearchResult[] : [];
+        const { places } = await loadGoogleMapsLibraries();
+        if (cancelled) return;
+        autocompleteSessionRef.current ??= new places.AutocompleteSessionToken();
+        const response = await places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+          input: query,
+          includedRegionCodes: ["in"],
+          sessionToken: autocompleteSessionRef.current,
+        });
+        if (cancelled) return;
+
+        const results = response.suggestions.flatMap((suggestion) => {
+          const prediction = suggestion.placePrediction;
+          if (!prediction) return [];
+          return [{
+            id: prediction.placeId,
+            label: prediction.text.toString(),
+            prediction,
+          }];
+        });
         setSearchResults(results);
-        if (results.length === 0) setLocationError("No places found. Try a nearby street, area, or public landmark.");
-      } catch (error: any) {
-        if (!controller.signal.aborted) {
-          setLocationError(error?.message || "Location search failed. You can still place a pin on the map.");
+        if (results.length === 0) {
+          setLocationError("No places found. Try a nearby street, area, or public landmark.");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLocationError(error instanceof Error
+            ? error.message
+            : "Location search failed. You can still place a pin on the map.");
         }
       } finally {
-        if (!controller.signal.aborted) setSearching(false);
+        if (!cancelled) setSearching(false);
       }
-    }, 450);
+    }, 350);
 
     return () => {
+      cancelled = true;
       window.clearTimeout(timeout);
-      controller.abort();
     };
   }, [searchQuery]);
 
@@ -171,13 +292,11 @@ export function AddressCoordinatePicker({
       setLocationError("Location access is not available in this browser.");
       return;
     }
+
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const latitude = Number(position.coords.latitude.toFixed(6));
-        const longitude = Number(position.coords.longitude.toFixed(6));
-        mapRef.current?.flyTo([latitude, longitude], Math.max(mapRef.current.getZoom(), 16), { duration: 0.4 });
-        onChangeRef.current({ latitude, longitude });
+        pinCoordinates(normalizeCoordinates(position.coords.latitude, position.coords.longitude));
         setLocating(false);
       },
       (error) => {
@@ -192,72 +311,42 @@ export function AddressCoordinatePicker({
     );
   };
 
-  const chooseSearchResult = (result: LocationSearchResult) => {
-    const latitude = Number(result.lat);
-    const longitude = Number(result.lon);
-    if (!isValidCoordinatePair(latitude, longitude)) {
-      setLocationError("That search result did not include valid coordinates.");
-      return;
-    }
-    mapRef.current?.flyTo([latitude, longitude], Math.max(mapRef.current.getZoom(), 16), { duration: 0.4 });
-    onChangeRef.current({
-      latitude: Number(latitude.toFixed(6)),
-      longitude: Number(longitude.toFixed(6)),
-    });
-    setSearchResults([]);
-    setSearchQuery("");
+  const chooseSearchResult = async (result: LocationSearchResult) => {
+    setSearching(true);
     setLocationError("");
+    try {
+      const place = result.prediction.toPlace();
+      await place.fetchFields({ fields: ["location"] });
+      const point = place.location?.toJSON();
+      if (!point || !isValidCoordinatePair(point.lat, point.lng)) {
+        setLocationError("That search result did not include valid coordinates.");
+        return;
+      }
+
+      autocompleteSessionRef.current = null;
+      const coordinates = normalizeCoordinates(point.lat, point.lng);
+      setSearchResults([]);
+      setSearchQuery("");
+      pinCoordinates(coordinates);
+    } catch {
+      setLocationError("Could not load that place. Try another result or click the map.");
+    } finally {
+      setSearching(false);
+    }
   };
 
-  const pinFromMapLink = async () => {
+  const pinFromMapLink = () => {
     const coordinates = parseMapLinkCoordinates(mapLink);
     if (!coordinates) {
-      setMapLinkMessage("Could not find coordinates. Paste a full Google Maps or OpenStreetMap link that includes them.");
+      setPinStatusMessage("Could not find coordinates. Paste a full Google Maps or OpenStreetMap link that includes them.");
       return;
     }
 
-    const roundedCoordinates = {
-      latitude: Number(coordinates.latitude.toFixed(6)),
-      longitude: Number(coordinates.longitude.toFixed(6)),
-    };
-    mapRef.current?.flyTo(
-      [roundedCoordinates.latitude, roundedCoordinates.longitude],
-      Math.max(mapRef.current?.getZoom() ?? 0, 18),
-      { duration: 0.4 },
-    );
-    onChangeRef.current(roundedCoordinates);
+    const roundedCoordinates = normalizeCoordinates(coordinates.latitude, coordinates.longitude);
     setSearchResults([]);
     setSearchQuery("");
-    setLocationError("");
-    setLookingUpPostcode(true);
-    onPincodeLookupStateChangeRef.current?.(true);
-    setMapLinkMessage("Pin set. Looking up the pincode…");
-
-    try {
-      const result = await apiFetch(
-        `/api/location-search/reverse?lat=${encodeURIComponent(roundedCoordinates.latitude)}&lon=${encodeURIComponent(roundedCoordinates.longitude)}`,
-      );
-      const pincode = typeof result?.postcode === "string"
-        ? result.postcode.replace(/\D/g, "")
-        : "";
-      if (/^\d{6}$/.test(pincode)) {
-        onPincodeChangeRef.current?.(pincode);
-        setMapLinkMessage(
-          `Pin set at ${roundedCoordinates.latitude.toFixed(6)}, ${roundedCoordinates.longitude.toFixed(6)}. Pincode ${pincode} found.`,
-        );
-      } else {
-        setMapLinkMessage(
-          `Pin set at ${roundedCoordinates.latitude.toFixed(6)}, ${roundedCoordinates.longitude.toFixed(6)}. No 6-digit pincode was found here; enter it manually.`,
-        );
-      }
-    } catch {
-      setMapLinkMessage(
-        `Pin set at ${roundedCoordinates.latitude.toFixed(6)}, ${roundedCoordinates.longitude.toFixed(6)}. Pincode lookup failed; enter it manually.`,
-      );
-    } finally {
-      setLookingUpPostcode(false);
-      onPincodeLookupStateChangeRef.current?.(false);
-    }
+    setPinStatusMessage("");
+    pinCoordinates(roundedCoordinates);
   };
 
   const hasCoordinates = isValidCoordinatePair(latitude, longitude);
@@ -284,7 +373,14 @@ export function AddressCoordinatePicker({
             <button
               type="button"
               data-testid="button-clear-location-pin"
-              onClick={() => onChange(null)}
+              onClick={() => {
+                postcodeLookupIdRef.current += 1;
+                setLookingUpPostcode(false);
+                onPincodeLookupStateChangeRef.current?.(false);
+                markerRef.current?.setVisible(false);
+                onChangeRef.current(null);
+                setPinStatusMessage("");
+              }}
               className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -309,12 +405,12 @@ export function AddressCoordinatePicker({
                 value={mapLink}
                 onChange={(event) => {
                   setMapLink(event.target.value);
-                  setMapLinkMessage("");
+                  setPinStatusMessage("");
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
-                    void pinFromMapLink();
+                    pinFromMapLink();
                   }
                 }}
                 placeholder="Paste a link containing map coordinates"
@@ -326,7 +422,7 @@ export function AddressCoordinatePicker({
             <button
               type="button"
               data-testid="button-pin-from-map-link"
-              onClick={() => void pinFromMapLink()}
+              onClick={pinFromMapLink}
               disabled={!mapLink.trim() || lookingUpPostcode}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -337,9 +433,8 @@ export function AddressCoordinatePicker({
             </button>
           </div>
           <p className="text-[10px] leading-4 text-gray-500">
-            Exact coordinates are used when included. The pincode is filled automatically when map data provides one.
+            Exact coordinates are used when included. The pincode is filled automatically when Google provides one.
           </p>
-          {mapLinkMessage && <p className="text-xs text-blue-800" role="status">{mapLinkMessage}</p>}
         </div>
 
         <div className="relative">
@@ -351,6 +446,7 @@ export function AddressCoordinatePicker({
             onChange={(event) => {
               setSearchQuery(event.target.value);
               setSearchResults([]);
+              if (!event.target.value.trim()) autocompleteSessionRef.current = null;
             }}
             placeholder="Search for a street, area, or landmark"
             aria-label="Search map location"
@@ -363,39 +459,48 @@ export function AddressCoordinatePicker({
           {searchResults.length > 0 && (
             <div
               id="address-location-search-results"
-              className="relative z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg"
+              className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg"
               role="listbox"
-              aria-label="Location search results"
+              aria-label="Google Maps location search results"
             >
               {searchResults.map((result) => (
                 <button
-                  key={result.place_id}
+                  key={result.id}
                   type="button"
                   role="option"
                   aria-selected="false"
-                  onClick={() => chooseSearchResult(result)}
+                  onClick={() => void chooseSearchResult(result)}
                   className="flex w-full items-start gap-2 border-b border-gray-100 px-3 py-2.5 text-left last:border-b-0 hover:bg-blue-50"
                 >
                   <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" />
-                  <span className="text-xs leading-4 text-gray-800">{result.display_name}</span>
+                  <span className="text-xs leading-4 text-gray-800">{result.label}</span>
                 </button>
               ))}
             </div>
           )}
         </div>
         <p className="text-[10px] leading-4 text-gray-500">
-          Suggestions appear as you type. Search text is sent to Photon, an OpenStreetMap-based provider; use a public area or landmark, not customer names or private address details.
+          Search suggestions are provided by Google Maps. Search for a street, area, or public landmark rather than a customer’s name.
         </p>
         {locationError && <p className="text-xs text-amber-700" role="status">{locationError}</p>}
       </div>
 
-      <div
-        ref={mapElementRef}
-        data-testid="map-openstreetmap"
-        aria-label="OpenStreetMap location picker"
-        className="h-[360px] w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100"
-      />
+      <div className="relative">
+        <div
+          ref={mapElementRef}
+          data-testid="map-google"
+          aria-label="Google Maps delivery location picker"
+          className="h-[360px] w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100"
+        />
+        {mapLoading && (
+          <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-gray-100/90 text-sm text-gray-600">
+            <LoaderCircle className="mr-2 h-4 w-4 animate-spin text-blue-700" />
+            Loading Google Maps…
+          </div>
+        )}
+      </div>
 
+      {pinStatusMessage && <p className="text-xs text-blue-800" role="status">{pinStatusMessage}</p>}
       {hasCoordinates ? (
         <p className="text-xs font-medium text-blue-800" data-testid="text-saved-coordinates">
           Pinned coordinates: {Number(latitude).toFixed(6)}, {Number(longitude).toFixed(6)}
@@ -403,7 +508,13 @@ export function AddressCoordinatePicker({
       ) : (
         <p className="text-xs text-gray-500">No pin selected. The written address will still be used for delivery.</p>
       )}
-      <p className="text-[10px] text-gray-500">Map data © OpenStreetMap contributors.</p>
+      <p className="text-[10px] text-gray-500">
+        {lookingUpPostcode ? "Looking up the pincode…" : mapReady ? "Map provided by Google Maps." : ""}
+      </p>
     </div>
   );
+}
+
+function mapsCleanup(map: google.maps.Map) {
+  google.maps.event.clearInstanceListeners(map);
 }
