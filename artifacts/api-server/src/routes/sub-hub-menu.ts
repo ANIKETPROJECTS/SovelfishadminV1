@@ -6,6 +6,8 @@ import { requireAuth } from "../middlewares/auth.js";
 import { loadScope, type ScopedRequest } from "../middlewares/scope.js";
 import { TIMESLOT_FEATURE_ENABLED } from "../lib/feature-flags.js";
 import { ensureCityAreasInitialized } from "../services/city-areas.mjs";
+import { countVideoFiles, BANNER_VIDEO_DIRECTORY_SETTING_ID } from "../services/banner-video-storage.mjs";
+import bannerVideosRouter from "./sub-hub-banner-videos.js";
 import {
   formatBulkPortionRangeLabel,
   formatBulkPortionWeightLabel,
@@ -15,6 +17,7 @@ import {
 const router: IRouter = Router({ mergeParams: true });
 router.use(requireAuth as any);
 router.use(loadScope as any);
+router.use("/banner-videos", bannerVideosRouter);
 
 // Keep legacy timeslot handlers in place, but make the API unavailable until
 // scheduling is explicitly re-enabled in the feature flags.
@@ -158,7 +161,7 @@ router.get("/stats", async (req, res) => {
   try {
     const ctx = await getSubHubDb(req.params.id, res, req as ScopedRequest);
     if (!ctx) return;
-    const db = ctx.conn.db;
+    const db = ctx.conn.db!;
     await ensureCityAreasInitialized(db);
     const [products, categories, coupons, combos, carousels, cityAreas, sections, timeslots] = await Promise.all([
       db.collection("products").countDocuments({ isDailyWholeFish: { $ne: true } }),
@@ -170,7 +173,16 @@ router.get("/stats", async (req, res) => {
       db.collection("sections").countDocuments(),
       db.collection("timeslots").countDocuments(),
     ]);
-    res.json({ stats: { products, categories, coupons, combos, carousels, cityAreas, sections, timeslots, dbName: ctx.sub.dbName } });
+    let bannerVideos = 0;
+    try {
+      const videoSetting = await db.collection("menu_settings").findOne({ _id: BANNER_VIDEO_DIRECTORY_SETTING_ID as any });
+      if (typeof videoSetting?.directory === "string" && videoSetting.directory) {
+        bannerVideos = await countVideoFiles(videoSetting.directory);
+      }
+    } catch (err) {
+      req.log.warn({ err }, "Could not count banner videos for sub hub stats");
+    }
+    res.json({ stats: { products, categories, combos, coupons, carousels, bannerVideos, cityAreas, sections, timeslots, dbName: ctx.sub.dbName } });
   } catch (err) {
     req.log.error({ err }, "Failed to get sub hub menu stats");
     res.status(500).json({ error: "InternalError", message: "Failed to get stats" });

@@ -24,3 +24,4 @@
 - [Borzo test dispatch](borzo-test-dispatch.md) — use the order-time recipient address and separate declared goods value from Borzo fees.
 - [Instant delivery schedule type](instant-delivery-schedule-type.md) — delivery orders should use `instant`, not `standard` or time-slot schedules.
 - [City/area product pricing](city-area-product-pricing.md) — require a configured city/area for delivery and add its sub-hub charge to each catalog product unit; pincode fees are retired.
+- [Banner video directory scope](banner-video-directories.md) — each sub-hub can use its own VPS folder for banner video files.

@@ -7,7 +7,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } 
 import { CSS } from "@dnd-kit/utilities";
 import {
   ArrowLeft, Plus, Edit2, Trash2, Search, X, Package, Tag, Ticket,
-  Database, AlertCircle, Check, CheckCircle, XCircle, Image,
+  Database, AlertCircle, Check, CheckCircle, XCircle, Image, Video,
   LayoutList, ShoppingBag, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, GripVertical,
   LayoutGrid, List, SlidersHorizontal, ArrowUpDown, Clock,
   Download, Upload, FilePen, CalendarDays, Copy,
@@ -37,6 +37,7 @@ import { useToast } from "@/hooks/use-toast";
 import { PaginationBar } from "@/components/pagination-bar";
 import { usePaginated } from "@/hooks/use-paginated";
 import { ImageUpload } from "@/components/image-upload";
+import { BannerVideosTab } from "@/components/BannerVideosTab";
 import { ProductVariantsManager, type ProductVariantsManagerHandle } from "@/components/product-variants-manager";
 import { formatVariantLabelWithUnit, normalizeProductUnit } from "@/lib/product-units";
 import {
@@ -210,7 +211,7 @@ const TABS = ([
   { key: "categories", label: "Categories", icon: Tag },
   { key: "combos", label: "Combos", icon: ShoppingBag },
   { key: "coupons", label: "Coupons", icon: Ticket },
-  { key: "carousels", label: "Banners", icon: Image },
+  { key: "carousels", label: "Banner Videos", icon: Video },
   { key: "sections", label: "Sections", icon: LayoutList },
   { key: "timeslots", label: "Time Slots", icon: Clock },
   { key: "cityAreas", label: "Area/City", icon: Database },
@@ -604,7 +605,7 @@ export default function SubHubMenuAdmin() {
     { label: "Categories", value: stats?.categories ?? 0, img: iconMenuCategories },
     { label: "Combos", value: stats?.combos ?? 0, img: iconMenuCombos },
     { label: "Coupons", value: stats?.coupons ?? 0, img: iconMenuCoupons },
-    { label: "Banners", value: stats?.carousels ?? 0, img: iconMenuBanners },
+    { label: "Banner Videos", value: stats?.bannerVideos ?? 0, img: iconMenuBanners },
     { label: "Sections", value: stats?.sections ?? 0, img: iconMenuSections },
     ...(TIMESLOT_FEATURE_ENABLED ? [{ label: "Time Slots", value: stats?.timeslots ?? 0, img: iconMenuTimeslots }] : []),
     { label: "Area/City", value: cityAreasCount, img: iconPin },
@@ -683,7 +684,7 @@ export default function SubHubMenuAdmin() {
           {!statsError && tab === "categories" && <CategoriesTab subHubId={subHubId} onRefreshStats={loadStats} onSetExcel={setExcelBar} />}
           {!statsError && tab === "combos" && <CombosTab subHubId={subHubId} onSetExcel={setExcelBar} />}
           {!statsError && tab === "coupons" && <CouponsTab subHubId={subHubId} onSetExcel={setExcelBar} />}
-          {!statsError && tab === "carousels" && <CarouselsTab subHubId={subHubId} />}
+          {!statsError && tab === "carousels" && <BannerVideosTab subHubId={subHubId} />}
           {!statsError && tab === "sections" && <SectionsTab subHubId={subHubId} onSetExcel={setExcelBar} />}
           {TIMESLOT_FEATURE_ENABLED && !statsError && tab === "timeslots" && <TimeSlotsTab subHubId={subHubId} onSetExcel={setExcelBar} />}
           {tab === "cityAreas" && <CityAreasTab subHubId={subHubId} onCountChange={setCityAreasCount} />}
