@@ -43,11 +43,11 @@ export default function RoleSelect() {
         </div>
         <div className="relative z-10 flex flex-col justify-between p-12 xl:p-14 w-full">
           <div className="w-full pt-12 text-center">
-            <div className="mx-auto w-full max-w-[500px] rounded-2xl border border-white bg-white/95 px-5 py-4 shadow-[0_14px_34px_rgba(0,0,53,0.09)]">
+            <div className="mx-auto w-full max-w-[240px] rounded-2xl border border-white bg-white/95 p-3 shadow-[0_14px_34px_rgba(0,0,53,0.09)]">
               <img
-                src="/fresh-stock-xchange-logo.png"
+                src="/fresh-stock-xchange-compass.png"
                 alt="Fresh Stock Xchange"
-                className="mx-auto block w-full max-w-[430px] h-auto max-h-[74px] object-contain"
+                className="mx-auto block w-full max-w-[210px] h-auto max-h-[185px] object-contain"
               />
             </div>
             <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#52614D]">
@@ -90,11 +90,11 @@ export default function RoleSelect() {
           <div className="w-full max-w-[500px] rounded-[1.65rem] border border-white/80 bg-white/90 px-6 py-7 shadow-[0_26px_80px_rgba(0,0,53,0.12)] sm:px-9 sm:py-9">
             {/* Mobile brand */}
             <div className="lg:hidden mb-8">
-              <div className="rounded-xl border border-[#000035]/10 bg-white px-4 py-3 shadow-sm">
+              <div className="mx-auto w-fit rounded-xl border border-[#000035]/10 bg-white p-2 shadow-sm">
                 <img
-                  src="/fresh-stock-xchange-logo.png"
+                  src="/fresh-stock-xchange-compass.png"
                   alt="Fresh Stock Xchange"
-                  className="mx-auto block w-full max-w-[320px] h-auto max-h-12 object-contain"
+                  className="mx-auto block h-[88px] w-[102px] object-contain"
                 />
               </div>
               <p className="mt-2 text-center text-[9px] font-semibold uppercase tracking-[0.18em] text-[#687468]">

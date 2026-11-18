@@ -309,16 +309,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Brand */}
         <div className={`flex ${expanded ? "justify-center px-4" : "justify-center"} pt-5 pb-3`}>
           {expanded ? (
-            <div className="w-full rounded-xl border border-[#000035]/10 bg-white p-2.5 shadow-sm flex items-center justify-center">
+            <div className="w-[76px] h-[76px] rounded-xl border border-[#000035]/10 bg-white p-1.5 shadow-sm flex items-center justify-center">
               <img
-                src="/fresh-stock-xchange-logo.png"
+                src="/fresh-stock-xchange-compass.png"
                 alt="Fresh Stock Xchange"
-                className="block w-full h-auto object-contain"
+                className="block w-full h-full object-contain"
               />
             </div>
           ) : (
             <div className="w-10 h-10 rounded-xl border border-[#000035]/10 bg-white flex items-center justify-center flex-shrink-0 shadow-sm">
-              <img src="/brand-mark.svg" alt="Fresh Stock Xchange" className="w-8 h-8 object-contain" />
+              <img src="/fresh-stock-xchange-compass.png" alt="Fresh Stock Xchange" className="w-9 h-9 object-contain" />
             </div>
           )}
         </div>
