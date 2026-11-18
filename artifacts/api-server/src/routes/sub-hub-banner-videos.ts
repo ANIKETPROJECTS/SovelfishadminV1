@@ -184,6 +184,27 @@ router.get("/files/:filename/thumbnail", async (req: ScopedRequest, res) => {
   }
 });
 
+router.get("/files/:filename/stream", async (req: ScopedRequest, res) => {
+  try {
+    const ctx = await getSubHubVideoContext(req, res);
+    if (!ctx) return;
+    const directory = await getConfiguredDirectory(ctx.db);
+    if (!directory) {
+      res.status(409).json({ error: "DirectoryNotConfigured", message: "Set this sub-hub's VPS video directory first." });
+      return;
+    }
+
+    const file = await resolveManagedVideoFile(directory, String(req.params.filename));
+    res.type(path.extname(file.filename));
+    res.set("Content-Disposition", `inline; filename="${file.filename}"`);
+    res.set("Cache-Control", "private, no-store");
+    res.sendFile(file.path);
+  } catch (err: any) {
+    req.log.error({ err }, "Failed to stream banner video");
+    res.status(404).json({ error: "NotFound", message: err.message || "Could not read this video." });
+  }
+});
+
 router.put("/directory", async (req: ScopedRequest, res) => {
   if (!requireMasterAdmin(req, res)) return;
   try {

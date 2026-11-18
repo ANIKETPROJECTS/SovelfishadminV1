@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FolderCog, HardDrive, ImagePlus, Pencil, RefreshCw, Trash2, Upload, Video } from "lucide-react";
+import { Download, Eye, FolderCog, HardDrive, ImagePlus, Pencil, RefreshCw, Trash2, Upload, Video } from "lucide-react";
 import { apiFetch, getCurrentAdminScope } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,6 +58,18 @@ async function uploadFile(endpoint: string, file: File, fieldName: "video" | "th
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.message || "Video upload failed.");
   return data;
+}
+
+async function fetchVideoBlob(endpoint: string, filename: string, signal?: AbortSignal) {
+  const response = await fetch(`${getApiBase()}${endpoint}/files/${encodeURIComponent(filename)}/stream`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+    signal,
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || "Could not load this video.");
+  }
+  return response.blob();
 }
 
 function VideoThumbnailPreview({ endpoint, file }: { endpoint: string; file: BannerVideo }) {
@@ -121,6 +133,11 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
   const [renaming, setRenaming] = useState(false);
   const [renameFile, setRenameFile] = useState<BannerVideo | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [viewingVideo, setViewingVideo] = useState<BannerVideo | null>(null);
+  const [videoObjectUrl, setVideoObjectUrl] = useState("");
+  const [loadingVideo, setLoadingVideo] = useState(false);
+  const [videoError, setVideoError] = useState("");
+  const [downloadingVideo, setDownloadingVideo] = useState("");
   const [deleteFile, setDeleteFile] = useState<BannerVideo | null>(null);
   const [deleteThumbnail, setDeleteThumbnail] = useState<BannerVideo | null>(null);
   const [storageError, setStorageError] = useState("");
@@ -142,6 +159,39 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
   }, [endpoint]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!viewingVideo) {
+      setVideoObjectUrl("");
+      setLoadingVideo(false);
+      setVideoError("");
+      return;
+    }
+
+    const controller = new AbortController();
+    let objectUrl = "";
+    setLoadingVideo(true);
+    setVideoObjectUrl("");
+    setVideoError("");
+
+    fetchVideoBlob(endpoint, viewingVideo.name, controller.signal)
+      .then((blob) => {
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob);
+        setVideoObjectUrl(objectUrl);
+      })
+      .catch((error: any) => {
+        if (!controller.signal.aborted) setVideoError(error.message || "Could not load this video.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingVideo(false);
+      });
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [endpoint, viewingVideo?.name]);
 
   const handleSaveDirectory = async () => {
     setSavingDirectory(true);
@@ -233,6 +283,26 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
       toast({ title: "Thumbnail delete failed", description: error.message, variant: "destructive" });
     } finally {
       setDeleteThumbnail(null);
+    }
+  };
+
+  const handleDownloadVideo = async (file: BannerVideo) => {
+    setDownloadingVideo(file.name);
+    try {
+      const blob = await fetchVideoBlob(endpoint, file.name);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      toast({ title: "Video download started", description: file.name });
+    } catch (error: any) {
+      toast({ title: "Download failed", description: error.message, variant: "destructive" });
+    } finally {
+      setDownloadingVideo("");
     }
   };
 
@@ -409,6 +479,29 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
                 <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 md:justify-end">
                   <Button
                     type="button"
+                    size="icon"
+                    variant="outline"
+                    title="View video"
+                    aria-label={`View ${file.name}`}
+                    onClick={() => setViewingVideo(file)}
+                    className="h-8 w-8 shrink-0"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    title="Download video"
+                    aria-label={`Download ${file.name}`}
+                    disabled={!!downloadingVideo}
+                    onClick={() => void handleDownloadVideo(file)}
+                    className="h-8 w-8 shrink-0"
+                  >
+                    {downloadingVideo === file.name ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    type="button"
                     size="sm"
                     variant="outline"
                     disabled={!!replacing}
@@ -492,6 +585,34 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
             <Button type="button" onClick={handleRename} disabled={renaming || !renameValue.trim()} className="bg-[#1A56DB] hover:bg-[#1447B4]">
               {renaming ? "Saving…" : "Save name"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewingVideo} onOpenChange={(open) => !open && setViewingVideo(null)}>
+        <DialogContent className="w-[min(96vw,900px)] max-w-none">
+          <DialogHeader>
+            <DialogTitle>View video</DialogTitle>
+            <DialogDescription>{viewingVideo?.name}</DialogDescription>
+          </DialogHeader>
+          {loadingVideo ? (
+            <div className="flex min-h-64 items-center justify-center text-sm text-gray-500">Loading video…</div>
+          ) : videoError ? (
+            <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {videoError}
+            </div>
+          ) : videoObjectUrl ? (
+            <video
+              key={videoObjectUrl}
+              src={videoObjectUrl}
+              controls
+              autoPlay
+              playsInline
+              className="max-h-[70vh] w-full rounded-lg bg-black"
+            />
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setViewingVideo(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
