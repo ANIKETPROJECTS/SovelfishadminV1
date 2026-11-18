@@ -3325,7 +3325,7 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
                   </PopoverContent>
                 </Popover>
               </div>
-              {!DIRECT_ORDER_ONLY && <div className="space-y-1.5">
+              <div className="space-y-1.5">
                 <Label className="text-xs font-semibold text-gray-600">Sales Mode</Label>
                 <Select value={preorderMode} onValueChange={(v) => setPreorderMode(v as typeof preorderMode)}>
                   <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
@@ -3335,8 +3335,8 @@ function ProductModal({ isOpen, onClose, product, subHubId, categories, onSaved,
                   </SelectContent>
                 </Select>
                 <p className="text-[11px] text-gray-400">Controls whether this product appears in the normal POS or preorder POS.</p>
-              </div>}
-              {!DIRECT_ORDER_ONLY && preorderMode === "preorder_only" && (
+              </div>
+              {preorderMode === "preorder_only" && (
                 <div className="rounded-lg border border-orange-200 bg-orange-50/60 p-3 space-y-3">
                   <div className="flex items-start gap-2">
                     <CalendarDays className="w-4 h-4 text-orange-600 mt-0.5 shrink-0" />

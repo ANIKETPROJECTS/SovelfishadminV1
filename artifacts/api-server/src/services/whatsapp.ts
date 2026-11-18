@@ -179,7 +179,12 @@ function formatDeliveryDateLabel(d: string): string {
  * missing those specific fields) silently showed no timing at all.
  */
 function buildDeliveryTimingLabel(order: any): string {
-  if (DIRECT_ORDER_ONLY) return "As soon as possible";
+  if (DIRECT_ORDER_ONLY) {
+    if (String(order?.orderType ?? "").trim().toLowerCase() === "preorder" && order?.deliveryDate) {
+      return formatDeliveryDateLabel(String(order.deliveryDate));
+    }
+    return "As soon as possible";
+  }
   const scheduleType = String(order?.scheduleType ?? "").trim().toLowerCase();
   const slotLabel =
     String(order?.timeslotLabel ?? "").trim() ||
@@ -540,7 +545,9 @@ export async function sendOutForDelivery(
       : "");
   let deliverySlot: string;
   if (DIRECT_ORDER_ONLY) {
-    deliverySlot = "As soon as possible";
+    deliverySlot = String(order?.orderType ?? "").trim().toLowerCase() === "preorder" && dateLabel
+      ? dateLabel
+      : "As soon as possible";
   } else if (order?.isExpress || scheduleType === "express") {
     deliverySlot = "Express Delivery (via Porter)";
   } else if (scheduleType === "instant") {

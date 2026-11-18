@@ -15,6 +15,12 @@ Direct ordering is the current operating mode: keep timeslot scheduling unavaila
 
 **How to apply:** Keep the admin and API scheduling feature flags aligned. Re-enable the legacy flow only when the user explicitly requests it, then verify the POS, sub-hub settings, API, and order messages together.
 
+Preorder-only products remain available in POS even while direct-order mode is enabled. Preorders use a required future delivery date without re-enabling timeslot scheduling, and stay in their own Orders tab rather than Current or Next Day Orders.
+
+**Why:** The user requested date-based preorder orders while keeping normal direct ordering and disabled timeslots.
+
+**How to apply:** Keep product sales-mode filtering, future-date validation, order type persistence, and the dedicated preorder queue independent from the timeslot feature flag.
+
 Pincode time delay is legacy scheduling data. Do not show or apply it in the current direct-order workflow; preserve stored values and guarded timeslot code for possible future reactivation.
 
 **Why:** The user asked to remove pincode time delay from current settings because timeslots are disabled, while retaining the legacy timeslot implementation.

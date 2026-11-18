@@ -301,6 +301,76 @@ async function validateOrderCuttingMethods(subHubId: unknown, items: any[]): Pro
   return null;
 }
 
+function isPreorderOnlyProduct(product: any): boolean {
+  const rawMode = product?.preorderMode ??
+    product?.preOrderMode ??
+    product?.preorderType ??
+    product?.salesMode ??
+    product?.sales_mode ??
+    product?.productType ??
+    "";
+  const mode = String(rawMode).trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return product?.preorderOnly === true ||
+    product?.isPreorder === true ||
+    product?.preorder === true ||
+    ["preorder_only", "preorderonly", "preorder", "pre_order", "pre_order_only", "preorder_product"].includes(mode);
+}
+
+async function validateOrderProductSalesMode(
+  subHubId: unknown,
+  items: any[],
+  orderType: "normal" | "preorder",
+): Promise<string | null> {
+  const itemProductIds = items.map((item) => String(item?.productId ?? "").trim());
+  if (orderType === "preorder" && itemProductIds.some((id) => !id)) {
+    return "Preorders can only contain saved preorder products.";
+  }
+  const productIds = Array.from(new Set(itemProductIds.filter(Boolean)));
+  if (productIds.length === 0) return null;
+  const objectIds = productIds.map(toId);
+  if (objectIds.some((id) => !id)) {
+    return orderType === "preorder" ? "Preorders can only contain saved preorder products." : null;
+  }
+  const subHubObjectId = toId(String(subHubId ?? ""));
+  if (!subHubObjectId) {
+    return orderType === "preorder" ? "A valid sub hub is required for preorder products." : null;
+  }
+  const subHub = await SubHub.findById(subHubObjectId).select("dbName").lean() as any;
+  if (!subHub?.dbName) {
+    return orderType === "preorder" ? "The selected sub hub has no product database." : null;
+  }
+  const conn = await getSubHubDbConnection(String(subHub.dbName));
+  const products = await conn.db!.collection("products")
+    .find({ _id: { $in: objectIds } })
+    .project({
+      name: 1,
+      preorderMode: 1,
+      preOrderMode: 1,
+      preorderType: 1,
+      salesMode: 1,
+      sales_mode: 1,
+      productType: 1,
+      preorderOnly: 1,
+      isPreorder: 1,
+      preorder: 1,
+    })
+    .toArray();
+  const productsById = new Map(products.map((product: any) => [String(product._id), product]));
+
+  for (const item of items) {
+    const id = String(item?.productId ?? "").trim();
+    const product = productsById.get(id);
+    if (orderType === "preorder") {
+      if (!product || !isPreorderOnlyProduct(product)) {
+        return "Preorder orders can only contain products marked Preorder Only.";
+      }
+    } else if (product && isPreorderOnlyProduct(product)) {
+      return `${String(product.name ?? item?.name ?? "This product")} is preorder-only and cannot be added to a normal order.`;
+    }
+  }
+  return null;
+}
+
 const ORDER_QR_PREFIX = "fishtokri-order-v1";
 const ORDER_QR_PUBLIC_URL = "https://fishtokri.com/";
 
@@ -631,6 +701,7 @@ router.get("/", async (req: ScopedRequest, res) => {
       assignedTo = "",
       deliveryDateFilter = "",
       orderType = "",
+      excludePreorders = "",
     } = req.query as Record<string, string>;
 
     const filter: any = {};
@@ -639,6 +710,7 @@ router.get("/", async (req: ScopedRequest, res) => {
     const isDeletedTab = tab === "deleted";
     filter.isDeleted = isDeletedTab ? true : { $ne: true };
     if (orderType === "preorder") filter.orderType = "preorder";
+    else if (excludePreorders === "true") filter.orderType = { $ne: "preorder" };
 
     if (q) {
       const escapeRe = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -835,7 +907,7 @@ router.get("/stats", async (req: ScopedRequest, res) => {
     const pipeline: any[] = [];
     // Always exclude soft-deleted orders from normal stats.
     pipeline.push({ $match: { ...scopeClause, isDeleted: { $ne: true } } });
-    pipeline.push({ $group: { _id: { status: "$status", deliveryType: "$deliveryType" }, count: { $sum: 1 } } });
+    pipeline.push({ $group: { _id: { status: "$status", deliveryType: "$deliveryType", orderType: "$orderType" }, count: { $sum: 1 } } });
     const agg = await conn.db.collection(COLLECTION).aggregate(pipeline).toArray();
 
     const ACTIVE = ["pending", "confirmed", "out_for_delivery"];
@@ -854,6 +926,9 @@ router.get("/stats", async (req: ScopedRequest, res) => {
       const dt = row._id?.deliveryType ?? "delivery";
       const c = row.count ?? 0;
       rawStats[st] = (rawStats[st] ?? 0) + c;
+      // Keep preorder counts in the dedicated preorder tab instead of mixing
+      // them into the normal status filters and current/history badges.
+      if (row._id?.orderType === "preorder") continue;
       if (dt === "takeaway") {
         if (HISTORY.includes(st)) {
           // Delivered/cancelled takeaway orders count under their final status,
@@ -883,6 +958,7 @@ router.get("/stats", async (req: ScopedRequest, res) => {
       isDeleted: { $ne: true },
       status: { $in: ACTIVE },
       deliveryType: { $ne: "takeaway" },
+      orderType: { $ne: "preorder" },
     };
     const [todayTotal, otherDayTotal] = await Promise.all([
       conn.db.collection(COLLECTION).countDocuments({
@@ -1195,14 +1271,16 @@ router.post("/", async (req: ScopedRequest, res) => {
       res.status(400).json({ error: "ValidationError", message: "Delivery address is required" });
       return;
     }
-    const normalizedOrderType = DIRECT_ORDER_ONLY
-      ? "normal"
-      : orderType === "preorder" ? "preorder" : "normal";
+    const normalizedOrderType = orderType === "preorder" ? "preorder" : "normal";
     const resolvedNextDayOrder = dt === "delivery" && (
-      nextDayOrder === true ||
+      (normalizedOrderType !== "preorder" && nextDayOrder === true) ||
       (isAfterFivePMIST() && normalizedOrderType !== "preorder")
     );
-    if (!DIRECT_ORDER_ONLY && normalizedOrderType === "preorder") {
+    if (normalizedOrderType === "preorder") {
+      if (nextDayOrder === true) {
+        res.status(400).json({ error: "ValidationError", message: "Preorders use their selected delivery date, not Next Day Orders." });
+        return;
+      }
       const preorderDate = String(deliveryDate ?? "").trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(preorderDate) || preorderDate <= getTodayISODate()) {
         res.status(400).json({ error: "ValidationError", message: "Preorder delivery date must be a future date" });
@@ -1241,6 +1319,11 @@ router.post("/", async (req: ScopedRequest, res) => {
 
     if (cleanItems.length === 0) {
       res.status(400).json({ error: "ValidationError", message: "Items must have a name" });
+      return;
+    }
+    const salesModeError = await validateOrderProductSalesMode(subHubId, cleanItems, normalizedOrderType);
+    if (salesModeError) {
+      res.status(400).json({ error: "ValidationError", message: salesModeError });
       return;
     }
 
@@ -1416,6 +1499,8 @@ router.post("/", async (req: ScopedRequest, res) => {
       isExpress: DIRECT_ORDER_ONLY ? false : !!isExpress,
       deliveryDate: resolvedNextDayOrder
         ? getTomorrowISODate()
+        : normalizedOrderType === "preorder"
+          ? String(deliveryDate)
         : DIRECT_ORDER_ONLY
           ? getTodayISODate()
           : deliveryDate ? String(deliveryDate) : undefined,
@@ -2454,7 +2539,7 @@ router.put("/:id", async (req: ScopedRequest, res) => {
         res.status(400).json({ error: "ValidationError", message: "Invalid order type" });
         return;
       }
-      update.orderType = DIRECT_ORDER_ONLY ? "normal" : String(orderType);
+      update.orderType = String(orderType);
     }
     if (superHubId !== undefined) update.superHubId = superHubId;
     if (superHubName !== undefined) update.superHubName = superHubName;
@@ -2746,14 +2831,57 @@ router.put("/:id", async (req: ScopedRequest, res) => {
     // edits can safely inherit its existing delivery type/date.
     const nextOrderType = orderType !== undefined ? String(orderType) : String(prev.orderType ?? "normal");
     if (nextOrderType === "preorder") {
+      const nextItems = Array.isArray(items) ? items : (Array.isArray(prev.items) ? prev.items : []);
       const nextDeliveryType = deliveryType !== undefined ? String(deliveryType) : String(prev.deliveryType ?? "");
       const nextDeliveryDate = deliveryDate !== undefined ? String(deliveryDate).trim() : String(prev.deliveryDate ?? "").slice(0, 10);
+      const previousDeliveryDate = String(prev.deliveryDate ?? "").trim().slice(0, 10);
       if (nextDeliveryType === "takeaway") {
         res.status(400).json({ error: "ValidationError", message: "Preorders must use delivery" });
         return;
       }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDeliveryDate)) {
         res.status(400).json({ error: "ValidationError", message: "Preorder delivery date must be a valid date" });
+        return;
+      }
+      const preorderDateChanged = deliveryDate !== undefined && nextDeliveryDate !== previousDeliveryDate;
+      const newlyConvertedToPreorder = orderType === "preorder" && String(prev.orderType ?? "normal") !== "preorder";
+      if ((preorderDateChanged || newlyConvertedToPreorder) && nextDeliveryDate <= getTodayISODate()) {
+        res.status(400).json({ error: "ValidationError", message: "Preorder delivery date must be after today" });
+        return;
+      }
+      if (nextDayOrder === true) {
+        res.status(400).json({ error: "ValidationError", message: "Preorders use their selected delivery date, not Next Day Orders." });
+        return;
+      }
+      if (scheduleType !== undefined || deliveryDate !== undefined) {
+        update.scheduleType = DIRECT_ORDER_ONLY ? "instant" : update.scheduleType;
+        update.deliveryDate = nextDeliveryDate;
+        if (DIRECT_ORDER_ONLY) {
+          update.timeslotId = null;
+          update.timeslotLabel = null;
+          update.timeslotStart = null;
+          update.timeslotEnd = null;
+        }
+      }
+      if (items !== undefined || orderType !== undefined) {
+        const salesModeError = await validateOrderProductSalesMode(
+          update.subHubId ?? prev.subHubId,
+          nextItems,
+          "preorder",
+        );
+        if (salesModeError) {
+          res.status(400).json({ error: "ValidationError", message: salesModeError });
+          return;
+        }
+      }
+    } else if ((items !== undefined || orderType !== undefined) && Array.isArray(items ?? prev.items)) {
+      const salesModeError = await validateOrderProductSalesMode(
+        update.subHubId ?? prev.subHubId,
+        Array.isArray(items) ? items : prev.items,
+        "normal",
+      );
+      if (salesModeError) {
+        res.status(400).json({ error: "ValidationError", message: salesModeError });
         return;
       }
     }

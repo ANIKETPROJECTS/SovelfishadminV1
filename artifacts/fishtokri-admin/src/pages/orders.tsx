@@ -995,7 +995,7 @@ export default function Orders() {
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [statsData, setStatsData] = useState<Record<string, number>>({});
-  const [statsTotals, setStatsTotals] = useState<{ total?: number; currentTotal?: number; historyTotal?: number; todayTotal?: number; otherDayTotal?: number; deletedTotal?: number }>({});
+  const [statsTotals, setStatsTotals] = useState<{ total?: number; currentTotal?: number; historyTotal?: number; todayTotal?: number; otherDayTotal?: number; preorderTotal?: number; deletedTotal?: number }>({});
 
   // Order alert is now handled globally in Layout (useGlobalOrderAlert)
 
@@ -1350,10 +1350,14 @@ export default function Orders() {
   useEffect(() => {
     if (!isCreatePage) return;
     if (DIRECT_ORDER_ONLY) {
-      setPosProductMode("normal");
       setOrderScheduleType("instant");
       setSelectedTimeslotId("");
       setIsExpressOrder(false);
+      if (posProductMode === "preorder") {
+        setOrderDeliveryType("delivery");
+        setNextDayOrder(false);
+        if (orderDate <= getTodayIST()) setOrderDate(getTomorrowIST());
+      }
       return;
     }
     if (posProductMode === "preorder") {
@@ -1799,13 +1803,11 @@ export default function Orders() {
   const productsForMode = useMemo(() => {
     const products = subHubProducts.filter((p) =>
       p.isArchived !== true &&
-      (DIRECT_ORDER_ONLY
-        ? true
-        : posProductMode === "preorder"
+      (posProductMode === "preorder"
         ? isPreorderOnlyProduct(p) && isProductAvailableForPreorder(p, orderDate)
         : !isPreorderOnlyProduct(p))
     );
-    if (!DIRECT_ORDER_ONLY && posProductMode === "preorder") return products;
+    if (posProductMode === "preorder") return products;
     const combos = subHubCombos
       .filter((combo) => combo.isActive !== false)
       .map((combo) => ({
@@ -2451,7 +2453,7 @@ export default function Orders() {
         customerId,
         customerName, phone, email,
         items: cleanItems,
-        orderType: DIRECT_ORDER_ONLY ? "normal" : posProductMode === "preorder" ? "preorder" : "normal",
+        orderType: posProductMode === "preorder" ? "preorder" : "normal",
         nextDayOrder: orderDeliveryType === "delivery" && nextDayOrder,
         deliveryType: orderDeliveryType,
         address,
@@ -2534,7 +2536,9 @@ export default function Orders() {
         isExpress: DIRECT_ORDER_ONLY ? false : isExpressOrder,
         scheduleType: DIRECT_ORDER_ONLY ? "instant" : orderDeliveryType === "takeaway" ? "instant" : isExpressOrder ? "express" : orderScheduleType,
         deliveryDate: DIRECT_ORDER_ONLY
-          ? (orderDeliveryType === "delivery" && nextDayOrder ? getTomorrowIST() : editingOrderId ? orderDate || getTodayIST() : getTodayIST())
+          ? posProductMode === "preorder"
+            ? orderDate
+            : (orderDeliveryType === "delivery" && nextDayOrder ? getTomorrowIST() : editingOrderId ? orderDate || getTodayIST() : getTodayIST())
           : orderDeliveryType === "takeaway"
           ? getTodayIST()
           : orderDate,
@@ -2856,6 +2860,7 @@ export default function Orders() {
           activeTab === "otherday" ? "current" :
           activeTab
         );
+        params.set("excludePreorders", "true");
       }
       if (activeTab === "current") params.set("deliveryDateFilter", "today");
       else if (activeTab === "otherday") params.set("deliveryDateFilter", "tomorrow");
@@ -2963,6 +2968,7 @@ export default function Orders() {
         historyTotal: data.historyTotal,
         todayTotal: data.todayTotal,
         otherDayTotal: data.otherDayTotal,
+        preorderTotal: data.preorderTotal ?? 0,
         deletedTotal: data.deletedTotal ?? 0,
       });
     } catch { }
@@ -3508,7 +3514,7 @@ export default function Orders() {
     // Restore the order mode before populating the shared POS form. The
     // default is "normal", which previously caused preorder edits to be saved
     // back as normal orders.
-    setPosProductMode(!DIRECT_ORDER_ONLY && String(o.orderType ?? "").toLowerCase() === "preorder" ? "preorder" : "normal");
+    setPosProductMode(String(o.orderType ?? "").toLowerCase() === "preorder" ? "preorder" : "normal");
     const savedNextDayOrder = o.nextDayOrder === true && String(o.deliveryDate ?? "").slice(0, 10) > getTodayIST();
     setNextDayOrder(savedNextDayOrder);
     setNextDayAutoEnabled(false);
@@ -3803,6 +3809,7 @@ export default function Orders() {
   const TABS = [
     { key: "current" as const, label: "Current Orders", count: totalToday, icon: Clock, color: "text-blue-600" },
     { key: "otherday" as const, label: "Next Day Orders", count: statsTotals.otherDayTotal ?? 0, icon: Calendar, color: "text-orange-600" },
+    { key: "preorder" as const, label: "Preorders", count: statsTotals.preorderTotal ?? 0, icon: Calendar, color: "text-orange-600" },
     { key: "history" as const, label: "History", count: totalHistory, icon: CheckCircle2, color: "text-green-600" },
     { key: "all" as const, label: "All Orders", count: totalAll, icon: ClipboardList, color: "text-gray-600" },
     { key: "invoices" as const, label: "Order Invoices", count: invoiceCount, icon: FileText, color: "text-violet-600" },
@@ -4944,7 +4951,7 @@ export default function Orders() {
             </Select>
           </div>
           {/* Delivery / Takeaway pill toggle */}
-          {!DIRECT_ORDER_ONLY && <div className="flex items-center gap-1 flex-shrink-0 bg-white/10 rounded-full p-0.5">
+          <div className="flex items-center gap-1 flex-shrink-0 bg-white/10 rounded-full p-0.5">
             <button
               type="button"
               onClick={() => {
@@ -4974,7 +4981,7 @@ export default function Orders() {
             >
               Preorder
             </button>
-          </div>}
+          </div>
           <div className="w-px h-6 bg-white/20 flex-shrink-0" />
           <div className="flex items-center gap-1 flex-shrink-0 bg-white/10 rounded-full p-0.5">
             <button
@@ -5867,6 +5874,42 @@ export default function Orders() {
                 </div>
               )}
 
+              {DIRECT_ORDER_ONLY && posProductMode === "preorder" && orderDeliveryType === "delivery" && (
+                <div className="px-4 pt-3 pb-3">
+                  <div className="rounded-lg border border-orange-200 bg-orange-50 p-3">
+                    <label className="block text-xs font-semibold text-orange-800 mb-1.5">
+                      Preorder delivery date
+                    </label>
+                    <Popover open={showPreorderDatePicker} onOpenChange={setShowPreorderDatePicker}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="w-full h-9 rounded-lg border border-orange-200 bg-white px-3 text-left text-sm text-gray-700 hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                        >
+                          {formatDeliveryDate(orderDate)}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-2" align="start">
+                        <DayPicker
+                          mode="single"
+                          selected={orderDate ? new Date(`${orderDate}T00:00:00`) : undefined}
+                          defaultMonth={orderDate ? new Date(`${orderDate}T00:00:00`) : new Date(`${getTomorrowIST()}T00:00:00`)}
+                          disabled={preorderDisabledDays}
+                          onSelect={(date) => {
+                            if (!date) return;
+                            setOrderDate(dateToISODate(date));
+                            setSelectedTimeslotId("");
+                            setShowPreorderDatePicker(false);
+                          }}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <p className="text-[11px] text-orange-700 mt-1.5">
+                      Select a date after today. No time slot is selected for direct orders.
+                    </p>
+                  </div>
+                </div>
+              )}
               {/* Legacy schedule controls remain available behind the scheduling feature flag. */}
               {!DIRECT_ORDER_ONLY && orderDeliveryType === "delivery" && (
                 <div className="px-4 pt-3 pb-3">
