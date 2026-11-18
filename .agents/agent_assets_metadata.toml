@@ -103,3 +103,17 @@ mtime_ms = 1794994177587
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9206d6a1-2156-498e-a766-e1cb594d813b/435fea1a-9337-437c-99e4-c97d3b1eb654/e2a8e8cc-32eb-423a-ada8-b49319bdb138"
 storage_version_token = "1794994190216486"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "bXhq6GiTWN0GmdwFX3khX"
+uri = "file://ftw-next-day-orders-prompt.md"
+type = "text"
+title = "FTW next-day delivery prompt"
+description = "Ready-to-copy instructions for storefront next-day delivery, the 5 PM India cutoff, optional early selection, and Admin-compatible order dates."
+logical_id = "49fb5a48-bf3f-4355-9919-e83da1c8e322"
+content_hash = "sha256:1417ede5c3d7eb549cf24393e09e61acca138d90737bed4c318911e64330da52"
+size = 6480
+mtime_ms = 1795000456520
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9206d6a1-2156-498e-a766-e1cb594d813b/49fb5a48-bf3f-4355-9919-e83da1c8e322/3bdbb1ac-68d5-4985-9b71-d56193762457"
+storage_version_token = "1795000468366684"
+content_type = "text/markdown"
