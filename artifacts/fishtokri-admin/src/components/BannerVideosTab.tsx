@@ -299,21 +299,21 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200">
-          <div className="hidden grid-cols-[minmax(0,1fr)_100px_180px_220px] gap-4 bg-slate-50 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500 md:grid">
+          <div className="hidden grid-cols-[minmax(0,1fr)_72px_minmax(0,160px)_minmax(220px,240px)] gap-3 bg-slate-50 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500 md:grid">
             <span>Video</span><span>File size</span><span>Last modified</span><span className="text-right">Actions</span>
           </div>
           <div className="divide-y divide-gray-100">
             {files.map((file) => (
-              <div key={file.name} className="flex flex-col gap-3 px-4 py-3 md:grid md:grid-cols-[minmax(0,1fr)_100px_180px_220px] md:items-center md:gap-4">
+              <div key={file.name} className="flex flex-col gap-3 px-4 py-3 md:grid md:grid-cols-[minmax(0,1fr)_72px_minmax(0,160px)_minmax(220px,240px)] md:items-center md:gap-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-10 w-12 shrink-0 items-center justify-center rounded-md bg-slate-100 text-blue-700">
                     <Video className="h-5 w-5" />
                   </div>
                   <p className="min-w-0 break-all text-sm font-medium text-gray-800">{file.name}</p>
                 </div>
-                <span className="text-xs text-gray-500">{formatBytes(file.size)}</span>
-                <span className="text-xs text-gray-500">{formatDate(file.modifiedAt)}</span>
-                <div className="flex items-center justify-start gap-2 md:justify-end">
+                <span className="text-xs text-gray-500 md:whitespace-nowrap">{formatBytes(file.size)}</span>
+                <span className="min-w-0 break-words text-xs text-gray-500">{formatDate(file.modifiedAt)}</span>
+                <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 md:justify-end">
                   <Button
                     type="button"
                     size="sm"
@@ -323,12 +323,12 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
                       setReplaceTarget(file.name);
                       replaceInputRef.current?.click();
                     }}
-                    className="h-8 px-2.5 text-xs"
+                    className="h-8 shrink-0 px-2 text-xs"
                   >
                     <Upload className="mr-1.5 h-3.5 w-3.5" />
                     {replacing === file.name ? "Replacing…" : "Replace"}
                   </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={() => openRename(file)} className="h-8 px-2.5 text-xs">
+                  <Button type="button" size="sm" variant="outline" onClick={() => openRename(file)} className="h-8 shrink-0 px-2 text-xs">
                     <Pencil className="mr-1.5 h-3.5 w-3.5" /> Rename
                   </Button>
                   <Button
@@ -336,7 +336,7 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
                     size="sm"
                     variant="outline"
                     onClick={() => setDeleteFile(file)}
-                    className="h-8 border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                    className="h-8 shrink-0 border-red-200 px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
                   >
                     <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
                   </Button>
