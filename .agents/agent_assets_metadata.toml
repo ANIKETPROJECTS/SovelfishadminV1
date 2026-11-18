@@ -89,3 +89,17 @@ mtime_ms = 1794890784377
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9206d6a1-2156-498e-a766-e1cb594d813b/ae2272ba-d1f0-4256-9fa0-fec5014dc951/9431c414-4d75-4661-9dfb-005b7e1a10ad"
 storage_version_token = "1794890805984442"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "-ZWu9X3UhPgkKSJjj3d4E"
+uri = "file://ftw-preorder-prompt.md"
+type = "text"
+title = "FTW preorder implementation prompt"
+description = "Ready-to-copy instructions for adding a dedicated preorder section to the separate customer storefront."
+logical_id = "435fea1a-9337-437c-99e4-c97d3b1eb654"
+content_hash = "sha256:23a4840fc12fe5daaad5246d2ab7e4c8d9043c6b2a0d81ad216c1161a24179de"
+size = 8575
+mtime_ms = 1794994177587
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9206d6a1-2156-498e-a766-e1cb594d813b/435fea1a-9337-437c-99e4-c97d3b1eb654/e2a8e8cc-32eb-423a-ada8-b49319bdb138"
+storage_version_token = "1794994190216486"
+content_type = "text/markdown"
