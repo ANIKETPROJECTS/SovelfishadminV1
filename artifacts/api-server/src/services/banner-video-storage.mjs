@@ -82,6 +82,26 @@ export function sanitizeUploadedVideoFilename(rawName) {
   return validateVideoFilename(filename);
 }
 
+export function deriveVideoThumbnailFilename(rawVideoFilename) {
+  const filename = validateVideoFilename(rawVideoFilename);
+  return `${path.basename(filename, path.extname(filename))}.jpg`;
+}
+
+export function validateVideoThumbnailFilename(rawName) {
+  if (
+    typeof rawName !== "string" ||
+    !rawName ||
+    rawName !== path.basename(rawName) ||
+    rawName.startsWith(".") ||
+    rawName.includes("\0") ||
+    !SAFE_FILENAME_PATTERN.test(rawName) ||
+    path.extname(rawName).toLowerCase() !== ".jpg"
+  ) {
+    throw new Error("Thumbnail filenames must be safe .jpg files.");
+  }
+  return rawName;
+}
+
 export async function ensureVideoDirectory(rawDirectory) {
   const directory = normalizeVideoDirectory(rawDirectory);
   await fs.mkdir(directory, { recursive: true });
@@ -108,6 +128,24 @@ export async function resolveManagedVideoFile(rawDirectory, rawFilename) {
   return { path: candidate, stat, filename };
 }
 
+export async function resolveManagedVideoThumbnail(rawDirectory, rawVideoFilename) {
+  const directory = normalizeVideoDirectory(rawDirectory);
+  const filename = deriveVideoThumbnailFilename(rawVideoFilename);
+  const candidate = path.join(directory, filename);
+  if (path.dirname(candidate) !== directory) {
+    throw new Error("Invalid thumbnail filename.");
+  }
+
+  try {
+    const stat = await fs.lstat(candidate);
+    if (!stat.isFile() || stat.isSymbolicLink()) return null;
+    return { path: candidate, stat, filename };
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 export async function listVideoFiles(rawDirectory) {
   const directory = normalizeVideoDirectory(rawDirectory);
   const entries = await fs.readdir(directory, { withFileTypes: true });
@@ -120,10 +158,25 @@ export async function listVideoFiles(rawDirectory) {
       const filePath = path.join(directory, filename);
       const stat = await fs.lstat(filePath);
       if (!stat.isFile() || stat.isSymbolicLink()) continue;
+      const thumbnailFilename = deriveVideoThumbnailFilename(filename);
+      let thumbnail = null;
+      try {
+        const thumbnailStat = await fs.lstat(path.join(directory, thumbnailFilename));
+        if (thumbnailStat.isFile() && !thumbnailStat.isSymbolicLink()) {
+          thumbnail = {
+            name: thumbnailFilename,
+            size: thumbnailStat.size,
+            modifiedAt: thumbnailStat.mtime.toISOString(),
+          };
+        }
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
       files.push({
         name: filename,
         size: stat.size,
         modifiedAt: stat.mtime.toISOString(),
+        thumbnail,
       });
     } catch {
       // Ignore non-video files and names that are not safe to manage.

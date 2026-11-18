@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FolderCog, HardDrive, Pencil, RefreshCw, Trash2, Upload, Video } from "lucide-react";
+import { FolderCog, HardDrive, ImagePlus, Pencil, RefreshCw, Trash2, Upload, Video } from "lucide-react";
 import { apiFetch, getCurrentAdminScope } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +24,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-type BannerVideo = { name: string; size: number; modifiedAt: string };
+type BannerThumbnail = { name: string; size: number; modifiedAt: string };
+type BannerVideo = { name: string; size: number; modifiedAt: string; thumbnail: BannerThumbnail | null };
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -46,9 +47,9 @@ function getToken() {
   return localStorage.getItem("fishtokri_token") || "";
 }
 
-async function uploadVideo(endpoint: string, file: File, method = "POST") {
+async function uploadFile(endpoint: string, file: File, fieldName: "video" | "thumbnail", method = "POST") {
   const formData = new FormData();
-  formData.append("video", file);
+  formData.append(fieldName, file);
   const response = await fetch(`${getApiBase()}${endpoint}`, {
     method,
     headers: { Authorization: `Bearer ${getToken()}` },
@@ -59,11 +60,54 @@ async function uploadVideo(endpoint: string, file: File, method = "POST") {
   return data;
 }
 
+function VideoThumbnailPreview({ endpoint, file }: { endpoint: string; file: BannerVideo }) {
+  const [src, setSrc] = useState("");
+
+  useEffect(() => {
+    if (!file.thumbnail) {
+      setSrc("");
+      return;
+    }
+
+    const controller = new AbortController();
+    let objectUrl = "";
+    fetch(`${getApiBase()}${endpoint}/files/${encodeURIComponent(file.name)}/thumbnail`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Thumbnail unavailable");
+        return response.blob();
+      })
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setSrc("");
+      });
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [endpoint, file.name, file.thumbnail?.modifiedAt, file.thumbnail?.size]);
+
+  return src ? (
+    <img src={src} alt={`${file.name} thumbnail`} className="h-12 w-16 shrink-0 rounded-md border border-gray-200 bg-white object-cover" />
+  ) : (
+    <div className="flex h-12 w-16 shrink-0 items-center justify-center rounded-md border border-dashed border-gray-300 bg-white text-gray-400">
+      <ImagePlus className="h-5 w-5" />
+    </div>
+  );
+}
+
 export function BannerVideosTab({ subHubId }: { subHubId: string }) {
   const { toast } = useToast();
   const canConfigureDirectory = getCurrentAdminScope().role === "master_admin";
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
   const [directory, setDirectory] = useState("");
   const [directoryDraft, setDirectoryDraft] = useState("");
   const [files, setFiles] = useState<BannerVideo[]>([]);
@@ -72,10 +116,13 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
   const [uploading, setUploading] = useState(false);
   const [replacing, setReplacing] = useState("");
   const [replaceTarget, setReplaceTarget] = useState("");
+  const [thumbnailAction, setThumbnailAction] = useState<{ fileName: string; replace: boolean } | null>(null);
+  const [thumbnailBusy, setThumbnailBusy] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [renameFile, setRenameFile] = useState<BannerVideo | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteFile, setDeleteFile] = useState<BannerVideo | null>(null);
+  const [deleteThumbnail, setDeleteThumbnail] = useState<BannerVideo | null>(null);
   const [storageError, setStorageError] = useState("");
 
   const endpoint = `/api/sub-hubs/${subHubId}/menu/banner-videos`;
@@ -122,7 +169,7 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
     if (!file) return;
     setUploading(true);
     try {
-      await uploadVideo(`${endpoint}/files`, file);
+      await uploadFile(`${endpoint}/files`, file, "video");
       await load(false);
       toast({ title: "Video uploaded", description: file.name });
     } catch (error: any) {
@@ -138,7 +185,7 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
     const target = replaceTarget;
     setReplacing(target);
     try {
-      await uploadVideo(`${endpoint}/files/${encodeURIComponent(target)}/replace`, file, "PUT");
+      await uploadFile(`${endpoint}/files/${encodeURIComponent(target)}/replace`, file, "video", "PUT");
       await load(false);
       toast({ title: "Video replaced", description: target });
     } catch (error: any) {
@@ -147,6 +194,45 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
       setReplacing("");
       setReplaceTarget("");
       if (replaceInputRef.current) replaceInputRef.current.value = "";
+    }
+  };
+
+  const handleThumbnailUpload = async (file?: File) => {
+    const action = thumbnailAction;
+    if (!file || !action) {
+      setThumbnailAction(null);
+      return;
+    }
+    setThumbnailBusy(action.fileName);
+    try {
+      const method = action.replace ? "PUT" : "POST";
+      await uploadFile(
+        `${endpoint}/files/${encodeURIComponent(action.fileName)}/thumbnail`,
+        file,
+        "thumbnail",
+        method,
+      );
+      await load(false);
+      toast({ title: action.replace ? "Thumbnail replaced" : "Thumbnail uploaded", description: `${action.fileName} · ${file.name}` });
+    } catch (error: any) {
+      toast({ title: "Thumbnail upload failed", description: error.message, variant: "destructive" });
+    } finally {
+      setThumbnailBusy("");
+      setThumbnailAction(null);
+      if (thumbnailInputRef.current) thumbnailInputRef.current.value = "";
+    }
+  };
+
+  const handleDeleteThumbnail = async () => {
+    if (!deleteThumbnail) return;
+    try {
+      await apiFetch(`${endpoint}/files/${encodeURIComponent(deleteThumbnail.name)}/thumbnail`, { method: "DELETE" });
+      await load(false);
+      toast({ title: "Thumbnail deleted", description: deleteThumbnail.thumbnail?.name });
+    } catch (error: any) {
+      toast({ title: "Thumbnail delete failed", description: error.message, variant: "destructive" });
+    } finally {
+      setDeleteThumbnail(null);
     }
   };
 
@@ -250,7 +336,7 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-[#162B4D]">Videos in this folder</h3>
-          <p className="mt-0.5 text-xs text-gray-500">Files in subfolders are not included. Upload limit: 500 MB per video.</p>
+          <p className="mt-0.5 text-xs text-gray-500">Files in subfolders are not included. Upload limit: 500 MB per video, 15 MB per JPG thumbnail.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" onClick={() => void load()} disabled={loading} className="h-9">
@@ -279,6 +365,13 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
             accept="video/*,.mp4,.mov,.webm,.m4v,.mkv,.avi,.ogv,.mpeg,.mpg,.3gp"
             className="hidden"
             onChange={(event) => { const file = event.target.files?.[0]; void handleReplace(file); }}
+          />
+          <input
+            ref={thumbnailInputRef}
+            type="file"
+            accept=".jpg,image/jpeg"
+            className="hidden"
+            onChange={(event) => { const file = event.target.files?.[0]; void handleThumbnailUpload(file); }}
           />
         </div>
       </div>
@@ -341,6 +434,43 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
                     <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
                   </Button>
                 </div>
+                <div className="col-span-full flex min-w-0 flex-wrap items-center gap-3 border-t border-gray-100 pt-3">
+                  <VideoThumbnailPreview endpoint={endpoint} file={file} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-gray-700">JPG thumbnail</p>
+                    <p className="break-all text-xs text-gray-500">
+                      {file.thumbnail?.name ?? "Not uploaded"} · Must match the video name
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={thumbnailBusy === file.name || (!!thumbnailBusy && thumbnailBusy !== file.name)}
+                      onClick={() => {
+                        setThumbnailAction({ fileName: file.name, replace: !!file.thumbnail });
+                        thumbnailInputRef.current?.click();
+                      }}
+                      className="h-8 px-2.5 text-xs"
+                    >
+                      <Upload className="mr-1.5 h-3.5 w-3.5" />
+                      {thumbnailBusy === file.name ? "Uploading…" : file.thumbnail ? "Replace thumbnail" : "Upload thumbnail"}
+                    </Button>
+                    {file.thumbnail && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setDeleteThumbnail(file)}
+                        disabled={!!thumbnailBusy}
+                        className="h-8 border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                      >
+                        <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete thumbnail
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -351,7 +481,7 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Rename video</DialogTitle>
-            <DialogDescription>Keep the existing file extension so the video remains recognizable.</DialogDescription>
+            <DialogDescription>The paired JPG thumbnail will be renamed with the video. Keep the existing video extension.</DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">
             <Label htmlFor="banner-video-new-name">Filename</Label>
@@ -371,12 +501,27 @@ export function BannerVideosTab({ subHubId }: { subHubId: string }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this video?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently deletes “{deleteFile?.name}” from the configured VPS folder. This cannot be undone.
+              This permanently deletes “{deleteFile?.name}” and its paired JPG thumbnail, if present, from the configured VPS folder. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">Delete video</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteThumbnail} onOpenChange={(open) => !open && setDeleteThumbnail(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this thumbnail?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes “{deleteThumbnail?.thumbnail?.name}”. The video will remain in the folder.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteThumbnail} className="bg-red-600 hover:bg-red-700">Delete thumbnail</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

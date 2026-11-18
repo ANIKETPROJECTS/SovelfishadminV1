@@ -11,10 +11,12 @@ import { loadScope, type ScopedRequest } from "../middlewares/scope.js";
 import {
   BANNER_VIDEO_DIRECTORY_SETTING_ID,
   BANNER_VIDEO_EXTENSIONS,
+  deriveVideoThumbnailFilename,
   ensureVideoDirectory,
   listVideoFiles,
   normalizeVideoDirectory,
   resolveManagedVideoFile,
+  resolveManagedVideoThumbnail,
   sanitizeUploadedVideoFilename,
   validateVideoFilename,
 } from "../services/banner-video-storage.mjs";
@@ -23,11 +25,15 @@ const router: IRouter = Router({ mergeParams: true });
 router.use(requireAuth as any);
 router.use(loadScope as any);
 
-const upload = multer({
-  storage: multer.diskStorage({
+function tempUploadStorage(prefix: string) {
+  return multer.diskStorage({
     destination: (_req, _file, callback) => callback(null, os.tmpdir()),
-    filename: (_req, _file, callback) => callback(null, `banner-video-${randomUUID()}.upload`),
-  }),
+    filename: (_req, _file, callback) => callback(null, `${prefix}-${randomUUID()}.upload`),
+  });
+}
+
+const upload = multer({
+  storage: tempUploadStorage("banner-video"),
   limits: { fileSize: 500 * 1024 * 1024 },
   fileFilter: (_req, file, callback) => {
     const extension = path.extname(file.originalname).toLowerCase();
@@ -36,6 +42,18 @@ const upload = multer({
       return;
     }
     callback(new Error("Upload a supported video file (MP4, MOV, WebM, or another supported video format)."));
+  },
+});
+
+const thumbnailUpload = multer({
+  storage: tempUploadStorage("banner-video-thumbnail"),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, callback) => {
+    if (file.mimetype === "image/jpeg" && path.extname(file.originalname).toLowerCase() === ".jpg") {
+      callback(null, true);
+      return;
+    }
+    callback(new Error("Upload a JPG image (.jpg) for the video thumbnail."));
   },
 });
 
@@ -88,6 +106,17 @@ function handleMulterUpload(req: any, res: any, next: any) {
   });
 }
 
+function handleThumbnailUpload(req: any, res: any, next: any) {
+  thumbnailUpload.single("thumbnail")(req, res, (error: any) => {
+    if (error) {
+      const status = error.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+      res.status(status).json({ error: "UploadError", message: error.message || "Thumbnail upload failed." });
+      return;
+    }
+    next();
+  });
+}
+
 async function moveUploadIntoDirectory(sourcePath: string, targetPath: string, replace: boolean) {
   const directory = path.dirname(targetPath);
   const stagingPath = path.join(directory, `.banner-video-${randomUUID()}.tmp`);
@@ -106,7 +135,7 @@ async function moveUploadIntoDirectory(sourcePath: string, targetPath: string, r
         await fs.unlink(stagingPath);
       } catch (error: any) {
         if (error?.code === "EEXIST") {
-          throw Object.assign(new Error("A video with this filename already exists. Use Replace to overwrite it."), { code: "EEXIST" });
+          throw Object.assign(new Error("A file with this filename already exists. Use Replace to overwrite it."), { code: "EEXIST" });
         }
         throw error;
       }
@@ -129,6 +158,29 @@ router.get("/", async (req: ScopedRequest, res) => {
   } catch (err: any) {
     req.log.error({ err }, "Failed to list banner videos");
     res.status(500).json({ error: "StorageError", message: err.message || "Could not read the configured video directory." });
+  }
+});
+
+router.get("/files/:filename/thumbnail", async (req: ScopedRequest, res) => {
+  try {
+    const ctx = await getSubHubVideoContext(req, res);
+    if (!ctx) return;
+    const directory = await getConfiguredDirectory(ctx.db);
+    if (!directory) {
+      res.status(409).json({ error: "DirectoryNotConfigured", message: "Set this sub-hub's VPS video directory first." });
+      return;
+    }
+
+    const video = await resolveManagedVideoFile(directory, String(req.params.filename));
+    const thumbnail = await resolveManagedVideoThumbnail(directory, video.filename);
+    if (!thumbnail) {
+      res.status(404).json({ error: "NotFound", message: "This video does not have a JPG thumbnail." });
+      return;
+    }
+    res.type("image/jpeg").sendFile(thumbnail.path);
+  } catch (err: any) {
+    req.log.error({ err }, "Failed to read banner video thumbnail");
+    res.status(404).json({ error: "NotFound", message: err.message || "Could not read this thumbnail." });
   }
 });
 
@@ -210,6 +262,8 @@ router.put("/files/:filename", async (req: ScopedRequest, res) => {
     const actualDirectory = normalizeVideoDirectory(directory);
     const source = await resolveManagedVideoFile(actualDirectory, oldFilename);
     const targetPath = path.join(actualDirectory, newFilename);
+    const sourceThumbnail = await resolveManagedVideoThumbnail(actualDirectory, oldFilename);
+    const targetThumbnailPath = path.join(actualDirectory, deriveVideoThumbnailFilename(newFilename));
     if (source.path !== targetPath) {
       try {
         await fs.access(targetPath);
@@ -218,12 +272,116 @@ router.put("/files/:filename", async (req: ScopedRequest, res) => {
       } catch (error: any) {
         if (error?.code !== "ENOENT") throw error;
       }
-      await fs.rename(source.path, targetPath);
+    }
+    if (sourceThumbnail && sourceThumbnail.path !== targetThumbnailPath) {
+      try {
+        await fs.access(targetThumbnailPath);
+        res.status(409).json({ error: "Duplicate", message: "A JPG thumbnail with that filename already exists." });
+        return;
+      } catch (error: any) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+
+    let videoMoved = false;
+    let thumbnailMoved = false;
+    try {
+      if (source.path !== targetPath) {
+        await fs.rename(source.path, targetPath);
+        videoMoved = true;
+      }
+      if (sourceThumbnail && sourceThumbnail.path !== targetThumbnailPath) {
+        await fs.rename(sourceThumbnail.path, targetThumbnailPath);
+        thumbnailMoved = true;
+      }
+    } catch (error) {
+      if (thumbnailMoved) {
+        await fs.rename(targetThumbnailPath, sourceThumbnail!.path).catch(() => undefined);
+      }
+      if (videoMoved) {
+        await fs.rename(targetPath, source.path).catch(() => undefined);
+      }
+      throw error;
     }
     res.json({ file: { name: newFilename }, files: await listVideoFiles(actualDirectory) });
   } catch (err: any) {
     req.log.error({ err }, "Failed to rename banner video");
     res.status(400).json({ error: "FileError", message: err.message || "Could not rename this video." });
+  }
+});
+
+async function saveVideoThumbnail(req: ScopedRequest, res: any, replace: boolean) {
+  const tempPath = req.file?.path;
+  try {
+    const ctx = await getSubHubVideoContext(req, res);
+    if (!ctx) return;
+    if (!req.file) {
+      res.status(400).json({ error: "ValidationError", message: "Choose a JPG thumbnail to upload." });
+      return;
+    }
+
+    const directory = await getConfiguredDirectory(ctx.db);
+    if (!directory) {
+      res.status(409).json({ error: "DirectoryNotConfigured", message: "Set this sub-hub's VPS video directory first." });
+      return;
+    }
+
+    const actualDirectory = normalizeVideoDirectory(directory);
+    const video = await resolveManagedVideoFile(actualDirectory, String(req.params.filename));
+    const thumbnailFilename = deriveVideoThumbnailFilename(video.filename);
+    const targetPath = path.join(actualDirectory, thumbnailFilename);
+    const existingThumbnail = await resolveManagedVideoThumbnail(actualDirectory, video.filename);
+    if (replace && !existingThumbnail) {
+      res.status(404).json({ error: "NotFound", message: "Upload a thumbnail first before replacing it." });
+      return;
+    }
+    if (!replace && existingThumbnail) {
+      res.status(409).json({ error: "Duplicate", message: "This video already has a thumbnail. Use Replace to update it." });
+      return;
+    }
+
+    await moveUploadIntoDirectory(req.file.path, targetPath, replace);
+    res.json({
+      thumbnail: { name: thumbnailFilename },
+      files: await listVideoFiles(actualDirectory),
+    });
+  } catch (err: any) {
+    req.log.error({ err }, "Failed to save banner video thumbnail");
+    const status = err?.code === "EEXIST" ? 409 : err?.message?.includes("JPG") ? 400 : 500;
+    res.status(status).json({ error: "ThumbnailError", message: err.message || "Could not save this thumbnail." });
+  } finally {
+    if (tempPath) await fs.unlink(tempPath).catch(() => undefined);
+  }
+}
+
+router.post("/files/:filename/thumbnail", handleThumbnailUpload, (req: ScopedRequest, res) => {
+  void saveVideoThumbnail(req, res, false);
+});
+
+router.put("/files/:filename/thumbnail", handleThumbnailUpload, (req: ScopedRequest, res) => {
+  void saveVideoThumbnail(req, res, true);
+});
+
+router.delete("/files/:filename/thumbnail", async (req: ScopedRequest, res) => {
+  try {
+    const ctx = await getSubHubVideoContext(req, res);
+    if (!ctx) return;
+    const directory = await getConfiguredDirectory(ctx.db);
+    if (!directory) {
+      res.status(409).json({ error: "DirectoryNotConfigured", message: "Set this sub-hub's VPS video directory first." });
+      return;
+    }
+    const video = await resolveManagedVideoFile(directory, String(req.params.filename));
+    const thumbnail = await resolveManagedVideoThumbnail(directory, video.filename);
+    if (!thumbnail) {
+      res.status(404).json({ error: "NotFound", message: "This video does not have a JPG thumbnail." });
+      return;
+    }
+    await fs.unlink(thumbnail.path);
+    res.json({ deleted: thumbnail.filename, files: await listVideoFiles(directory) });
+  } catch (err: any) {
+    req.log.error({ err }, "Failed to delete banner video thumbnail");
+    res.status(400).json({ error: "FileError", message: err.message || "Could not delete this thumbnail." });
   }
 });
 
@@ -271,8 +429,10 @@ router.delete("/files/:filename", async (req: ScopedRequest, res) => {
       return;
     }
     const file = await resolveManagedVideoFile(directory, String(req.params.filename));
+    const thumbnail = await resolveManagedVideoThumbnail(directory, file.filename);
+    if (thumbnail) await fs.unlink(thumbnail.path);
     await fs.unlink(file.path);
-    res.json({ deleted: file.filename, files: await listVideoFiles(directory) });
+    res.json({ deleted: file.filename, thumbnailDeleted: thumbnail?.filename ?? null, files: await listVideoFiles(directory) });
   } catch (err: any) {
     req.log.error({ err }, "Failed to delete banner video");
     res.status(400).json({ error: "FileError", message: err.message || "Could not delete this video." });
