@@ -5,6 +5,7 @@ import {
   getTomorrowISODateIST,
   isAfterFivePMIST,
   isFutureNextDayOrder,
+  isFuturePreorderOrder,
 } from "../src/lib/next-day-order.mjs";
 
 test("uses the Indian calendar date across UTC midnight", () => {
@@ -28,4 +29,12 @@ test("a next-day order is blocked only while its delivery date is still ahead", 
   assert.equal(isFutureNextDayOrder(order, "2026-11-13"), true);
   assert.equal(isFutureNextDayOrder(order, "2026-11-14"), false);
   assert.equal(isFutureNextDayOrder({ ...order, nextDayOrder: false }, "2026-11-13"), false);
+});
+
+test("a preorder is blocked until its delivery date begins, regardless of next-day flag", () => {
+  const order = { orderType: "preorder", deliveryDate: "2026-11-20", nextDayOrder: false };
+  assert.equal(isFuturePreorderOrder(order, "2026-11-19"), true);
+  assert.equal(isFuturePreorderOrder(order, "2026-11-20"), false);
+  assert.equal(isFuturePreorderOrder({ ...order, orderType: "normal" }, "2026-11-19"), false);
+  assert.equal(isFuturePreorderOrder({ ...order, deliveryDate: "invalid" }, "2026-11-19"), false);
 });

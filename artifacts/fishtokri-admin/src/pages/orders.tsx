@@ -211,7 +211,11 @@ function borzoBatchIneligibility(order: any): string {
   if (!sourceId.startsWith("FTS") && !sourceId.startsWith("FTW")) return "Only FTS/FTW orders can be batched.";
   if (String(order?.status ?? "").toLowerCase() !== "pending") return "Only pending orders can be batched.";
   if (String(order?.deliveryType ?? "delivery").toLowerCase() !== "delivery") return "Takeaway orders cannot be batched.";
-  if (isFutureNextDayOrder(order)) return "Next Day Orders cannot be sent to Borzo before their delivery date.";
+  if (isFutureScheduledOrder(order)) {
+    return isFuturePreorderOrder(order)
+      ? "Preorders cannot be sent to Borzo before their delivery date."
+      : "Next Day Orders cannot be sent to Borzo before their delivery date.";
+  }
   if (order?.isExpress || String(order?.scheduleType ?? "").toLowerCase() === "express") return "Express orders cannot be batched.";
   if (isFtwPaymentOnHold(order)) return "Waiting for FTW payment.";
   if (!String(order?.subHubId ?? "").trim() || !borzoBatchGroupKey(order).split("|")[1]) return "A sub-hub and delivery date are required.";
@@ -453,6 +457,17 @@ function isFutureNextDayOrder(order: any) {
   return order?.nextDayOrder === true &&
     /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate) &&
     deliveryDate > getTodayIST();
+}
+
+function isFuturePreorderOrder(order: any) {
+  const deliveryDate = String(order?.deliveryDate ?? "").trim().slice(0, 10);
+  return String(order?.orderType ?? "").trim().toLowerCase() === "preorder" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate) &&
+    deliveryDate > getTodayIST();
+}
+
+function isFutureScheduledOrder(order: any) {
+  return isFutureNextDayOrder(order) || isFuturePreorderOrder(order);
 }
 
 const _DAY_NAMES_DOW = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -3201,9 +3216,9 @@ export default function Orders() {
   };
 
   const acceptOrder = async (order: any, overrideSubHubId?: string, overrideSubHubName?: string) => {
-    if (isFutureNextDayOrder(order)) {
+    if (isFutureScheduledOrder(order)) {
       toast({
-        title: "Next Day Order",
+        title: isFuturePreorderOrder(order) ? "Preorder" : "Next Day Order",
         description: "This order can be accepted after its delivery date begins.",
         variant: "destructive",
       });
@@ -4338,18 +4353,20 @@ export default function Orders() {
                           </div>
                         ) : o.status === "pending" ? (
                           <div className="flex flex-col items-start gap-1">
-                            {isFutureNextDayOrder(o) && (
-                              <span className="text-[10px] font-semibold text-orange-700">Next day · not ready</span>
+                            {isFutureScheduledOrder(o) && (
+                              <span className="text-[10px] font-semibold text-orange-700">
+                                {isFuturePreorderOrder(o) ? "Preorder · not ready" : "Next day · not ready"}
+                              </span>
                             )}
                             <div className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              disabled={acceptingId === String(o._id) || isFutureNextDayOrder(o)}
-                              title={isFutureNextDayOrder(o) ? "This order can be accepted when its delivery date begins." : "Accept order"}
+                              disabled={acceptingId === String(o._id) || isFutureScheduledOrder(o)}
+                              title={isFutureScheduledOrder(o) ? "This order can be accepted when its delivery date begins." : "Accept order"}
                               onClick={() => acceptOrder(o)}
                               className="inline-flex items-center justify-center h-7 px-3 rounded-full text-xs font-semibold bg-green-600 hover:bg-green-700 text-white disabled:opacity-40 disabled:cursor-not-allowed"
                             >
-                              {isFutureNextDayOrder(o) ? "Next day" : "Accept"}
+                              {isFuturePreorderOrder(o) ? "Preorder" : isFutureNextDayOrder(o) ? "Next day" : "Accept"}
                             </button>
                             <button
                               type="button"
@@ -7175,22 +7192,25 @@ export default function Orders() {
                       const isTakeaway = selectedOrder.deliveryType === "takeaway";
                       const isPreorder = String(selectedOrder.orderType ?? "").toLowerCase() === "preorder";
                       const nextDayBlocked = isFutureNextDayOrder(selectedOrder);
-                      // Normal next-day orders cannot be dispatched or marked delivered
-                      // until the delivery day arrives. Preorders are intentionally
-                      // exempt because they may be fulfilled on any actual date.
+                      const preorderBlocked = isFuturePreorderOrder(selectedOrder);
+                      // Future next-day orders and preorders cannot progress until
+                      // their delivery date begins.
                       const isOtherDay = !!(
                         !isPreorder &&
                         selectedOrder.deliveryDate &&
                         selectedOrder.deliveryDate !== "" &&
                         selectedOrder.deliveryDate === getTomorrowIST()
                       );
-                      const otherDayBlocked = new Set(nextDayBlocked
+                      const otherDayBlocked = new Set(nextDayBlocked || preorderBlocked
                         ? ["confirmed", "out_for_delivery", "delivered"]
                         : ["out_for_delivery", "delivered"]);
                       const statusOptions = isTakeaway
                         ? ["takeaway", "cancelled"]
-                        : ALL_STATUSES.filter((s) => s !== "takeaway" && !(isOtherDay && otherDayBlocked.has(s)));
-                      const blocked = isOtherDay && otherDayBlocked.has(editStatus);
+                        : ALL_STATUSES.filter((s) =>
+                          s !== "takeaway" &&
+                          !((nextDayBlocked || preorderBlocked || isOtherDay) && otherDayBlocked.has(s))
+                        );
+                      const blocked = (nextDayBlocked || preorderBlocked || isOtherDay) && otherDayBlocked.has(editStatus);
                       return (
                         <>
                           <div className="flex gap-2">
@@ -7222,9 +7242,9 @@ export default function Orders() {
                               {savingStatus ? "Saving..." : "Save status"}
                             </Button>
                           </div>
-                          {isOtherDay && (
+                          {(isOtherDay || nextDayBlocked || preorderBlocked) && (
                             <p className="text-sm font-semibold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2.5">
-                              This order is scheduled for <strong>{selectedOrder.deliveryDate}</strong>. {nextDayBlocked ? "It cannot be accepted or dispatched before the delivery day." : "Out for Delivery and Delivered are only available on the delivery day."}
+                              This order is scheduled for <strong>{selectedOrder.deliveryDate}</strong>. {nextDayBlocked || preorderBlocked ? "It cannot be accepted or dispatched before the delivery day." : "Out for Delivery and Delivered are only available on the delivery day."}
                             </p>
                           )}
                         </>

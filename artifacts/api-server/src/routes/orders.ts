@@ -27,6 +27,7 @@ import {
   getTomorrowISODateIST,
   isAfterFivePMIST,
   isFutureNextDayOrder,
+  isFuturePreorderOrder,
 } from "../lib/next-day-order.mjs";
 import {
   ensureFtwPendingPaymentExpiryDates,
@@ -1290,6 +1291,15 @@ router.post("/", async (req: ScopedRequest, res) => {
         res.status(400).json({ error: "ValidationError", message: "Preorders must use delivery" });
         return;
       }
+      if (
+        ["confirmed", "out_for_delivery", "delivered"].includes(String(status ?? "").trim().toLowerCase())
+      ) {
+        res.status(409).json({
+          error: "PreorderNotReady",
+          message: "A preorder cannot be accepted or dispatched before its delivery date begins.",
+        });
+        return;
+      }
     }
 
     const allowPosBulkWeightOverride = canUsePosBulkWeightOverride(req, subHubId);
@@ -2286,8 +2296,9 @@ router.post("/borzo-batch", async (req: ScopedRequest, res) => {
       if (String(order?.deliveryType ?? "delivery").toLowerCase() !== "delivery") {
         return `${orderNumber} is not a delivery order.`;
       }
-      if (isFutureNextDayOrder(order)) {
-        return `${orderNumber} is a Next Day Order and cannot be sent to Borzo before its delivery date.`;
+      if (isFutureNextDayOrder(order) || isFuturePreorderOrder(order)) {
+        const orderType = isFuturePreorderOrder(order) ? "Preorder" : "Next Day Order";
+        return `${orderNumber} is a ${orderType} and cannot be sent to Borzo before its delivery date.`;
       }
       if (order?.isExpress || String(order?.scheduleType ?? "").toLowerCase() === "express") {
         return `${orderNumber} is an express order; express orders cannot be batched.`;
@@ -2771,6 +2782,21 @@ router.put("/:id", async (req: ScopedRequest, res) => {
       else if (prev.nextDayOrder === true) update.deliveryDate = getTodayISODate();
     }
     const statusDeliveryDate = String(update.deliveryDate ?? prev.deliveryDate ?? "").trim().slice(0, 10);
+    const statusOrderType = String(update.orderType ?? prev.orderType ?? "normal").trim().toLowerCase();
+    const statusPreorderIsFuture = statusOrderType === "preorder" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(statusDeliveryDate) &&
+      statusDeliveryDate > getTodayISODateIST();
+    if (
+      status !== undefined &&
+      statusPreorderIsFuture &&
+      ["confirmed", "out_for_delivery", "delivered"].includes(String(status).toLowerCase())
+    ) {
+      res.status(409).json({
+        error: "PreorderNotReady",
+        message: "This preorder cannot be accepted or dispatched until its delivery date begins.",
+      });
+      return;
+    }
     const statusIsNextDayOrder = nextDayOrder === undefined
       ? prev.nextDayOrder === true
       : nextDayOrder === true;
@@ -3107,7 +3133,8 @@ router.put("/:id", async (req: ScopedRequest, res) => {
     const borzoOrderIsEligible =
       status === "confirmed" &&
       orderAfterUpdate.deliveryType !== "takeaway" &&
-      isBorzoOrder(orderAfterUpdate);
+      isBorzoOrder(orderAfterUpdate) &&
+      !isFuturePreorderOrder(orderAfterUpdate);
     const shouldAttemptBorzo =
       borzoOrderIsEligible &&
       (
